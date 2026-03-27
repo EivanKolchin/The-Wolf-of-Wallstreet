@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+structlog
+redis
+SQLAlchemy
+asyncpg
+websockets
+pandas
+pandas-ta
+numpy
+# Note: talib usually requires system-level libraries to install. 
+# In a Dockerfile you'd typically need `apt-get install -y build-essential wget` and install ta-lib via source.
+TA-Lib
+# add others like web3, etc.

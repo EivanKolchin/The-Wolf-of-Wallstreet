@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: trading
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - trading_network
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    networks:
+      - trading_network
+
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./backend:/backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/trading
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - trading_network
+
+  frontend:
+    image: node:20
+    working_dir: /frontend
+    volumes:
+      - ./frontend:/frontend
+    ports:
+      - "3000:3000"
+    command: npm run dev
+    networks:
+      - trading_network
+
+volumes:
+  postgres_data:
+
+networks:
+  trading_network:
+    driver: bridge

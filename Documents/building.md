@@ -99,7 +99,6 @@ Fill in docker-compose.yml with:
 - frontend service (Node 20, mounts /frontend, port 3000)
 All services on a shared network. Backend on port 8000.
 ```
-status: Done
 
 ---
 
@@ -184,7 +183,6 @@ Include:
 - async get_session() context manager
 - Enums defined as Python Enum classes matching the column types
 ```
-status: done
 
 ---
 
