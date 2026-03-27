@@ -22,6 +22,5 @@ class Settings(BaseSettings):
     TELEGRAM_API_ID: str
     TELEGRAM_API_HASH: str
     
-    LOG_LEVEL: str = "INFO"
+    ADMIN_KEY: str = "supersecretadmin"
 
-settings = Settings()
