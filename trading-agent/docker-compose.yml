@@ -1,57 +1,53 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: trading
+      POSTGRES_DB: ${POSTGRES_DB:-trading}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - trading_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-trading}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-    networks:
-      - trading_network
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
 
   backend:
-    build: 
+    build:
       context: ./backend
-      dockerfile: Dockerfile
+    command: python main.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
-      - ./backend:/backend
+      - ./backend:/app
+      - ./models:/app/models
+    env_file: 
+      - .env
     ports:
       - "8000:8000"
-    depends_on:
-      - postgres
-      - redis
-    environment:
-      - DATABASE_URL=postgresql://user:password@postgres:5432/trading
-      - REDIS_URL=redis://redis:6379/0
-    networks:
-      - trading_network
+    restart: unless-stopped
 
   frontend:
-    image: node:20
-    working_dir: /frontend
-    volumes:
-      - ./frontend:/frontend
+    build:
+      context: ./frontend
+    command: npm start
+    depends_on:
+      - backend
     ports:
       - "3000:3000"
-    command: npm run dev
-    networks:
-      - trading_network
+    env_file: 
+      - .env
 
 volumes:
   postgres_data:
-
-networks:
-  trading_network:
-    driver: bridge
+  redis_data:
