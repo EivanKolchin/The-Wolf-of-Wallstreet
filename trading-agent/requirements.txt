@@ -16,4 +16,6 @@ TA-Lib
 feedparser
 anthropic
 torch
+ccxt
+web3
 # add others like web3, etc.
