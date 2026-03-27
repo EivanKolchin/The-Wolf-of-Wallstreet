@@ -15,4 +15,5 @@ numpy
 TA-Lib
 feedparser
 anthropic
+torch
 # add others like web3, etc.
