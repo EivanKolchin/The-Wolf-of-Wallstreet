@@ -1,9 +1,9 @@
 import asyncio
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, Body
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 
@@ -46,63 +46,105 @@ async def get_setup_status():
         "needs_setup": settings.needs_setup(),
         "ai_provider": settings.AI_PROVIDER,
         "anthropic": not (not settings.ANTHROPIC_API_KEY or "your_" in settings.ANTHROPIC_API_KEY.lower()),
-        "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower())
+        "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower()),
+        "arbitrum": not (not settings.ARBITRUM_RPC_URL or "your_" in settings.ARBITRUM_RPC_URL.lower()),
+        "agent_wallet": not (not settings.AGENT_WALLET_ADDRESS or "0x000" in settings.AGENT_WALLET_ADDRESS),
+        "agent_pk": not (not settings.AGENT_PRIVATE_KEY or "your_" in settings.AGENT_PRIVATE_KEY.lower() or "0" * 64 in settings.AGENT_PRIVATE_KEY),
+        "alpaca": not (not settings.ALPACA_API_KEY or "your_" in settings.ALPACA_API_KEY.lower()),
+        "kite": not (not settings.KITE_CHAIN_RPC_URL or "your_" in settings.KITE_CHAIN_RPC_URL.lower()),
+        "x_api_key": not (not settings.X_API_KEY or "your_" in settings.X_API_KEY.lower()),
+        "telegram": not (not settings.TELEGRAM_API_ID or "your_" in settings.TELEGRAM_API_ID.lower())
+    }
+
+@router.get("/api/setup/config")
+async def get_setup_config():
+    import os
+    import dotenv
+    from backend.core.config import ENV_PATH
+    
+    # Read fresh from the .env file directly so we don't rely on cached settings
+    env_vars = dotenv.dotenv_values(str(ENV_PATH)) if os.path.exists(str(ENV_PATH)) else {}
+
+    # Return plaintext values for the settings page so it can pre-fill
+    return {
+        "AI_PROVIDER": env_vars.get("AI_PROVIDER", "gemini"),
+        "ANTHROPIC_API_KEY": env_vars.get("ANTHROPIC_API_KEY", ""),
+        "GEMINI_API_KEY": env_vars.get("GEMINI_API_KEY", ""),
+        "ARBITRUM_RPC_URL": env_vars.get("ARBITRUM_RPC_URL", ""),
+        "AGENT_WALLET_ADDRESS": env_vars.get("AGENT_WALLET_ADDRESS", ""),
+        "AGENT_PRIVATE_KEY": env_vars.get("AGENT_PRIVATE_KEY", ""),
+        "ALPACA_API_KEY": env_vars.get("ALPACA_API_KEY", ""),
+        "ALPACA_SECRET_KEY": env_vars.get("ALPACA_SECRET_KEY", ""),
+        "KITE_CHAIN_RPC_URL": env_vars.get("KITE_CHAIN_RPC_URL", ""),
+        "KITE_CHAIN_PRIVATE_KEY": env_vars.get("KITE_CHAIN_PRIVATE_KEY", ""),
+        "KITE_AGENT_ADDRESS": env_vars.get("KITE_AGENT_ADDRESS", ""),
+        "X_API_KEY": env_vars.get("X_API_KEY", ""),
+        "X_API_SECRET": env_vars.get("X_API_SECRET", ""),
+        "X_ACCESS_TOKEN": env_vars.get("X_ACCESS_TOKEN", ""),
+        "X_ACCESS_TOKEN_SECRET": env_vars.get("X_ACCESS_TOKEN_SECRET", ""),
+        "TELEGRAM_API_ID": env_vars.get("TELEGRAM_API_ID", ""),
+        "TELEGRAM_API_HASH": env_vars.get("TELEGRAM_API_HASH", ""),
     }
 
 class SetupRequest(BaseModel):
-    ai_provider: str = "anthropic"
+    ai_provider: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
+    arbitrum_rpc_url: str = ""
+    agent_wallet_address: str = ""
+    agent_private_key: str = ""
+    alpaca_api_key: str = ""
+    alpaca_secret: str = ""
+    kite_chain_rpc_url: str = ""
+    kite_chain_private_key: str = ""
+    kite_agent_address: str = ""
+    x_api_key: str = ""
+    telegram_api_id: str = ""
+    telegram_api_hash: str = ""
 
 @router.post("/api/setup/save")
-async def save_setup(req: SetupRequest):
+async def save_setup(req: Dict[str, str] = Body(...)):
     import os
     import signal
-    from core.config import ENV_PATH
+    from backend.core.config import ENV_PATH
     env_path = str(ENV_PATH)
+    
+    req_dict = {k.upper(): v for k, v in req.items() if v}
 
     if os.path.exists(env_path):
         with open(env_path, "r") as f:
             lines = f.readlines()
             
         settings_seen = set()
-
+        
         with open(env_path, "w") as f:
             for line in lines:
-                if line.startswith("AI_PROVIDER="):
-                    f.write(f"AI_PROVIDER={req.ai_provider}\n")
-                    settings_seen.add("ai_provider")
-                elif line.startswith("ANTHROPIC_API_KEY="):
-                    if req.anthropic_api_key:
-                        f.write(f"ANTHROPIC_API_KEY={req.anthropic_api_key}\n")
-                    else:
-                        f.write(line)
-                    settings_seen.add("anthropic")
-                elif line.startswith("GEMINI_API_KEY="):
-                    if req.gemini_api_key:
-                        f.write(f"GEMINI_API_KEY={req.gemini_api_key}\n")
-                    else:
-                        f.write(line)
-                    settings_seen.add("gemini")
-                else:
+                written = False
+                for k, v in req_dict.items():
+                    if line.startswith(f"{k}="):
+                        f.write(f"{k}={v}\n")
+                        settings_seen.add(k)
+                        written = True
+                        break
+                if not written:
                     f.write(line)
 
-            # Append missing lines to .env if they weren't in the original template
-            if "ai_provider" not in settings_seen:
-                f.write(f"AI_PROVIDER={req.ai_provider}\n")
-            if "anthropic" not in settings_seen and req.anthropic_api_key:
-                f.write(f"ANTHROPIC_API_KEY={req.anthropic_api_key}\n")
-            if "gemini" not in settings_seen and req.gemini_api_key:
-                f.write(f"GEMINI_API_KEY={req.gemini_api_key}\n")
-
-        # Trigger an orchestrated restart
-        def restart():
-            os.kill(os.getpid(), signal.SIGTERM)
-        
-        asyncio.get_event_loop().call_later(1.0, restart)
-        return {"status": "saved", "message": "Applying configuration and restarting..."}
+            # Append missing lines
+            for k, v in req_dict.items():
+                if k not in settings_seen:
+                    f.write(f"{k}={v}\n")
     else:
-        raise HTTPException(status_code=500, detail=".env file not found")
+        # Create new env file if it doesn't exist
+        with open(env_path, "w") as f:
+            for k, v in req_dict.items():
+                f.write(f"{k}={v}\n")
+
+    # Trigger an orchestrated restart
+    def restart():
+        os.kill(os.getpid(), signal.SIGTERM)
+    
+    asyncio.get_event_loop().call_later(1.0, restart)
+    return {"status": "saved", "message": "Applying configuration and restarting..."}
 
 @router.get("/api/health", response_model=HealthResponse)
 async def get_health():

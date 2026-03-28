@@ -3,7 +3,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createChart, IChartApi, ISeriesApi, ColorType } from "lightweight-charts";
-import { Search, Pencil, Type, Activity, MousePointer2, Slash, Settings, Trash2, ListMinus, X } from "lucide-react";
+import { Search, Pencil, Type, Activity, MousePointer2, Slash, Settings, Trash2, ListMinus, X, Ruler, ArrowRightToLine, Palette, Undo, Redo, Eraser, Plus, Minus } from "lucide-react";
 
 const TIMEFRAMES = [
     { label: "1m", value: "1m" },
@@ -56,15 +56,45 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
         fibOpacity: 0.3,
         drawingColor: '#a78bfa'
     });
+    
+    const [isVibrantColors, setIsVibrantColors] = useState(false);
 
     // Drawing Engine States
     const [activeTool, setActiveTool] = useState("pointer");
     const [drawings, setDrawings] = useState<any[]>([]);
+    const [undoStack, setUndoStack] = useState<any[][]>([]);
+    const [redoStack, setRedoStack] = useState<any[][]>([]);
+    
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentDrawing, setCurrentDrawing] = useState<any>(null);
     const [dragCtx, setDragCtx] = useState<{ id: number, type: 'move'|'p1'|'p2'|'rotate', initMouseX: number, initMouseY: number, startDrawing: any } | null>(null);
     const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
     const [renderTick, setRenderTick] = useState(0);
+    const [expandedMeasure, setExpandedMeasure] = useState<number | null>(null);
+
+    const commitDrawingUpdate = (newDrawings: any[]) => {
+        setUndoStack(prev => [...prev, drawings]);
+        setRedoStack([]);
+        setDrawings(newDrawings);
+    };
+
+    const undoDrawing = () => {
+        if (undoStack.length > 0) {
+            const prev = undoStack[undoStack.length - 1];
+            setRedoStack(prevRedo => [...prevRedo, drawings]);
+            setDrawings(prev);
+            setUndoStack(prevUndo => prevUndo.slice(0, -1));
+        }
+    };
+
+    const redoDrawing = () => {
+        if (redoStack.length > 0) {
+            const next = redoStack[redoStack.length - 1];
+            setUndoStack(prevUndo => [...prevUndo, drawings]);
+            setDrawings(next);
+            setRedoStack(prevRedo => prevRedo.slice(0, -1));
+        }
+    };
 
         // WebSocket Live Updates
     useEffect(() => {
@@ -210,11 +240,10 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
             crosshair: { mode: 1, vertLine: { width: 1, color: '#404040', style: 3 }, horzLine: { width: 1, color: '#404040', style: 3 } },
             timeScale: {
                 fixLeftEdge: true,
-                fixRightEdge: true,
                 timeVisible: true,
                 secondsVisible: false,
                 borderColor: '#171717',
-                rightOffset: 12,
+                rightOffset: 30,
                 barSpacing: 10,
                 minBarSpacing: 1
             },
@@ -280,7 +309,11 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
         window.addEventListener('resize', handleResize);
         
         const series = chart.addCandlestickSeries({
-            upColor: '#34d399', downColor: '#f87171', borderVisible: false, wickUpColor: '#34d399', wickDownColor: '#f87171',
+            upColor: isVibrantColors ? '#089981' : '#34d399', 
+            downColor: isVibrantColors ? '#f23645' : '#f87171', 
+            borderVisible: false, 
+            wickUpColor: isVibrantColors ? '#089981' : '#34d399', 
+            wickDownColor: isVibrantColors ? '#f23645' : '#f87171',
         });
         series.setData(chartData);
 
@@ -301,7 +334,7 @@ if (config.ema9.show) {
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
-        }, [symbol, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth]);
+        }, [symbol, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth, isVibrantColors]);
 
     useEffect(() => {
         if (chartData.length > 0 && seriesRef.current) {
@@ -370,6 +403,12 @@ if (config.ema9.show) {
     };
 
     const startDrag = (e: React.MouseEvent, type: 'move'|'p1'|'p2'|'rotate', drawing: any) => {
+        if (activeTool === 'eraser') {
+            e.stopPropagation();
+            commitDrawingUpdate(drawings.filter(x => x.id !== drawing.id));
+            if (selectedDrawing === drawing.id) setSelectedDrawing(null);
+            return;
+        }
         if (activeTool !== 'pointer') return;
         e.stopPropagation();
         setSelectedDrawing(drawing);
@@ -443,6 +482,19 @@ if (config.ema9.show) {
         };
     }, [dragCtx]);
 
+    const getSnappedValue = (logicalIndex: number, price: number) => {
+        if (!chartDataRef.current || chartDataRef.current.length === 0) return { logical: logicalIndex, price };
+        const idx = Math.max(0, Math.min(chartDataRef.current.length - 1, Math.round(logicalIndex)));
+        const candle = chartDataRef.current[idx];
+        if (!candle) return { logical: idx, price };
+        
+        const mid = (candle.high + candle.low) / 2;
+        const points = [candle.open, candle.high, candle.low, candle.close, mid];
+        const closestPrice = points.reduce((prev, curr) => Math.abs(curr - price) < Math.abs(prev - price) ? curr : prev);
+        
+        return { logical: idx, price: closestPrice };
+    };
+
     const onMouseDown = (e: React.MouseEvent) => {
         if (activeTool === 'pointer') { setSelectedDrawing(null); return; }
         const mapped = handleMapToChart(e.clientX, e.clientY);
@@ -450,16 +502,25 @@ if (config.ema9.show) {
 
         if (activeTool === 'text') {
             const txt = prompt("Enter text overlay:");
-            if (txt) setDrawings([...drawings, { id: Date.now(), type: 'text', l1: mapped.logical, p1: mapped.price, l2: mapped.logical, p2: mapped.price, txt, color: config.drawingColor }]);
+            if (txt) commitDrawingUpdate([...drawings, { id: Date.now(), type: 'text', l1: mapped.logical, p1: mapped.price, l2: mapped.logical, p2: mapped.price, txt, color: config.drawingColor }]);
             setActiveTool('pointer');
             return;
+        }
+
+        let startL1 = mapped.logical;
+        let startP1 = mapped.price;
+
+        if (activeTool === 'measure') {
+            const snapped = getSnappedValue(mapped.logical, mapped.price);
+            startL1 = snapped.logical;
+            startP1 = snapped.price;
         }
 
         setIsDrawing(true);
         setCurrentDrawing({ 
             id: Date.now(), type: activeTool, 
-            l1: mapped.logical, p1: mapped.price, l2: mapped.logical, p2: mapped.price,
-            path: [{l: mapped.logical, p: mapped.price}], color: config.drawingColor 
+            l1: startL1, p1: startP1, l2: startL1, p2: startP1,
+            path: [{l: startL1, p: startP1}], color: config.drawingColor 
         });
     };
 
@@ -470,6 +531,9 @@ if (config.ema9.show) {
 
         if (currentDrawing.type === 'pencil' || currentDrawing.type === 'patterns') {
             setCurrentDrawing({ ...currentDrawing, path: [...currentDrawing.path, {l: mapped.logical, p: mapped.price}] });
+        } else if (currentDrawing.type === 'measure') {
+            const snapped = getSnappedValue(mapped.logical, mapped.price);
+            setCurrentDrawing({ ...currentDrawing, l2: snapped.logical, p2: snapped.price });
         } else {
             setCurrentDrawing({ ...currentDrawing, l2: mapped.logical, p2: mapped.price });
         }
@@ -477,7 +541,7 @@ if (config.ema9.show) {
 
     const onMouseUp = () => {
         if (isDrawing && currentDrawing) {
-            setDrawings([...drawings, currentDrawing]);
+            commitDrawingUpdate([...drawings, currentDrawing]);
             setIsDrawing(false);
             setCurrentDrawing(null);
             if (activeTool !== 'pencil' && activeTool !== 'patterns') setActiveTool('pointer');
@@ -496,6 +560,7 @@ if (config.ema9.show) {
 
     const tools = [
         { id: 'pointer', icon: <MousePointer2 size={16} /> },
+        { id: 'measure', icon: <Ruler size={16} /> },
         { id: 'line', icon: <Slash size={16} /> },
         { id: 'pencil', icon: <Pencil size={16} /> },
         { id: 'text', icon: <Type size={16} /> },
@@ -513,9 +578,24 @@ if (config.ema9.show) {
                                 {tf.label}
                             </button>
                         ))}
-                        <div className="relative ml-2">
-                            <button onClick={() => setShowDatePanel(!showDatePanel)} className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 ml-2">
+                        <div className="relative ml-2 flex items-center">
+                            <button onClick={() => setShowDatePanel(!showDatePanel)} className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 ml-1" title="Search Historical Date">
                                 <Search size={14} />
+                            </button>
+                            <button onClick={() => {
+                                if (chartRef.current && chartData.length > 0) {
+                                    chartRef.current.timeScale().scrollToPosition(0, true);
+                                    chartRef.current.timeScale().scrollToRealTime();
+                                }
+                            }} className="p-1.5 rounded transition-colors text-zinc-500 hover:text-zinc-300 ml-1" title="Go to Current Ticker">
+                                <ArrowRightToLine size={14} />
+                            </button>
+                            <button 
+                                onClick={() => setIsVibrantColors(!isVibrantColors)} 
+                                className={`p-1.5 rounded transition-colors ml-1 ${isVibrantColors ? 'text-[#089981]' : 'text-zinc-500'} hover:opacity-80`} 
+                                title="Toggle Vibrant Classic Theme"
+                            >
+                                <Palette size={14} />
                             </button>
                             {showDatePanel && (
                                 <div className="absolute top-8 left-0 w-64 bg-[#0A0A0A] border border-[#171717] p-3 rounded-lg shadow-2xl z-50">
@@ -690,7 +770,7 @@ if (config.ema9.show) {
             <div className="flex flex-1 relative bg-[#000000]">
                 <div className="flex flex-col items-center py-2 space-y-1.5 w-10 border-r border-[#171717] bg-[#0A0A0A] z-40 shrink-0">
                     {tools.map(tool => {
-                        if (tool.id === 'pointer' || tool.id === 'line' || tool.id === 'pencil' || tool.id === 'text') {
+                        if (tool.id === 'pointer' || tool.id === 'measure' || tool.id === 'line' || tool.id === 'pencil' || tool.id === 'text') {
                             return (
                                 <button key={tool.id} title={tool.id.toUpperCase()} onClick={() => setActiveTool(tool.id)} className={`p-2 rounded-md transition-colors ${activeTool === tool.id ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}>
                                     {tool.icon}
@@ -714,9 +794,20 @@ if (config.ema9.show) {
                         )}
                     </div>
                     {drawings.length > 0 && (
-                        <button onClick={() => setDrawings([])} className="p-2 mt-4 rounded-md text-xs font-bold text-rose-500 hover:bg-[#171717] transition-all" title="Clear All">
-                            ?
-                        </button>
+                        <div className="flex flex-col space-y-1 mt-4 border-t border-[#171717] pt-2 w-full items-center">
+                            <button onClick={() => undoDrawing()} disabled={undoStack.length === 0} className={`p-2 rounded-md transition-all ${undoStack.length > 0 ? 'text-zinc-400 hover:text-zinc-200 hover:bg-[#171717]' : 'text-zinc-700 cursor-not-allowed'}`} title="Undo">
+                                <Undo size={14} />
+                            </button>
+                            <button onClick={() => redoDrawing()} disabled={redoStack.length === 0} className={`p-2 rounded-md transition-all ${redoStack.length > 0 ? 'text-zinc-400 hover:text-zinc-200 hover:bg-[#171717]' : 'text-zinc-700 cursor-not-allowed'}`} title="Redo">
+                                <Redo size={14} />
+                            </button>
+                            <button onClick={() => setActiveTool('eraser')} className={`p-2 rounded-md transition-all ${activeTool === 'eraser' ? 'bg-[#171717] text-rose-400' : 'text-zinc-500 hover:text-zinc-300'}`} title="Eraser Tool">
+                                <Eraser size={14} />
+                            </button>
+                            <button onClick={() => commitDrawingUpdate([])} className="p-2 rounded-md text-xs font-bold text-rose-600 hover:bg-[#171717] hover:text-rose-500 transition-all mt-1" title="Clear All">
+                                <Trash2 size={14} />
+                            </button>
+                        </div>
                     )}
                 </div>
 
@@ -733,7 +824,7 @@ if (config.ema9.show) {
                             if (d.type === 'line') {
                                 const p1 = getCoordinate(d.l1, d.p1); const p2 = getCoordinate(d.l2, d.p2);
                                 return (
-                                    <g key={d.id} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
+                                    <g key={d.id} style={{ pointerEvents: (activeTool === 'pointer' || activeTool === 'eraser') ? 'auto' : 'none' }}>
                                         <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color || config.drawingColor} strokeWidth="5" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />
                                         {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p1', d)} />}
                                         {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p2', d)} />}
@@ -745,7 +836,7 @@ if (config.ema9.show) {
                                 const diff = d.p2 - d.p1;
                                 const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
                                 return (
-                                    <g key={d.id} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
+                                    <g key={d.id} style={{ pointerEvents: (activeTool === 'pointer' || activeTool === 'eraser') ? 'auto' : 'none' }}>
                                         <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={config.fibColor} strokeDasharray="4" opacity={config.fibOpacity} strokeWidth="5" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />
                                         <text x={p2.x + 10} y={p1.y} fill={config.fibColor} fontSize="10" opacity={config.fibOpacity}>0</text>
                                         <text x={p2.x + 10} y={p2.y} fill={config.fibColor} fontSize="10" opacity={config.fibOpacity}>1.0</text>
@@ -765,13 +856,88 @@ if (config.ema9.show) {
                             if (d.type === 'pencil' || d.type === 'patterns') {
                                 const pts = d.path.map((p:any) => getCoordinate(p.l, p.p));
                                 const dPath = pts.map((p:any, i:number) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');        
-                                return <path key={d.id} d={dPath} fill="transparent" stroke={d.color || config.drawingColor} strokeWidth="5" style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }} cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />;
+                                return <path key={d.id} d={dPath} fill="transparent" stroke={d.color || config.drawingColor} strokeWidth="5" style={{ pointerEvents: (activeTool === 'pointer' || activeTool === 'eraser') ? 'auto' : 'none' }} cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />;
+                            }
+                            if (d.type === 'measure') {
+                                const p1 = getCoordinate(d.l1, d.p1); 
+                                const p2 = getCoordinate(d.l2, d.p2);
+                                const priceDiff = d.p2 - d.p1;
+                                const pricePerc = d.p1 !== 0 ? (priceDiff / d.p1) * 100 : 0;
+                                const barsDiff = Math.round(d.l2 - d.l1);
+                                
+                                const isUp = d.p2 >= d.p1;
+                                const boxColor = isUp ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)';
+                                const strokeColor = isUp ? '#34d399' : '#f87171';
+                                
+                                const xMin = Math.min(p1.x, p2.x);
+                                const xMax = Math.max(p1.x, p2.x);
+                                const yMin = Math.min(p1.y, p2.y);
+                                const yMax = Math.max(p1.y, p2.y);
+
+                                const isExpanded = expandedMeasure === d.id;
+                                const t1 = chartDataRef.current[Math.round(d.l1)]?.time as number;
+                                const t2 = chartDataRef.current[Math.round(d.l2)]?.time as number;
+                                let timeStr = "";
+                                if (t1 && t2) {
+                                    const ms = Math.abs(t2 - t1) * 1000;
+                                    const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+                                    const hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+                                    const mins = Math.floor((ms / (1000 * 60)) % 60);
+                                    if (days > 0) timeStr += `${days}d `;
+                                    if (hours > 0) timeStr += `${hours}h `;
+                                    if (mins > 0 || timeStr === "") timeStr += `${mins}m`;
+                                } else {
+                                    timeStr = "Unknown";
+                                }
+                                
+                                const boxWidth = isExpanded ? 220 : 160;
+                                const boxHeight = isExpanded ? 80 : 40;
+
+                                return (
+                                    <g key={d.id} style={{ pointerEvents: (activeTool === 'pointer' || activeTool === 'eraser') ? 'auto' : 'none' }}>
+                                        <rect x={xMin} y={yMin} width={Math.max(0, xMax - xMin)} height={Math.max(0, yMax - yMin)} fill={boxColor} stroke="none" />
+                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p1.y} stroke={strokeColor} strokeWidth="1" strokeDasharray="4" />
+                                        <line x1={p2.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="1" strokeDasharray="4" />
+                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="2" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />
+                                        
+                                        <rect x={p2.x + 10} y={p2.y - 15} width={boxWidth} height={boxHeight} fill="#000000" stroke={strokeColor} rx="4" />
+                                        <text x={p2.x + 15} y={p2.y} fill={strokeColor} fontSize="12" fontFamily="monospace">
+                                            {priceDiff > 0 ? '+' : ''}{priceDiff.toFixed(2)} ({pricePerc > 0 ? '+' : ''}{pricePerc.toFixed(2)}%)
+                                        </text>
+                                        <text x={p2.x + 15} y={p2.y + 15} fill="#a1a1aa" fontSize="11" fontFamily="monospace">
+                                            {Math.abs(barsDiff)} Bars ({timeStr})
+                                        </text>
+                                        
+                                        {/* Toggle button */}
+                                        <g cursor="pointer" style={{pointerEvents: 'auto'}} onMouseDown={(e) => { e.stopPropagation(); setExpandedMeasure(isExpanded ? null : d.id); }}>
+                                            <rect x={p2.x + 10 + boxWidth - 25} y={p2.y - 10} width="20" height="20" fill="#171717" stroke={strokeColor} rx="2" />
+                                            <text x={p2.x + 10 + boxWidth - 19} y={p2.y + 4} fill="#a1a1aa" fontSize="14" fontWeight="bold" style={{userSelect:'none'}}>
+                                                {isExpanded ? '-' : '+'}
+                                            </text>
+                                        </g>
+                                        
+                                        {isExpanded && (
+                                            <>
+                                            <text x={p2.x + 15} y={p2.y + 35} fill="#71717a" fontSize="10" fontFamily="monospace">
+                                                Start: {t1 ? new Date(t1 * 1000).toLocaleString() : 'N/A'}
+                                            </text>
+                                            <text x={p2.x + 15} y={p2.y + 50} fill="#71717a" fontSize="10" fontFamily="monospace">
+                                                End:   {t2 ? new Date(t2 * 1000).toLocaleString() : 'N/A'}
+                                            </text>
+                                            </>
+                                        )}
+
+                                        
+                                        {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p1', d)} />}
+                                        {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p2', d)} />}
+                                    </g>
+                                );
                             }
                             if (d.type === 'text') {
                                 const p = getCoordinate(d.l1, d.p1);
                                 const rotation = d.angle || 0;
                                 return (
-                                    <g key={d.id} transform={`rotate(${rotation} ${p.x} ${p.y})`} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
+                                    <g key={d.id} transform={`rotate(${rotation} ${p.x} ${p.y})`} style={{ pointerEvents: (activeTool === 'pointer' || activeTool === 'eraser') ? 'auto' : 'none' }}>
                                         <text x={p.x} y={p.y} fill={d.color || config.drawingColor} fontSize="16" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} fontFamily="monospace" style={{userSelect: 'none'}}>{d.txt}</text>
                                         {selectedDrawing === d.id && <circle cx={p.x + 20} cy={p.y - 20} r="6" fill="#ffffff" cursor="alias" onMouseDown={(e) => startDrag(e, 'rotate', d)} />}
                                     </g>
@@ -783,6 +949,54 @@ if (config.ema9.show) {
                         {isDrawing && currentDrawing && currentDrawing.type === 'line' && (
                             <line x1={getCoordinate(currentDrawing.l1, currentDrawing.p1).x} y1={getCoordinate(currentDrawing.l1, currentDrawing.p1).y} x2={getCoordinate(currentDrawing.l2, currentDrawing.p2).x} y2={getCoordinate(currentDrawing.l2, currentDrawing.p2).y} stroke={config.drawingColor} strokeWidth="2" />
                         )}
+                        {isDrawing && currentDrawing && currentDrawing.type === 'measure' && (() => {
+                            const p1 = getCoordinate(currentDrawing.l1, currentDrawing.p1); 
+                            const p2 = getCoordinate(currentDrawing.l2, currentDrawing.p2);
+                            const priceDiff = currentDrawing.p2 - currentDrawing.p1;
+                            const pricePerc = currentDrawing.p1 !== 0 ? (priceDiff / currentDrawing.p1) * 100 : 0;
+                            const barsDiff = Math.round(currentDrawing.l2 - currentDrawing.l1);
+                            
+                            const isUp = currentDrawing.p2 >= currentDrawing.p1;
+                            const boxColor = isUp ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)';
+                            const strokeColor = isUp ? '#34d399' : '#f87171';
+                            
+                            const xMin = Math.min(p1.x, p2.x);
+                            const xMax = Math.max(p1.x, p2.x);
+                            const yMin = Math.min(p1.y, p2.y);
+                            const yMax = Math.max(p1.y, p2.y);
+
+                            const t1 = chartDataRef.current[Math.round(currentDrawing.l1)]?.time as number;
+                            const t2 = chartDataRef.current[Math.round(currentDrawing.l2)]?.time as number;
+                            let timeStr = "";
+                            if (t1 && t2) {
+                                const ms = Math.abs(t2 - t1) * 1000;
+                                const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+                                const hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
+                                const mins = Math.floor((ms / (1000 * 60)) % 60);
+                                if (days > 0) timeStr += `${days}d `;
+                                if (hours > 0) timeStr += `${hours}h `;
+                                if (mins > 0 || timeStr === "") timeStr += `${mins}m`;
+                            } else {
+                                timeStr = "Unknown";
+                            }
+
+                            return (
+                                <g style={{ pointerEvents: 'none' }}>
+                                    <rect x={xMin} y={yMin} width={Math.max(0, xMax - xMin)} height={Math.max(0, yMax - yMin)} fill={boxColor} stroke="none" />
+                                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p1.y} stroke={strokeColor} strokeWidth="1" strokeDasharray="4" />
+                                    <line x1={p2.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="1" strokeDasharray="4" />
+                                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={strokeColor} strokeWidth="2" />
+                                    
+                                    <rect x={p2.x + 10} y={p2.y - 15} width="160" height="40" fill="#000000" stroke={strokeColor} rx="4" />
+                                    <text x={p2.x + 15} y={p2.y} fill={strokeColor} fontSize="12" fontFamily="monospace">
+                                        {priceDiff > 0 ? '+' : ''}{priceDiff.toFixed(2)} ({pricePerc > 0 ? '+' : ''}{pricePerc.toFixed(2)}%)
+                                    </text>
+                                    <text x={p2.x + 15} y={p2.y + 15} fill="#a1a1aa" fontSize="11" fontFamily="monospace">
+                                        {Math.abs(barsDiff)} Bars ({timeStr})
+                                    </text>
+                                </g>
+                            );
+                        })()}
                         {isDrawing && currentDrawing && currentDrawing.type === 'fib' && (
                             <line x1={getCoordinate(currentDrawing.l1, currentDrawing.p1).x} y1={getCoordinate(currentDrawing.l1, currentDrawing.p1).y} x2={getCoordinate(currentDrawing.l2, currentDrawing.p2).x} y2={getCoordinate(currentDrawing.l2, currentDrawing.p2).y} stroke={config.fibColor} strokeWidth="2" strokeDasharray="4" />
                         )}
@@ -795,9 +1009,9 @@ if (config.ema9.show) {
                         <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center space-x-2 bg-[#0A0A0A] border border-[#171717] p-1.5 rounded-lg z-50 shadow-xl">
                             <span className="text-[10px] text-zinc-500 px-2">EDIT DRAWING</span>
                             <div className="h-3 w-px bg-[#171717] mx-1"></div>
-                            <input type="color" title="Change Color" value={drawings.find(d=>d.id===selectedDrawing)?.color || config.drawingColor} onChange={(e) => setDrawings(drawings.map(d => d.id === selectedDrawing ? {...d, color: e.target.value} : d))} className="w-5 h-5 rounded cursor-pointer" style={{background: 'transparent', border: 0, padding: 0}} />
+                            <input type="color" title="Change Color" value={drawings.find(d=>d.id===selectedDrawing)?.color || config.drawingColor} onChange={(e) => commitDrawingUpdate(drawings.map(d => d.id === selectedDrawing ? {...d, color: e.target.value} : d))} className="w-5 h-5 rounded cursor-pointer" style={{background: 'transparent', border: 0, padding: 0}} />
                             <div className="h-3 w-px bg-[#171717] mx-1"></div>
-                            <button onClick={() => { setDrawings(drawings.filter(d => d.id !== selectedDrawing)); setSelectedDrawing(null); }} className="p-1 hover:bg-[#171717] rounded text-rose-500" title="Delete"><Trash2 size={16}/></button>
+                            <button onClick={() => { commitDrawingUpdate(drawings.filter(d => d.id !== selectedDrawing)); setSelectedDrawing(null); }} className="p-1 hover:bg-[#171717] rounded text-rose-500" title="Delete"><Trash2 size={16}/></button>
                             <button onClick={() => setSelectedDrawing(null)} className="p-1 hover:bg-[#171717] rounded text-zinc-400"><X size={16}/></button>
                         </div>
                     )}

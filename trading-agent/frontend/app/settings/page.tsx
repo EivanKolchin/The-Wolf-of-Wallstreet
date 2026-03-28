@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 
 export default function SettingsPage() {
@@ -12,25 +12,111 @@ export default function SettingsPage() {
 
   const [provider, setProvider] = useState("gemini");
   const [llmKey, setLlmKey] = useState("");
-  const [binanceKey, setBinanceKey] = useState("");
-  const [binanceSecret, setBinanceSecret] = useState("");
+  const [llmKeyLocked, setLlmKeyLocked] = useState(false);
+  const [showLlmKey, setShowLlmKey] = useState(false);
+  
+  // Track specific AI keys to restore them if toggled
+  const [geminiKeyCached, setGeminiKeyCached] = useState("");
+  const [anthropicKeyCached, setAnthropicKeyCached] = useState("");
+  
+  // DeFi / App Config
+  const [arbitrumRpcUrl, setArbitrumRpcUrl] = useState("");
+  const [agentPrivateKey, setAgentPrivateKey] = useState("");
+  const [agPkLocked, setAgPkLocked] = useState(false);
+  const [showAgPk, setShowAgPk] = useState(false);
+  const [agentWalletAddress, setAgentWalletAddress] = useState("");
+  
+  // Other Brokers / Social Services
+  const [alpacaApiKey, setAlpacaApiKey] = useState("");
+  const [alpacaSecretKey, setAlpacaSecretKey] = useState("");
+  const [showAlpacaSecret, setShowAlpacaSecret] = useState(false);
+  
+  const [xApiKey, setXApiKey] = useState("");
+  const [xApiSecret, setXApiSecret] = useState("");
+  const [showXSecret, setShowXSecret] = useState(false);
+  
+  const [xAccessToken, setXAccessToken] = useState("");
+  const [showXToken, setShowXToken] = useState(false);
+  
+  const [xAccessTokenSecret, setXAccessTokenSecret] = useState("");
+  const [showXTokenSecret, setShowXTokenSecret] = useState(false);
+
+  const [telegramApiId, setTelegramApiId] = useState("");
+  const [telegramApiHash, setTelegramApiHash] = useState("");
+  
+  const [kiteApiKey, setKiteApiKey] = useState("");
+  const [kiteApiSecret, setKiteApiSecret] = useState("");
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/setup/status")
+    fetch("http://localhost:8000/api/setup/config")
       .then((res) => {
         if (!res.ok) throw new Error("Backend not reachable");
         return res.json();
       })
-      .then((d) => {
-        setData(d);
+      .then((cfg) => {
+        setProvider(cfg.AI_PROVIDER || "gemini");
+        
+        let gKey = cfg.GEMINI_API_KEY || "";
+        let aKey = cfg.ANTHROPIC_API_KEY || "";
+        
+        setGeminiKeyCached(gKey);
+        setAnthropicKeyCached(aKey);
+
+        let initialLlmKey = "";
+        if (cfg.AI_PROVIDER === "anthropic") {
+           initialLlmKey = aKey;
+        } else {
+           initialLlmKey = gKey;
+        }
+        
+        const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
+        const sanitize = (k: string) => isRealKey(k) ? k : "";
+
+        setLlmKey(initialLlmKey);
+        if (isRealKey(initialLlmKey)) setLlmKeyLocked(true);
+        
+        setArbitrumRpcUrl(sanitize(cfg.ARBITRUM_RPC_URL || ""));
+        
+        setAgentPrivateKey(sanitize(cfg.AGENT_PRIVATE_KEY || ""));
+        if (isRealKey(cfg.AGENT_PRIVATE_KEY)) setAgPkLocked(true);
+        
+        setAgentWalletAddress(sanitize(cfg.AGENT_WALLET_ADDRESS || ""));
+        
+        setAlpacaApiKey(sanitize(cfg.ALPACA_API_KEY || ""));
+        setAlpacaSecretKey(sanitize(cfg.ALPACA_SECRET_KEY || ""));
+        
+        setXApiKey(sanitize(cfg.X_API_KEY || ""));
+        setXApiSecret(sanitize(cfg.X_API_SECRET || ""));
+        setXAccessToken(sanitize(cfg.X_ACCESS_TOKEN || ""));
+        setXAccessTokenSecret(sanitize(cfg.X_ACCESS_TOKEN_SECRET || ""));
+        
+        setTelegramApiId(sanitize(cfg.TELEGRAM_API_ID || ""));
+        setTelegramApiHash(sanitize(cfg.TELEGRAM_API_HASH || ""));
+        
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Failed to fetch setup status", err);
+        console.error("Failed to fetch setup config", err);
         setLoading(false);
-        setData({});
       });
   }, []);
+
+  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newProv = e.target.value;
+    
+    // Save current typed key into cache before switching
+    if (provider === "gemini" && !llmKeyLocked) setGeminiKeyCached(llmKey);
+    if (provider === "anthropic" && !llmKeyLocked) setAnthropicKeyCached(llmKey);
+
+    setProvider(newProv);
+    
+    // Load the matching cached key
+    const targetKey = newProv === "gemini" ? geminiKeyCached : anthropicKeyCached;
+    setLlmKey(targetKey);
+    const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
+    setLlmKeyLocked(isRealKey(targetKey));
+    setShowLlmKey(false);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,10 +126,21 @@ export default function SettingsPage() {
     try {
       const payload = {
         AI_PROVIDER: provider,
-        GEMINI_API_KEY: provider === "gemini" ? llmKey : "",
-        ANTHROPIC_API_KEY: provider === "anthropic" ? llmKey : "",
-        BINANCE_API_KEY: binanceKey,
-        BINANCE_SECRET: binanceSecret,
+        GEMINI_API_KEY: provider === "gemini" ? llmKey : geminiKeyCached,
+        ANTHROPIC_API_KEY: provider === "anthropic" ? llmKey : anthropicKeyCached,
+        ARBITRUM_RPC_URL: arbitrumRpcUrl,
+        AGENT_PRIVATE_KEY: agentPrivateKey,
+        AGENT_WALLET_ADDRESS: agentWalletAddress,
+        ALPACA_API_KEY: alpacaApiKey,
+        ALPACA_SECRET_KEY: alpacaSecretKey,
+        X_API_KEY: xApiKey,
+        X_API_SECRET: xApiSecret,
+        X_ACCESS_TOKEN: xAccessToken,
+        X_ACCESS_TOKEN_SECRET: xAccessTokenSecret,
+        TELEGRAM_API_ID: telegramApiId,
+        TELEGRAM_API_HASH: telegramApiHash,
+        KITE_API_KEY: kiteApiKey,
+        KITE_API_SECRET: kiteApiSecret,
       };
 
       const res = await fetch("http://localhost:8000/api/setup/save", {
@@ -108,7 +205,7 @@ export default function SettingsPage() {
                 <label className="block text-[13px] font-medium text-neutral-400 mb-2">LLM Provider</label>
                 <select
                   value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
+                  onChange={handleProviderChange}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all appearance-none"
                 >
                   <option value="gemini">Google Gemini (GenAI Core)</option>
@@ -118,13 +215,38 @@ export default function SettingsPage() {
 
               <div>
                 <label className="block text-[13px] font-medium text-neutral-400 mb-2">Secret Authentication Key</label>
-                <input
-                  type="password"
-                  value={llmKey}
-                  onChange={(e) => setLlmKey(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder={provider === 'gemini' ? 'AIza...' : 'sk-ant-...'}
-                />
+                <div className="flex gap-3">
+                  <div className="relative w-full">
+                    <input
+                      type={showLlmKey ? "text" : "password"}
+                      value={llmKey}
+                      onChange={(e) => !llmKeyLocked && setLlmKey(e.target.value)}
+                      disabled={llmKeyLocked}
+                      className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${llmKeyLocked ? 'pr-10 text-neutral-500 opacity-70' : 'text-neutral-200'} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
+                      placeholder={provider === 'gemini' ? 'AIza...' : 'sk-ant-...'}
+                    />
+                    {llmKeyLocked && (
+                      <button
+                        type="button"
+                        onClick={() => setShowLlmKey(!showLlmKey)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                      >
+                        {showLlmKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    )}
+                  </div>
+                  {llmKeyLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => { setLlmKeyLocked(false); setLlmKey(""); setShowLlmKey(false); }}
+                      className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
+                    >
+                      Update Key
+                    </button>
+                  ) : (
+                    llmKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div> // spacer
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -132,32 +254,242 @@ export default function SettingsPage() {
           <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
             <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
               <div className="w-1.5 h-1.5 rounded-full bg-orange-500/80 mr-2"></div>
-              Execution Environment
+              Execution Environment (DeFi & Web3)
             </h3>
             
             <div className="space-y-5">
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Binance Access Key</label>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Arbitrum RPC URL</label>
                 <input
-                  type="password"
-                  value={binanceKey}
-                  onChange={(e) => setBinanceKey(e.target.value)}
+                  type="text"
+                  value={arbitrumRpcUrl}
+                  onChange={(e) => setArbitrumRpcUrl(e.target.value)}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="Enter public key fragment"
+                  placeholder="https://arb-mainnet.g.alchemy.com/v2/..."
                 />
               </div>
 
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Binance Signature Secret</label>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Agent Private Key (Optional - Needed for Trades)</label>
+                <div className="flex gap-3">
+                  <div className="relative w-full">
+                    <input
+                      type={showAgPk ? "text" : "password"}
+                      value={agentPrivateKey}
+                      onChange={(e) => !agPkLocked && setAgentPrivateKey(e.target.value)}
+                      disabled={agPkLocked}
+                      className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${agPkLocked ? 'pr-10 text-neutral-500 opacity-70' : 'text-neutral-200'} text-[14px] focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
+                      placeholder="0x..."
+                    />
+                    {agPkLocked && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAgPk(!showAgPk)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                      >
+                        {showAgPk ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    )}
+                  </div>
+                  {agPkLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => { setAgPkLocked(false); setAgentPrivateKey(""); setShowAgPk(false); }}
+                      className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
+                    >
+                      Update Key
+                    </button>
+                  ) : (
+                    agentPrivateKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div> // spacer
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Agent Wallet Address</label>
                 <input
-                  type="password"
-                  value={binanceSecret}
-                  onChange={(e) => setBinanceSecret(e.target.value)}
+                  type="text"
+                  value={agentWalletAddress}
+                  onChange={(e) => setAgentWalletAddress(e.target.value)}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="Enter private signature token"
+                  placeholder="0x..."
                 />
               </div>
             </div>
+          </div>
+
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
+            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500/80 mr-2"></div>
+              Other Integrations
+            </h3>
+
+            <div className="space-y-5 mb-8">
+              <h4 className="text-sm text-neutral-300 font-medium">Alpaca Markets</h4>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Key</label>
+                <input
+                  type="text"
+                  value={alpacaApiKey}
+                  onChange={(e) => setAlpacaApiKey(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
+                  placeholder="PK..."
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Secret Key</label>
+                <div className="relative w-full">
+                  <input
+                    type={showAlpacaSecret ? "text" : "password"}
+                    value={alpacaSecretKey}
+                    onChange={(e) => setAlpacaSecretKey(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
+                    placeholder="Secret..."
+                  />
+                  {alpacaSecretKey && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAlpacaSecret(!showAlpacaSecret)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      {showAlpacaSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
+
+            <div className="space-y-5 mb-8">
+              <h4 className="text-sm text-neutral-300 font-medium">X (Twitter) Integration</h4>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X API Key</label>
+                <input
+                  type="text"
+                  value={xApiKey}
+                  onChange={(e) => setXApiKey(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  placeholder="Key"
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X API Secret</label>
+                <div className="relative w-full">
+                  <input
+                    type={showXSecret ? "text" : "password"}
+                    value={xApiSecret}
+                    onChange={(e) => setXApiSecret(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                    placeholder="Secret"
+                  />
+                  {xApiSecret && (
+                    <button
+                      type="button"
+                      onClick={() => setShowXSecret(!showXSecret)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      {showXSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X Access Token</label>
+                <div className="relative w-full">
+                  <input
+                    type={showXToken ? "text" : "password"}
+                    value={xAccessToken}
+                    onChange={(e) => setXAccessToken(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                    placeholder="Token"
+                  />
+                  {xAccessToken && (
+                    <button
+                      type="button"
+                      onClick={() => setShowXToken(!showXToken)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      {showXToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X Access Token Secret</label>
+                <div className="relative w-full">
+                  <input
+                    type={showXTokenSecret ? "text" : "password"}
+                    value={xAccessTokenSecret}
+                    onChange={(e) => setXAccessTokenSecret(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                    placeholder="Secret"
+                  />
+                  {xAccessTokenSecret && (
+                    <button
+                      type="button"
+                      onClick={() => setShowXTokenSecret(!showXTokenSecret)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                    >
+                      {showXTokenSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
+
+            <div className="space-y-5">
+              <h4 className="text-sm text-neutral-300 font-medium">Telegram Integrations</h4>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API ID</label>
+                <input
+                  type="text"
+                  value={telegramApiId}
+                  onChange={(e) => setTelegramApiId(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  placeholder="API ID"
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Hash</label>
+                <input
+                  type="password"
+                  value={telegramApiHash}
+                  onChange={(e) => setTelegramApiHash(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  placeholder="API Hash"
+                />
+              </div>
+            </div>
+
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
+
+            <div className="space-y-5">
+              <h4 className="text-sm text-neutral-300 font-medium">Kite (Zerodha) Integrations</h4>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Key</label>
+                <input
+                  type="text"
+                  value={kiteApiKey}
+                  onChange={(e) => setKiteApiKey(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  placeholder="Kite API Key"
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Secret</label>
+                <input
+                  type="password"
+                  value={kiteApiSecret}
+                  onChange={(e) => setKiteApiSecret(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  placeholder="Kite API Secret"
+                />
+              </div>
+            </div>
+
           </div>
 
           <div className="flex items-center justify-end mt-4">
@@ -171,7 +503,7 @@ export default function SettingsPage() {
               ) : (
                 <>
                   <Save size={16} className="mr-2" />
-                  Commit Changes
+                  Save
                 </>
               )}
             </button>
