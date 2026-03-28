@@ -52,9 +52,9 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
     const [config, setConfig] = useState({
         ema9: { show: true, color: '#38BDF8', lineWidth: 1 },
         ema21: { show: true, color: '#FCD34D', lineWidth: 2 },
-        fibColor: '#A78BFA',
-        fibOpacity: 0.6,
-        drawingColor: '#34d399'
+        fibColor: '#a78bfa',
+        fibOpacity: 0.3,
+        drawingColor: '#a78bfa'
     });
 
     // Drawing Engine States
@@ -62,6 +62,7 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
     const [drawings, setDrawings] = useState<any[]>([]);
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentDrawing, setCurrentDrawing] = useState<any>(null);
+    const [dragCtx, setDragCtx] = useState<{ id: number, type: 'move'|'p1'|'p2'|'rotate', initMouseX: number, initMouseY: number, startDrawing: any } | null>(null);
     const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
     const [renderTick, setRenderTick] = useState(0);
 
@@ -368,6 +369,80 @@ if (config.ema9.show) {
         return { logical, price, x, y };
     };
 
+    const startDrag = (e: React.MouseEvent, type: 'move'|'p1'|'p2'|'rotate', drawing: any) => {
+        if (activeTool !== 'pointer') return;
+        e.stopPropagation();
+        setSelectedDrawing(drawing);
+        setDragCtx({ 
+            id: drawing.id, type, 
+            initMouseX: e.clientX, initMouseY: e.clientY, 
+            startDrawing: JSON.parse(JSON.stringify(drawing)) 
+        });
+    };
+
+    useEffect(() => {
+        const handleWinMove = (e: MouseEvent) => {
+            if (!dragCtx || !chartRef.current || !seriesRef.current || !chartContainerRef.current) return;
+            const rect = chartContainerRef.current.getBoundingClientRect();
+            
+            setDrawings(prev => prev.map(d => {
+                if (d.id !== dragCtx.id) return d;
+                
+                const currPath = d.path || [];
+                const curLogicalX = chartRef.current.timeScale().coordinateToLogical(e.clientX - rect.left) || 0;
+                const curPriceY = seriesRef.current.coordinateToPrice(e.clientY - rect.top) || 0;
+
+                let newData = { ...d };
+
+                if (dragCtx.type === 'move') {
+                    const initMapped = handleMapToChart(dragCtx.initMouseX, dragCtx.initMouseY);
+                    if (!initMapped || initMapped.logical === null) return d;
+
+                    const deltaL = curLogicalX - initMapped.logical;
+                    const deltaP = curPriceY - initMapped.price;
+
+                    newData.l1 = (dragCtx.startDrawing.l1 || 0) + deltaL;
+                    newData.p1 = (dragCtx.startDrawing.p1 || 0) + deltaP;
+                    newData.l2 = (dragCtx.startDrawing.l2 || 0) + deltaL;
+                    newData.p2 = (dragCtx.startDrawing.p2 || 0) + deltaP;
+
+                    if (currPath.length > 0) {
+                        newData.path = dragCtx.startDrawing.path.map((pt: any) => ({
+                            l: pt.l + deltaL,
+                            p: pt.p + deltaP
+                        }));
+                    }
+                } else if (dragCtx.type === 'p1') {
+                    newData.l1 = curLogicalX;
+                    newData.p1 = curPriceY;
+                } else if (dragCtx.type === 'p2') {
+                    newData.l2 = curLogicalX;
+                    newData.p2 = curPriceY;
+                } else if (dragCtx.type === 'rotate' && dragCtx.startDrawing.type === 'text') {
+                    // For rotate, we can compute angle
+                    const c1 = chartRef.current.timeScale().logicalToCoordinate(newData.l1 as any) || 0;
+                    const c2 = seriesRef.current.priceToCoordinate(newData.p1 as any) || 0;
+                    const dx = e.clientX - rect.left - c1;
+                    const dy = e.clientY - rect.top - c2;
+                    newData.angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                }
+
+                return newData;
+            }));
+        };
+
+        const handleWinUp = () => setDragCtx(null);
+
+        if (dragCtx) {
+            window.addEventListener('mousemove', handleWinMove);
+            window.addEventListener('mouseup', handleWinUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleWinMove);
+            window.removeEventListener('mouseup', handleWinUp);
+        };
+    }, [dragCtx]);
+
     const onMouseDown = (e: React.MouseEvent) => {
         if (activeTool === 'pointer') { setSelectedDrawing(null); return; }
         const mapped = handleMapToChart(e.clientX, e.clientY);
@@ -659,9 +734,9 @@ if (config.ema9.show) {
                                 const p1 = getCoordinate(d.l1, d.p1); const p2 = getCoordinate(d.l2, d.p2);
                                 return (
                                     <g key={d.id} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
-                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color || config.drawingColor} strokeWidth="3" cursor="pointer" onClick={(e)=>{e.stopPropagation(); setSelectedDrawing(d.id);}} />
-                                        {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" />}
-                                        {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" />}
+                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={d.color || config.drawingColor} strokeWidth="5" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />
+                                        {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p1', d)} />}
+                                        {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p2', d)} />}
                                     </g>
                                 );
                             }
@@ -670,8 +745,8 @@ if (config.ema9.show) {
                                 const diff = d.p2 - d.p1;
                                 const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
                                 return (
-                                    <g key={d.id} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }} cursor="pointer" onClick={(e)=>{e.stopPropagation(); setSelectedDrawing(d.id);}}>
-                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={config.fibColor} strokeDasharray="4" opacity={config.fibOpacity} strokeWidth="2" />
+                                    <g key={d.id} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
+                                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={config.fibColor} strokeDasharray="4" opacity={config.fibOpacity} strokeWidth="5" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />
                                         <text x={p2.x + 10} y={p1.y} fill={config.fibColor} fontSize="10" opacity={config.fibOpacity}>0</text>
                                         <text x={p2.x + 10} y={p2.y} fill={config.fibColor} fontSize="10" opacity={config.fibOpacity}>1.0</text>
                                         {fibLevels.map(lvl => {
@@ -682,19 +757,25 @@ if (config.ema9.show) {
                                                 </g>
                                             )
                                         })}
-                                        {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" />}
-                                        {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" />}
+                                        {selectedDrawing === d.id && <circle cx={p1.x} cy={p1.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p1', d)} />}
+                                        {selectedDrawing === d.id && <circle cx={p2.x} cy={p2.y} r="6" fill="#ffffff" cursor="grab" onMouseDown={(e) => startDrag(e, 'p2', d)} />}
                                     </g>
                                 )
                             }
                             if (d.type === 'pencil' || d.type === 'patterns') {
                                 const pts = d.path.map((p:any) => getCoordinate(p.l, p.p));
                                 const dPath = pts.map((p:any, i:number) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');        
-                                return <path key={d.id} d={dPath} fill="transparent" stroke={d.color || config.drawingColor} strokeWidth="3" style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }} cursor="pointer" onClick={(e)=>{e.stopPropagation(); setSelectedDrawing(d.id);}} />;
+                                return <path key={d.id} d={dPath} fill="transparent" stroke={d.color || config.drawingColor} strokeWidth="5" style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }} cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} />;
                             }
                             if (d.type === 'text') {
                                 const p = getCoordinate(d.l1, d.p1);
-                                return <text key={d.id} x={p.x} y={p.y} fill={d.color || config.drawingColor} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }} fontSize="16" cursor="pointer" onClick={(e)=>{e.stopPropagation(); setSelectedDrawing(d.id);}} fontFamily="monospace">{d.txt}</text>;
+                                const rotation = d.angle || 0;
+                                return (
+                                    <g key={d.id} transform={`rotate(${rotation} ${p.x} ${p.y})`} style={{ pointerEvents: activeTool === 'pointer' ? 'auto' : 'none' }}>
+                                        <text x={p.x} y={p.y} fill={d.color || config.drawingColor} fontSize="16" cursor="move" onMouseDown={(e)=>{startDrag(e, 'move', d);}} fontFamily="monospace" style={{userSelect: 'none'}}>{d.txt}</text>
+                                        {selectedDrawing === d.id && <circle cx={p.x + 20} cy={p.y - 20} r="6" fill="#ffffff" cursor="alias" onMouseDown={(e) => startDrag(e, 'rotate', d)} />}
+                                    </g>
+                                );
                             }
                             return null;
                         })}

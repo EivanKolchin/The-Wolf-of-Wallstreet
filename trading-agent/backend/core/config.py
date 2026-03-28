@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     AI_PROVIDER: str = "anthropic" 
 
-    BINANCE_API_KEY: str = ""
-    BINANCE_SECRET: str = ""
+    ARBITRUM_RPC_URL: str = ""
+    AGENT_WALLET_ADDRESS: str = ""
+    AGENT_PRIVATE_KEY: str = ""
+    INITIAL_USDC_AMOUNT: float = 1000.0
 
     ALPACA_API_KEY: str = ""
     ALPACA_SECRET: str = ""
@@ -54,10 +56,10 @@ class Settings(BaseSettings):
         if not has_ai_key:
             return True
 
-        essential_keys = [self.BINANCE_API_KEY, self.BINANCE_SECRET]
+        essential_keys = [self.AGENT_PRIVATE_KEY]
         for val in essential_keys:
             if not is_valid_key(val, min_len=30):
-                return True
+                return False  # Not failing hard if wallet not supplied since there's paper mode
         return False
 
 settings = None

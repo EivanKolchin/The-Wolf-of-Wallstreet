@@ -58,20 +58,34 @@ def run_nn_agent(severe_flag):
             db_session_factory=AsyncSessionLocal
         )
         
-        exchange = ccxt.binance({
-            'apiKey': settings.BINANCE_API_KEY,
-            'secret': settings.BINANCE_SECRET,
-        })
-        
-        exec_engine = ExecutionEngine(
-            exchange=exchange,
-            kite_chain=kite_chain,
-            db_session_factory=AsyncSessionLocal,
-            paper_mode=True
-        )
+        from backend.execution.defi_engine import UniswapV3Executor, DefiPortfolioTracker
+        from web3 import Web3
+        web3_client = Web3(Web3.HTTPProvider(settings.ARBITRUM_RPC_URL or "https://arb1.arbitrum.io/rpc"))
         
         from backend.memory.redis_client import get_redis
         redis_session = await get_redis()
+        
+        uniswap = UniswapV3Executor(
+            web3=web3_client,
+            wallet_address=settings.AGENT_WALLET_ADDRESS or "0x0000000000000000000000000000000000000000",
+            private_key=settings.AGENT_PRIVATE_KEY or "0" * 64,
+            slippage_tolerance=0.005
+        )
+        
+        portfolio = DefiPortfolioTracker(
+            web3=web3_client,
+            wallet_address=settings.AGENT_WALLET_ADDRESS or "0x0000000000000000000000000000000000000000",
+            redis_client=redis_session
+        )
+        
+        exec_engine = ExecutionEngine(
+            uniswap=uniswap,
+            portfolio=portfolio,
+            kite_chain=kite_chain,
+            db_session_factory=AsyncSessionLocal,
+            paper_mode=False if os.environ.get("PAPER_MODE", "true").lower() == "false" else True
+        )
+        
         news_queue = PriorityNewsQueue(redis_session)
         
         agent = NNTradingAgent(

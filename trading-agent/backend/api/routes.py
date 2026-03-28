@@ -46,17 +46,13 @@ async def get_setup_status():
         "needs_setup": settings.needs_setup(),
         "ai_provider": settings.AI_PROVIDER,
         "anthropic": not (not settings.ANTHROPIC_API_KEY or "your_" in settings.ANTHROPIC_API_KEY.lower()),
-        "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower()),
-        "binance_key": not (not settings.BINANCE_API_KEY or "your_" in settings.BINANCE_API_KEY.lower()),
-        "binance_secret": not (not settings.BINANCE_SECRET or "your_" in settings.BINANCE_SECRET.lower())
+        "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower())
     }
 
 class SetupRequest(BaseModel):
     ai_provider: str = "anthropic"
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
-    binance_api_key: str = ""
-    binance_secret: str = ""
 
 @router.post("/api/setup/save")
 async def save_setup(req: SetupRequest):
@@ -88,18 +84,6 @@ async def save_setup(req: SetupRequest):
                     else:
                         f.write(line)
                     settings_seen.add("gemini")
-                elif line.startswith("BINANCE_API_KEY="):
-                    if req.binance_api_key:
-                        f.write(f"BINANCE_API_KEY={req.binance_api_key}\n")
-                    else:
-                        f.write(line)
-                    settings_seen.add("binance_key")
-                elif line.startswith("BINANCE_SECRET="):
-                    if req.binance_secret:
-                        f.write(f"BINANCE_SECRET={req.binance_secret}\n")
-                    else:
-                        f.write(line)
-                    settings_seen.add("binance_secret")
                 else:
                     f.write(line)
 
