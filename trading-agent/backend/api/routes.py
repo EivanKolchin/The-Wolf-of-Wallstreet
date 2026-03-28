@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSoc
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 
-from backend.memory.database import async_session_maker, Trade, NewsPrediction, AgentEvent, TradeStatus
+from backend.memory.database import AsyncSessionLocal as async_session_maker, Trade, NewsPrediction, AgentEvent, TradeStatus
 from backend.memory.redis_client import FeatureCache, HeartbeatClient, get_redis
 from backend.risk.manager import RiskManager
 from backend.core.config import settings
@@ -39,6 +39,86 @@ class HealthResponse(BaseModel):
 
 class ResetHaltRequest(BaseModel):
     confirm: bool
+
+@router.get("/api/setup/status")
+async def get_setup_status():
+    return {
+        "needs_setup": settings.needs_setup(),
+        "ai_provider": settings.AI_PROVIDER,
+        "anthropic": not (not settings.ANTHROPIC_API_KEY or "your_" in settings.ANTHROPIC_API_KEY.lower()),
+        "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower()),
+        "binance_key": not (not settings.BINANCE_API_KEY or "your_" in settings.BINANCE_API_KEY.lower()),
+        "binance_secret": not (not settings.BINANCE_SECRET or "your_" in settings.BINANCE_SECRET.lower())
+    }
+
+class SetupRequest(BaseModel):
+    ai_provider: str = "anthropic"
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+    binance_api_key: str = ""
+    binance_secret: str = ""
+
+@router.post("/api/setup/save")
+async def save_setup(req: SetupRequest):
+    import os
+    import signal
+    from core.config import ENV_PATH
+    env_path = str(ENV_PATH)
+
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+            
+        settings_seen = set()
+
+        with open(env_path, "w") as f:
+            for line in lines:
+                if line.startswith("AI_PROVIDER="):
+                    f.write(f"AI_PROVIDER={req.ai_provider}\n")
+                    settings_seen.add("ai_provider")
+                elif line.startswith("ANTHROPIC_API_KEY="):
+                    if req.anthropic_api_key:
+                        f.write(f"ANTHROPIC_API_KEY={req.anthropic_api_key}\n")
+                    else:
+                        f.write(line)
+                    settings_seen.add("anthropic")
+                elif line.startswith("GEMINI_API_KEY="):
+                    if req.gemini_api_key:
+                        f.write(f"GEMINI_API_KEY={req.gemini_api_key}\n")
+                    else:
+                        f.write(line)
+                    settings_seen.add("gemini")
+                elif line.startswith("BINANCE_API_KEY="):
+                    if req.binance_api_key:
+                        f.write(f"BINANCE_API_KEY={req.binance_api_key}\n")
+                    else:
+                        f.write(line)
+                    settings_seen.add("binance_key")
+                elif line.startswith("BINANCE_SECRET="):
+                    if req.binance_secret:
+                        f.write(f"BINANCE_SECRET={req.binance_secret}\n")
+                    else:
+                        f.write(line)
+                    settings_seen.add("binance_secret")
+                else:
+                    f.write(line)
+
+            # Append missing lines to .env if they weren't in the original template
+            if "ai_provider" not in settings_seen:
+                f.write(f"AI_PROVIDER={req.ai_provider}\n")
+            if "anthropic" not in settings_seen and req.anthropic_api_key:
+                f.write(f"ANTHROPIC_API_KEY={req.anthropic_api_key}\n")
+            if "gemini" not in settings_seen and req.gemini_api_key:
+                f.write(f"GEMINI_API_KEY={req.gemini_api_key}\n")
+
+        # Trigger an orchestrated restart
+        def restart():
+            os.kill(os.getpid(), signal.SIGTERM)
+        
+        asyncio.get_event_loop().call_later(1.0, restart)
+        return {"status": "saved", "message": "Applying configuration and restarting..."}
+    else:
+        raise HTTPException(status_code=500, detail=".env file not found")
 
 @router.get("/api/health", response_model=HealthResponse)
 async def get_health():

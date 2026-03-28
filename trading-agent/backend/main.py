@@ -12,7 +12,7 @@ import structlog
 
 from backend.core.config import settings
 from backend.core.logger import get_logger
-from backend.memory.database import init_db, async_session_maker
+from backend.memory.database import init_db, AsyncSessionLocal
 from backend.memory.redis_client import PriorityNewsQueue
 from backend.api.routes import router, ws_live_updater
 from backend.agents.nn_model import PersistentTradingModel
@@ -28,7 +28,7 @@ from backend.signals.regime import RegimeDetector
 from backend.risk.manager import RiskManager
 from backend.execution.engine import ExecutionEngine
 from backend.execution.kite_chain import KiteChainClient
-import anthropic
+from backend.agents.llm import LLMService
 import ccxt
 
 logger = get_logger("main")
@@ -55,7 +55,7 @@ def run_nn_agent(severe_flag):
             rpc_url=settings.KITE_CHAIN_RPC_URL,
             private_key=settings.KITE_CHAIN_PRIVATE_KEY,
             agent_address=settings.KITE_AGENT_ADDRESS,
-            db_session_factory=async_session_maker
+            db_session_factory=AsyncSessionLocal
         )
         
         exchange = ccxt.binance({
@@ -66,7 +66,7 @@ def run_nn_agent(severe_flag):
         exec_engine = ExecutionEngine(
             exchange=exchange,
             kite_chain=kite_chain,
-            db_session_factory=async_session_maker,
+            db_session_factory=AsyncSessionLocal,
             paper_mode=True
         )
         
@@ -100,15 +100,21 @@ def run_news_agent(severe_flag):
         news_queue = PriorityNewsQueue(redis_session)
         
         news_pipeline = NewsIngestionPipeline(rss_urls=DEFAULT_RSS_FEEDS)
-        anthropic_client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        credibility_engine = CredibilityEngine(db_session_factory=async_session_maker, anthropic_client=anthropic_client)
         
+        llm_service = LLMService(
+            provider=settings.AI_PROVIDER,
+            anthropic_key=settings.ANTHROPIC_API_KEY,
+            gemini_key=settings.GEMINI_API_KEY
+        )
+        
+        credibility_engine = CredibilityEngine(db_session_factory=AsyncSessionLocal, llm_service=llm_service)
+
         agent = LLMNewsAgent(
             news_pipeline=news_pipeline,
             credibility_engine=credibility_engine,
             news_queue=news_queue,
-            anthropic_client=anthropic_client,
-            db_session_factory=async_session_maker
+            llm_service=llm_service,
+            db_session_factory=AsyncSessionLocal
         )
         await agent.run()
         
@@ -148,18 +154,26 @@ if __name__ == "__main__":
     p1 = multiprocessing.Process(target=run_nn_agent, args=(shared_severe_flag,), name="NNTradingAgent")
     p2 = multiprocessing.Process(target=run_news_agent, args=(shared_severe_flag,), name="LLMNewsAgent")
     
-    p1.start()
-    p2.start()
-    
+    needs_setup = False
+    try:
+        if settings.needs_setup():
+            needs_setup = True
+            logger.warning("Setup required -> Suppressing agent processes until .env is configured")
+    except Exception:
+        needs_setup = True
+        
+    if not needs_setup:
+        p1.start()
+        p2.start()
+
     def handle_sigterm(signum, frame):
         logger.info("graceful_shutdown_initiated")
-        p1.terminate()
-        p2.terminate()
-        p1.join()
-        p2.join()
-        sys.exit(0)
-        
-    signal.signal(signal.SIGINT, handle_sigterm)
+        if not needs_setup or p1.is_alive():
+            p1.terminate()
+            p1.join()
+        if not needs_setup or p2.is_alive():
+            p2.terminate()
+            p2.join()
     signal.signal(signal.SIGTERM, handle_sigterm)
     
     # Run FastAPI in the main process

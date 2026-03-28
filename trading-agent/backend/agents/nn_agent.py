@@ -101,7 +101,12 @@ class NNTradingAgent:
 
                 # 4. Process each symbol
                 for symbol in self.symbols:
-                    df = await self.market_feed.get_dataframe(symbol)
+                    try:
+                        df = await self.market_feed.get_dataframe(symbol)
+                    except AttributeError as e:
+                        logger.error("market_feed_missing_attribute", error=str(e))
+                        continue
+                        
                     if df is None or df.empty:
                         continue
 

@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 import talib
 from structlog import get_logger
 
@@ -19,11 +18,11 @@ def _clip_scale(val: float, min_val: float, max_val: float, target_min: float, t
 
 def calculate_moving_averages(df: pd.DataFrame) -> dict:
     close = df['close']
-    ema_9 = ta.ema(close, length=9)
-    ema_21 = ta.ema(close, length=21)
-    ema_50 = ta.ema(close, length=50)
-    ema_200 = ta.ema(close, length=200)
-    vwap = ta.vwap(high=df['high'], low=df['low'], close=close, volume=df['volume'])
+    ema_9 = pd.Series(talib.EMA(close.values, timeperiod=9), index=close.index)
+    ema_21 = pd.Series(talib.EMA(close.values, timeperiod=21), index=close.index)
+    ema_50 = pd.Series(talib.EMA(close.values, timeperiod=50), index=close.index)
+    ema_200 = pd.Series(talib.EMA(close.values, timeperiod=200), index=close.index)
+    vwap = (df['volume'] * (df['high'] + df['low'] + close) / 3).cumsum() / df['volume'].cumsum()
     
     current_close = close.iloc[-1]
     
@@ -64,11 +63,11 @@ def calculate_momentum(df: pd.DataFrame) -> dict:
     high = df['high']
     low = df['low']
     
-    rsi = ta.rsi(close, length=14)
-    macd = ta.macd(close)
-    stoch_rsi_res = ta.stochrsi(close, length=14)
-    adx_res = ta.adx(high, low, close, length=14)
-    atr = ta.atr(high, low, close, length=14)
+    rsi = pd.Series(talib.RSI(close.values, timeperiod=14), index=close.index)
+    m, s, h = talib.MACD(close.values); macd = pd.DataFrame({'MACD_12_26_9': m, 'MACDh_12_26_9': h, 'MACDs_12_26_9': s}, index=close.index)
+    f, s = talib.STOCHRSI(close.values, timeperiod=14); stoch_rsi_res = pd.DataFrame({'STOCHRSIk_14_14_3_3': f*100, 'STOCHRSId_14_14_3_3': s*100}, index=close.index)
+    adx_res = pd.DataFrame({'ADX_14': talib.ADX(high.values, low.values, close.values, timeperiod=14)}, index=close.index)
+    atr = pd.Series(talib.ATR(high.values, low.values, close.values, timeperiod=14), index=close.index)
 
     # Latest vals
     v_rsi = rsi.iloc[-1] if (rsi is not None and not pd.isna(rsi.iloc[-1])) else 50.0
@@ -131,8 +130,8 @@ def calculate_volatility(df: pd.DataFrame) -> dict:
     high = df['high']
     low = df['low']
 
-    atr = ta.atr(high, low, close, length=14)
-    bbands = ta.bbands(close, length=20)
+    atr = pd.Series(talib.ATR(high.values, low.values, close.values, timeperiod=14), index=close.index)
+    u, m, l = talib.BBANDS(close.values, timeperiod=20); bbands = pd.DataFrame({'BBL_20_2.0': l, 'BBM_20_2.0': m, 'BBU_20_2.0': u}, index=close.index)
 
     try:
         atr_pct = atr / close
@@ -172,7 +171,7 @@ def calculate_volume(df: pd.DataFrame) -> dict:
     volume = df['volume']
     close = df['close']
 
-    sma_vol_20 = ta.sma(volume, length=20)
+    sma_vol_20 = pd.Series(talib.SMA(volume.values, timeperiod=20), index=volume.index)
     
     try:
         curr_vol = volume.iloc[-1]
@@ -187,7 +186,7 @@ def calculate_volume(df: pd.DataFrame) -> dict:
         volume_ratio_norm = 0.2 # default roughly neutral-low vol
 
     try:
-        obv = ta.obv(close, volume)
+        obv = pd.Series(talib.OBV(close.values, volume.values), index=close.index)
         if len(obv) >= 10:
             last_10_obv = obv.iloc[-10:].values
             # linear regression slope

@@ -1,4 +1,6 @@
+const fs = require('fs');
 
+const chartCode = `
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -28,53 +30,11 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
     const [optMonth, setOptMonth] = useState("");
     const [optDay, setOptDay] = useState("");
     const [activeTool, setActiveTool] = useState("pointer");
-    const [drawings, setDrawings] = useState<any[]>([]);
-    const [isDrawing, setIsDrawing] = useState(false);
-    const [currentDrawing, setCurrentDrawing] = useState<any>(null);
-
-    const handleDrawingStart = (e: React.MouseEvent) => {
-        if (activeTool === 'pointer' || activeTool === 'indicators') return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        
-        if (activeTool === 'text') {
-            const txt = prompt("Enter text annotation for this point:");
-            if (txt) setDrawings([...drawings, { id: Date.now(), type: 'text', x1: x, y1: y, txt }]);
-            setActiveTool('pointer');
-            return;
-        }
-        
-        setIsDrawing(true);
-        setCurrentDrawing({ id: Date.now(), type: activeTool, x1: x, y1: y, x2: x, y2: y, path: [{x, y}] });
-    };
-
-    const handleDrawingMove = (e: React.MouseEvent) => {
-        if (!isDrawing || !currentDrawing) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        
-        if (currentDrawing.type === 'pencil' || currentDrawing.type === 'patterns') {
-            setCurrentDrawing({ ...currentDrawing, path: [...currentDrawing.path, {x, y}] });
-        } else {
-            setCurrentDrawing({ ...currentDrawing, x2: x, y2: y });
-        }
-    };
-
-    const handleDrawingEnd = () => {
-        if (isDrawing && currentDrawing) {
-            setDrawings([...drawings, currentDrawing]);
-            setIsDrawing(false);
-            setCurrentDrawing(null);
-            if (activeTool !== 'pencil' && activeTool !== 'patterns') setActiveTool('pointer');
-        }
-    };
 
     useEffect(() => {
-        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=1000`;
+        let url = \`https://api.binance.com/api/v3/klines?symbol=\${symbol}&interval=\${timeframe}&limit=1000\`;
         if (cursorDate) {
-            url += `&startTime=${cursorDate}`;
+            url += \`&startTime=\${cursorDate}\`;
         }
 
         fetch(url)
@@ -206,7 +166,7 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                             <button
                                 key={tf.value}
                                 onClick={() => { setTimeframe(tf.value); setCursorDate(null); }}
-                                className={`px-2 py-1 rounded text-xs transition-colors ${timeframe === tf.value ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                className={\`px-2 py-1 rounded text-xs transition-colors \${timeframe === tf.value ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}\`}
                             >
                                 {tf.label}
                             </button>
@@ -215,7 +175,7 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                         <div className="relative ml-2">
                             <button 
                                 onClick={() => setShowDatePanel(!showDatePanel)}
-                                className={`p-1.5 rounded transition-colors ml-2 flex items-center justify-center ${showDatePanel ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                className={\`p-1.5 rounded transition-colors ml-2 flex items-center justify-center \${showDatePanel ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}\`}
                             >
                                 <Search size={14} />
                             </button>
@@ -246,47 +206,29 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                     {tools.map(tool => (
                         <button
                             key={tool.id}
-                            onClick={() => setActiveTool(tool.id)}
-                            className={`p-2 rounded-md transition-colors ${activeTool === tool.id ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            onClick={() => {
+                                setActiveTool(tool.id);
+                                if(tool.id === "patterns" || tool.id === "pencil") alert("Advanced drawing tools require TradingView license.");
+                            }}
+                            className={\`p-2 rounded-md transition-colors \${activeTool === tool.id ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}\`}
                         >
                             {tool.icon}
                         </button>
                     ))}
-                    {drawings.length > 0 && (
-                        <button onClick={() => setDrawings([])} className="p-2 mt-4 rounded-md text-xs font-bold text-rose-500 hover:bg-[#171717] transition-all" title="Clear All Drawings">
-                            ✕
-                        </button>
-                    )}
                 </div>
 
-                <div 
-                    className={`flex-1 relative ${activeTool !== 'pointer' ? 'cursor-crosshair' : ''}`}
-                    onMouseDown={activeTool !== 'pointer' ? handleDrawingStart : undefined}
-                    onMouseMove={activeTool !== 'pointer' ? handleDrawingMove : undefined}
-                    onMouseUp={activeTool !== 'pointer' ? handleDrawingEnd : undefined}
-                    onMouseLeave={activeTool !== 'pointer' ? handleDrawingEnd : undefined}
-                >
-                    <div ref={chartContainerRef} className={`absolute inset-0 ${activeTool !== 'pointer' ? 'pointer-events-none' : 'pointer-events-auto w-full h-full'}`} />
-                    
-                    {/* CUSTOM FREE DRAWING SVG LAYER */}
-                    <svg className={`absolute inset-0 w-full h-full pointer-events-none ${activeTool !== 'pointer' ? 'z-50' : 'z-40'}`}>
-                        {drawings.map((d: any) => {
-                            if (d.type === 'line') return <line key={d.id} x1={d.x1} y1={d.y1} x2={d.x2} y2={d.y2} stroke="#38BDF8" strokeWidth="2" />;      
-                            if (d.type === 'pencil' || d.type === 'patterns') {
-                                const dPath = d.path.map((p: any, i: number) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');        
-                                return <path key={d.id} d={dPath} fill="transparent" stroke={d.type === 'pencil' ? "#FCD34D" : "#34d399"} strokeWidth="2" />;
-                            }
-                            if (d.type === 'text') return <text key={d.id} x={d.x1} y={d.y1} fill="#ffffff" fontSize="14" fontFamily="monospace">{d.txt}</text>;
-                            return null;
-                        })}
-                        {currentDrawing && currentDrawing.type === 'line' && <line x1={currentDrawing.x1} y1={currentDrawing.y1} x2={currentDrawing.x2} y2={currentDrawing.y2} stroke="#38BDF8" strokeWidth="2" strokeDasharray="4" />}      
-                        {currentDrawing && (currentDrawing.type === 'pencil' || currentDrawing.type === 'patterns') && (
-                            <path d={currentDrawing.path.map((p: any, i: number) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ')} fill="transparent" stroke={currentDrawing.type === 'pencil' ? "#FCD34D" : "#34d399"} strokeWidth="2" />
-                        )}
-                    </svg>
-                </div>
+                <div ref={chartContainerRef} className="w-full flex-1 touch-none" />
             </div>
         </div>
     );
 }
 
+`;
+
+fs.writeFileSync('./components/TradingChart.tsx', chartCode);
+
+let navCode = fs.readFileSync('./components/Navbar.tsx', 'utf8');
+navCode = navCode.replace(/#A6622E/g, '#C45A3E');
+fs.writeFileSync('./components/Navbar.tsx', navCode);
+
+console.log('Update Complete.');

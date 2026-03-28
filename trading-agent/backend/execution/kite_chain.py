@@ -20,16 +20,18 @@ class KiteChainClient:
         # Assuming AsyncWeb3 implementation
         self.w3 = AsyncWeb3(AsyncWeb3.AsyncHTTPProvider(self.rpc_url))
         
+        self.account = None
         if private_key:
-            self.account = Account.from_key(private_key)
-        else:
-            self.account = None
+            try:
+                self.account = Account.from_key(private_key)
+            except Exception as e:
+                logger.warning("kite_chain_invalid_private_key", error=str(e), msg="Private key could not be parsed. Kite Chain logging is disabled.")
 
     async def log_trade_decision(self, trade: Trade, decision: TradeDecision) -> str | None:
         if not self.account:
             logger.warning("kite_chain_missing_private_key")
             return None
-            
+
         try:
             summary = {
                 "trade_id": str(trade.id),

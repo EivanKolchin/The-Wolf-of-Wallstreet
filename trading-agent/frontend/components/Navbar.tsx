@@ -1,77 +1,106 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { useAppState } from "../lib/context";
-import { Button } from "./ui/button";
+import { Settings, AlertCircle } from "lucide-react";
+import { ClockPanel } from "./ClockPanel";
+import { useEffect, useState } from "react";
 
 export default function Navbar() {
   const { status } = useAppState();
   const { address, isConnected } = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
+  const pathname = usePathname();
+
+  const [missingKeys, setMissingKeys] = useState(false);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/setup/status")
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.needs_setup) setMissingKeys(true);
+      })
+      .catch(() => setMissingKeys(true));
+  }, []);
+
+  const navItems = [
+    { name: "Overview", path: "/dashboard" },
+    { name: "Positions", path: "/positions" },
+    { name: "Intelligence", path: "/news" },
+    { name: "Audit Log", path: "/audit" },
+  ];
 
   return (
-    <nav className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950/50 backdrop-blur-md sticky top-0 z-50">
-      <div className="flex items-center space-x-8">
-        <Link href="/dashboard" className="text-xl font-bold tracking-tight text-white hover:text-zinc-200 transition-colors">
-          Wolf of WallStreet <span className="text-blue-500">AI</span>
+    <nav className="flex items-center justify-between px-8 py-4 border-b border-[#171717] bg-[#000000]/80 backdrop-blur-2xl sticky top-0 z-50 transition-all font-sans">
+      
+      {/* Brand & Main Nav */}
+      <div className="flex items-center space-x-10">
+        <Link href="/dashboard" className="text-[15px] font-semibold tracking-tight text-zinc-100 hover:opacity-80 transition-opacity flex items-center gap-2">        
+          <div className="w-3 h-3 rounded-[3px] bg-zinc-600"></div>
+          W.O.W.
         </Link>
-        <div className="hidden md:flex space-x-1">
-          <Link href="/dashboard" className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors">
-            Dashboard
-          </Link>
-          <Link href="/positions" className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors">
-            Positions
-          </Link>
-          <Link href="/news" className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors">
-            News
-          </Link>
-          <Link href="/audit" className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-md hover:bg-zinc-800/50 transition-colors">
-            Audit
-          </Link>
+
+        <div className="hidden md:flex space-x-6">
+          {navItems.map((item) => (
+            <Link
+              key={item.name} 
+              href={item.path}
+              className={`text-[13px] tracking-wide transition-colors ${        
+                pathname === item.path
+                  ? "text-zinc-100 font-medium"
+                  : "text-zinc-400 hover:text-zinc-100"
+              }`}
+            >
+              {item.name}
+            </Link>
+          ))}
         </div>
       </div>
 
-      <div className="flex items-center space-x-4">
-        {/* Agent Status */}
-        <div className="flex items-center space-x-2 bg-zinc-900 px-3 py-1.5 rounded-full border border-zinc-800">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              status.running ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"
-            }`}
-          />
-          <span className="text-xs font-medium text-zinc-300">
-            {status.running ? "Agent Active" : "Halted"}
-          </span>
-        </div>
+      {/* Utilities & States */}
+      <div className="flex items-center space-x-5">
 
-        {/* Paper Mode Badge */}
-        {status.paper_mode && (
-          <div className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-3 py-1.5 rounded-full text-xs font-bold tracking-wider">
-            PAPER MODE
-          </div>
+        <ClockPanel />
+
+        {/* Missing Keys Setup Alert */}
+        {missingKeys && (
+          <Link href="/settings" className="flex items-center space-x-2.5 px-6 py-2 rounded-md bg-[#C45A3E]/5 hover:bg-[#C45A3E]/10 border border-[#C45A3E]/20 text-[#C45A3E] transition-all cursor-pointer">
+            <AlertCircle size={16} />
+            <span className="text-[13px] font-medium uppercase tracking-widest">Setup Required</span>
+          </Link>
         )}
 
         {/* Wallet Connection */}
         {isConnected ? (
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-zinc-400 font-mono bg-zinc-900 px-3 py-2 rounded-md border border-zinc-800">
+          <div className="flex items-center space-x-3">
+            <span className="text-[12px] text-zinc-500 font-mono tracking-wider">
               {address?.slice(0, 6)}...{address?.slice(-4)}
             </span>
-            <Button variant="outline" size="sm" onClick={() => disconnect()} className="h-9">
+            <button
+              onClick={() => disconnect()}
+              className="text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-100 transition-colors"
+            >
               Disconnect
-            </Button>
+            </button>
           </div>
         ) : (
-          <Button
-            size="sm"
+          <button
             onClick={() => connect({ connector: connectors[0] })}
-            className="h-9 font-medium"
+            className="text-[13px] font-medium tracking-wide text-zinc-300 bg-transparent hover:text-white border border-[#27272A] hover:border-[#3F3F46] hover:bg-[#18181B] px-8 py-2 rounded-md transition-all"   
           >
-            Connect Wallet
-          </Button>
+            Connect
+          </button>
         )}
+
+        <div className="w-[1px] h-4 bg-[#0A0A0A]"></div>
+
+        {/* Settings Icon */}
+        <Link href="/settings" className="text-zinc-400 hover:text-zinc-100 transition-colors p-1">
+          <Settings size={18} strokeWidth={1.5} />
+        </Link>
       </div>
     </nav>
   );

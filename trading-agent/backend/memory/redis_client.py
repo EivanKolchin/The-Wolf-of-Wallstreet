@@ -5,11 +5,39 @@ from redis.asyncio import Redis, ConnectionPool
 from core.config import settings
 
 # Redis connection pool
+try:
+    import fakeredis.aioredis
+    _has_fake_redis = True
+except ImportError:
+    _has_fake_redis = False
+
 redis_pool = ConnectionPool.from_url(settings.REDIS_URL, decode_responses=True)
 
+# Try real redis first, fallback to fakeredis if connection fails or fake requested implicitly
+_fake_redis_instance = None
+
 async def get_redis() -> Redis:
-    """Returns a Redis connection from the pool."""
-    return Redis(connection_pool=redis_pool)
+    """Returns a Redis connection. Uses a mock if Redis isn't running."""
+    global _fake_redis_instance
+    if _fake_redis_instance:
+        return _fake_redis_instance
+
+    real_redis = Redis(connection_pool=redis_pool)
+    try:
+        # Ping the server to see if it's there
+        await real_redis.ping()
+        return real_redis
+    except Exception:
+        # Server not found, fallback to fakeredis
+        pass
+
+    if _has_fake_redis:
+        if not _fake_redis_instance:
+            _fake_redis_instance = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        return _fake_redis_instance
+    else:
+        # Re-raise or return broken real_redis to let it fail if no fakeredis
+        return real_redis
 
 
 @dataclass

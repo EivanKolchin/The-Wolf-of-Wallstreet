@@ -11,3 +11,7 @@ body {
   color: var(--foreground);
   background: var(--background);
 }
+
+/* Hide lightweight-charts open-source logo */
+a[href*='tradingview.com'] { display: none !important; }
+table tr:last-child td a { display: none !important; }

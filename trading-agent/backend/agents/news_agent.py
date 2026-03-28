@@ -4,7 +4,6 @@ import re
 from datetime import datetime, timezone, timedelta
 import structlog
 
-from anthropic import AsyncAnthropic
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy import select
 
@@ -30,7 +29,7 @@ Severity rules:
           stablecoin depeg, magnitude likely > 10%
 
 Respond in raw JSON only. No preamble, no markdown, no explanation:
-{
+{{
   "severity": "SIGNIFICANT",
   "asset": "BTC-USD",
   "direction": "down",
@@ -40,8 +39,8 @@ Respond in raw JSON only. No preamble, no markdown, no explanation:
   "t_min_minutes": 5,
   "t_max_minutes": 30,
   "rationale": "one sentence"
-}
-If NEUTRAL, respond: {"severity": "NEUTRAL"}"""
+}}
+If NEUTRAL, respond: {{"severity": "NEUTRAL"}}"""
 
 def extract_json(text: str) -> dict:
     match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -58,7 +57,7 @@ class LLMNewsAgent:
         news_pipeline: NewsIngestionPipeline,
         credibility_engine: CredibilityEngine,
         news_queue: PriorityNewsQueue,
-        anthropic_client: AsyncAnthropic,
+        llm_service,
         db_session_factory: async_sessionmaker,
         market_feed=None,
         min_trust_to_analyse: float = 0.40
@@ -66,7 +65,7 @@ class LLMNewsAgent:
         self.news_pipeline = news_pipeline
         self.credibility_engine = credibility_engine
         self.news_queue = news_queue
-        self.anthropic_client = anthropic_client
+        self.llm_service = llm_service
         self.db_session_factory = db_session_factory
         self.market_feed = market_feed
         self.min_trust_to_analyse = min_trust_to_analyse
@@ -80,13 +79,7 @@ class LLMNewsAgent:
         )
 
         try:
-            response = await self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=300,
-                temperature=0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            text = response.content[0].text
+            text = await self.llm_service.generate_text(prompt, tier="sonnet", max_tokens=300)
             data = extract_json(text)
         except Exception as e:
             logger.error("llm_classification_error", error=str(e), headline=article.headline)
@@ -160,7 +153,8 @@ class LLMNewsAgent:
                     await self.news_queue.put(impact)
                     logger.info("news_impact_detected", impact=impact.to_json() if hasattr(impact, 'to_json') else str(impact))
             except Exception as e:
-                logger.error("news_processor_error", error=str(e))
+                import traceback
+                logger.error("news_processor_error", error=str(e), traceback=traceback.format_exc())
             finally:
                 await asyncio.sleep(0.1)
 

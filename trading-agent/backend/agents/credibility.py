@@ -27,9 +27,9 @@ BASE_TRUST_SCORES = {
 FAST_LANE_THRESHOLD = 0.85
 
 class CredibilityEngine:
-    def __init__(self, db_session_factory: Any, anthropic_client: Any):
+    def __init__(self, db_session_factory: Any, llm_service: Any):
         self.db_session_factory = db_session_factory
-        self.anthropic = anthropic_client
+        self.llm_service = llm_service
 
     async def get_trust_score(self, source_domain: str) -> float:
         async with self.db_session_factory() as session:
@@ -61,16 +61,8 @@ Headline: {article.headline}
 Source: {article.source_domain}"""
 
         try:
-            response = await self.anthropic.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=20,
-                temperature=0.0,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            text = response.content[0].text.strip()
+            text = await self.llm_service.generate_text(prompt, tier="haiku", max_tokens=20)
+            text = text.strip()
             # Extract just the float in case LLM added extra chars
             match = re.search(r"[-+]?\d*\.\d+|\d+", text)
             

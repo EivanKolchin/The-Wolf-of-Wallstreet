@@ -97,6 +97,15 @@ class BinanceMarketFeed:
     async def get_klines(self, symbol: str) -> List[dict]:
         return list(self._closed_klines.get(symbol.upper(), []))
 
+    async def get_dataframe(self, symbol: str) -> pd.DataFrame:
+        data = list(self._closed_klines.get(symbol.upper(), []))
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data)
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("datetime", inplace=True)
+        return df
+
     async def get_orderbook(self, symbol: str) -> Optional[dict]:
         return self._orderbooks.get(symbol.upper())
 

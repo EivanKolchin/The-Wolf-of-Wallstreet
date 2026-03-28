@@ -1,149 +1,129 @@
 "use client";
-
+import React from "react";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import dynamic from 'next/dynamic';
+import { useMarketData } from "@/lib/hooks/useMarketData";
 import { useAppState } from "@/lib/context";
-import TradingChart from "@/components/TradingChart";
-import { ArrowDownIcon, ArrowUpIcon, Activity } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Activity, DollarSign, Brain } from "lucide-react";
 
-export default function DashboardPage() {
-    const { portfolio, signals, news, status } = useAppState();
+// Use dynamic import for TradingView widget because it relies on window/document
+const TradingChart = dynamic(() => import('@/components/TradingChart'), { ssr: false });
 
-    const pnl = portfolio?.daily_pnl || 0;
-    const isPnlPositive = pnl >= 0;
+export default function Dashboard() {
+  const { klines, orderbook, tradeHistory } = useMarketData("btcusdt");
+  const { status, signals } = useAppState();
 
-    const latestSignal = signals[0];
-    const confidence = latestSignal ? latestSignal.confidence : 0;
+  const currentPrice = klines.length > 0 ? klines[klines.length - 1].close : 0;
+  const prevPrice = klines.length > 2 ? klines[klines.length - 2].close : 0;
+  const priceDiff = currentPrice - prevPrice;
+  const priceDiffPct = prevPrice > 0 ? (priceDiff / prevPrice) * 100 : 0;
 
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* PnL Card */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col justify-between">
-                    <span className="text-zinc-400 text-sm font-medium">Total Portfolio Value</span>
-                    <div className="mt-2 flex items-baseline space-x-2">
-                        <span className="text-3xl font-bold text-white">${portfolio?.total_value_usd?.toFixed(2) || "0.00"}</span>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between text-sm">
-                        <span className="text-zinc-500">Daily PnL</span>
-                        <div className={`flex items-center font-medium ${isPnlPositive ? 'text-green-500' : 'text-red-500'}`}>
-                            {isPnlPositive ? <ArrowUpIcon className="w-4 h-4 mr-1" /> : <ArrowDownIcon className="w-4 h-4 mr-1" />}
-                            ${Math.abs(pnl).toFixed(2)}
-                        </div>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-sm">
-                        <span className="text-zinc-500">Drawdown</span>
-                        <span className="text-zinc-300">{(portfolio?.drawdown_pct || 0).toFixed(2)}%</span>
-                    </div>
-                </div>
+  const latestSignal = signals?.[0];
 
-                {/* Confidence Gauge */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col items-center justify-center relative overflow-hidden">
-                    <span className="text-zinc-400 text-sm font-medium absolute top-4 left-4">NN Confidence</span>
-                    <div className="relative w-32 h-32 mt-6 flex items-center justify-center">
-                        <svg className="w-full h-full transform -rotate-90">
-                            <circle cx="64" cy="64" r="56" className="stroke-zinc-800" strokeWidth="12" fill="none" />
-                            <motion.circle
-                                cx="64" cy="64" r="56"
-                                className="stroke-blue-500"
-                                strokeWidth="12" fill="none"
-                                strokeDasharray="351.858"
-                                strokeDashoffset={351.858 - (351.858 * (confidence * 100)) / 100}
-                                strokeLinecap="round"
-                                initial={{ strokeDashoffset: 351.858 }}
-                                animate={{ strokeDashoffset: 351.858 - (351.858 * (confidence * 100)) / 100 }}
-                                transition={{ duration: 1, ease: "easeOut" }}
-                            />
-                        </svg>
-                        <div className="absolute flex flex-col items-center">
-                            <span className="text-2xl font-bold text-white">{(confidence * 100).toFixed(1)}%</span>
-                        </div>
-                    </div>
-                </div>
+  return (
+    <div className="space-y-6 max-w-[1400px] mx-auto pt-4 font-sans fadeIn">
+      <div className="grid gap-6 md:grid-cols-3">
 
-                {/* Regime Widget */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col justify-between">
-                    <span className="text-zinc-400 text-sm font-medium">Market Regime</span>
-                    <div className="flex flex-col items-center mt-4">
-                        <Activity className="w-10 h-10 text-zinc-600 mb-2" />
-                        <span className="text-xl font-bold text-white capitalize">{latestSignal?.direction || "NEUTRAL"}</span>
-                    </div>
-                    <div className="mt-6">
-                        <div className="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
-                            <motion.div 
-                                className={`h-full ${latestSignal?.direction === 'long' ? 'bg-green-500' : latestSignal?.direction === 'short' ? 'bg-red-500' : 'bg-zinc-500'}`} 
-                                initial={{ width: 0 }}
-                                animate={{ width: `${confidence * 100}%` }}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Active News Widget */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 flex flex-col justify-between relative overflow-hidden group">
-                    <span className="text-zinc-400 text-sm font-medium">Active News Impact</span>
-                    {news ? (
-                        <div className="mt-4">
-                            <div className="flex items-center space-x-2">
-                                <span className={`px-2 py-1 text-xs font-bold rounded-md ${
-                                    news.severity === 'SEVERE' ? 'bg-red-500/20 text-red-500' : 
-                                    news.severity === 'SIGNIFICANT' ? 'bg-orange-500/20 text-orange-500' : 
-                                    'bg-zinc-500/20 text-zinc-400'
-                                }`}>
-                                    {news.severity}
-                                </span>
-                                <span className="text-sm font-semibold text-white">{news.asset}</span>
-                            </div>
-                            <p className="mt-3 text-sm text-zinc-300 line-clamp-3">{news.rationale}</p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-zinc-500 mt-4">
-                            <span className="text-sm">No significant active news.</span>
-                        </div>
-                    )}
-                </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle>Current Price</CardTitle>
+            <DollarSign size={15} className="text-zinc-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl tracking-tight font-semibold text-[#D1D4DC] font-mono">
+              ${parseFloat(currentPrice.toString()).toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </div>
+            <p className={`text-[12px] font-mono mt-1 font-medium ${priceDiff >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {priceDiff >= 0 ? '+' : ''}{priceDiff.toFixed(2)} ({priceDiffPct.toFixed(2)}%)
+            </p>
+          </CardContent>
+        </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
-                    <TradingChart symbol="BTCUSDT" />
-                </div>
-                
-                {/* Signal Feed */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col h-[400px]">
-                    <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                        <span className="font-semibold text-white">Live Signal Feed</span>
-                        <span className="text-xs text-zinc-500">Auto-updating</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                        <AnimatePresence>
-                            {signals.map((sig, idx) => (
-                                <motion.div
-                                    key={idx}
-                                    initial={{ opacity: 0, y: -20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0 }}
-                                    className="bg-zinc-950/50 border border-zinc-800/50 p-3 rounded-lg flex items-center justify-between"
-                                >
-                                    <div className="flex items-center space-x-3">
-                                        <div className={`w-2 h-2 rounded-full ${sig.direction === 'long' ? 'bg-green-500' : sig.direction === 'short' ? 'bg-red-500' : 'bg-zinc-500'}`} />
-                                        <div>
-                                            <div className="text-sm font-semibold text-white uppercase">{sig.asset} {sig.direction}</div>
-                                            <div className="text-xs text-zinc-500">{new Date(sig.timestamp || Date.now()).toLocaleTimeString()}</div>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="text-sm font-medium text-white">{(sig.confidence * 100).toFixed(1)}%</div>
-                                        <div className="text-xs text-zinc-500">Confidence</div>
-                                    </div>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                        {signals.length === 0 && (
-                            <div className="text-zinc-500 text-sm text-center mt-10">Waiting for signals...</div>
-                        )}
-                    </div>
-                </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle>AI Conviction</CardTitle>
+            <Activity size={15} className="text-zinc-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] flex items-center capitalize">
+              {latestSignal?.direction || "Neutral"}
             </div>
-        </div>
-    );
+            <p className={`text-[12px] tracking-wide mt-1 font-medium ${latestSignal?.direction === 'long' ? 'text-emerald-500' : latestSignal?.direction === 'short' ? 'text-rose-500' : 'text-zinc-400'}`}>
+              Confidence: {Math.round((latestSignal?.metadata?.confidence || 0) * 100)}%
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle>LLM Analysis</CardTitle>
+            <Brain size={15} className="text-zinc-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] flex items-center">
+              Neuromorphic Engine
+            </div>
+            <p className="text-[12px] tracking-wide text-zinc-400 mt-1 capitalize">Mode: Standing By</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-7 lg:grid-cols-8">
+        <Card className="col-span-4 lg:col-span-6 min-h-[500px] flex flex-col p-0 overflow-hidden">
+          <CardHeader className="border-b border-zinc-800/50">
+            <CardTitle>Market Trajectory</CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 p-0 m-0">
+            <TradingChart symbol="BTCUSDT" />
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-3 lg:col-span-2 h-full">
+          <CardHeader className="border-b border-zinc-800/50 pb-4">
+            <CardTitle>Orderbook Alpha</CardTitle>
+          </CardHeader>
+          <CardContent className="font-mono text-[11px] text-zinc-400 space-y-4 pt-4">
+            <div>
+              <div className="flex justify-between mb-2 text-zinc-400">
+                <span>Price (USD)</span>
+                <span>Size (BTC)</span>
+              </div>
+              <div className="space-y-1.5 mt-2">
+                {orderbook?.asks?.slice(0, 5).reverse().map((ask: number[], i: number) => (
+                  <div key={i} className="flex justify-between text-rose-500/90">
+                    <span>{parseFloat(ask[0].toString()).toFixed(2)}</span>
+                    <span className="text-[#D1D4DC]">{parseFloat(ask[1].toString()).toFixed(4)}</span>
+                  </div>
+                ))}
+                <div className="my-3 border-y border-zinc-800/50 py-1.5 text-center text-[#D1D4DC] tracking-widest text-[10px]">
+                  SPREAD
+                </div>
+                {orderbook?.bids?.slice(0, 5).map((bid: number[], i: number) => (
+                  <div key={i} className="flex justify-between text-emerald-500/90">
+                    <span>{parseFloat(bid[0].toString()).toFixed(2)}</span>
+                    <span className="text-[#D1D4DC]">{parseFloat(bid[1].toString()).toFixed(4)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="pt-4 mt-4 border-t border-zinc-800/50">
+               <div className="flex justify-between mb-3 text-zinc-400">
+                <span>Recent Prints</span>
+                <span>Time</span>
+              </div>
+              <div className="space-y-2 opacity-90">
+                {tradeHistory?.slice(0, 8).map((trade: any, i: number) => (
+                  <div key={i} className={`flex justify-between ${trade.is_buyer_maker ? 'text-rose-500' : 'text-emerald-500'}`}>
+                    <span>${parseFloat(trade.price).toFixed(1)}</span>
+                    <span className="text-[#D1D4DC]">{new Date(trade.time).toLocaleTimeString([], { hour12: false, second: '2-digit' })}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }

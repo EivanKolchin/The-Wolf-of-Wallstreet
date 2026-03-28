@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Tuple, List
 import pandas as pd
-import pandas_ta as ta
+import talib
 import numpy as np
 from structlog import get_logger
 
@@ -35,10 +35,10 @@ class RegimeDetector:
             current_vol = volume.iloc[-1]
             
             # inline indicators
-            atr = ta.atr(high, low, close, length=14)
-            adx_res = ta.adx(high, low, close, length=14)
-            ema_50 = ta.ema(close, length=50)
-            ema_200 = ta.ema(close, length=200)
+            atr = pd.Series(talib.ATR(high.values, low.values, close.values, timeperiod=14), index=close.index)
+            adx_res = pd.DataFrame({"ADX_14": talib.ADX(high.values, low.values, close.values, timeperiod=14)}, index=close.index)
+            ema_50 = pd.Series(talib.EMA(close.values, timeperiod=50), index=close.index)
+            ema_200 = pd.Series(talib.EMA(close.values, timeperiod=200), index=close.index)
             
             recent_atr = atr.iloc[-200:]
             recent_close = close.iloc[-200:]

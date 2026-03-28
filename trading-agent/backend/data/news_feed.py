@@ -18,12 +18,14 @@ DEFAULT_RSS_FEEDS = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://news.sky.com/",
+    "https://www.theguardian.com/business"
 ]
 
 KEYWORDS = [
-    "bitcoin", "btc", "ethereum", "eth", "crypto", "fed", "rate", "inflation",
-    "sec", "cftc", "exchange", "hack", "regulation", "stablecoin", "defi",
-    "market", "stock", "nasdaq", "sp500", "recession", "tariff", "sanctions"
+    "bitcoin", "btc", "ethereum", "eth", "crypto", "rate", "inflation", "wallstreet",
+    "cftc", "exchange", "regulation", "stablecoin", "defi", "interest rate",
+    "market", "stock", "nasdaq", "sp500", "recession", "tariff", "sanctions", "war", "stock", "pandemic"
 ]
 
 @dataclass
