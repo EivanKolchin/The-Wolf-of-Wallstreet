@@ -99,8 +99,8 @@ export function SetupModal() {
   }
 
   return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xl p-4 font-sans antialiased">
-      <div className="bg-[#222224] border border-[#333336] rounded-[14px] w-full max-w-lg shadow-[0_0_80px_rgba(0,0,0,0.8)] relative overflow-hidden">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl p-4 font-sans antialiased">
+      <div className="bg-[#0C0C0E] border border-neutral-800/60 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden relative">
         
         {/* Subtle glowing orb in background */}
         <div className="absolute -top-32 -right-32 w-64 h-64 bg-neutral-500/5 rounded-full blur-[100px] pointer-events-none"></div>

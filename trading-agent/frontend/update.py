@@ -1,4 +1,6 @@
+import os
 
+code = r"""
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -12,11 +14,7 @@ const TIMEFRAMES = [
     { label: "1h", value: "1h" },
     { label: "4h", value: "4h" },
     { label: "1D", value: "1d" },
-    { label: "1W", value: "1w" },
-    { label: "1M", value: "1M" },
-    { label: "3M", value: "3M" },
-    { label: "1Y", value: "1Y" },
-    { label: "ALL", value: "ALL" }
+    { label: "1W", value: "1w" }
 ];
 
 export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }) {
@@ -388,3 +386,9 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
         </div>
     );
 }
+"""
+
+with open("components/TradingChart.tsx", "w", encoding="utf-8") as f:
+    f.write(code)
+
+print("SUCCESSFULLY WROTE PYTHON")
