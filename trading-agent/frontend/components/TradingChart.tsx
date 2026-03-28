@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { createChart, IChartApi, ISeriesApi } from "lightweight-charts";
+import { createChart, IChartApi, ISeriesApi, ColorType } from "lightweight-charts";
 import { Search, Pencil, Type, Activity, MousePointer2, Slash, Settings, Trash2, ListMinus, X } from "lucide-react";
 
 const TIMEFRAMES = [
@@ -23,13 +23,23 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const ema9Ref = useRef<ISeriesApi<"Line"> | null>(null);
+    const ema21Ref = useRef<ISeriesApi<"Line"> | null>(null);
 
     const [chartData, setChartData] = useState<any[]>([]);
-    const [timeframe, setTimeframe] = useState("15m");
+        const [timeframe, setTimeframe] = useState("15m");
     const [cursorDate, setCursorDate] = useState<number | null>(null);
-    
+
+    // Scroll Pagination States
+    const isFetchingHistory = useRef(false);
+    const hasMoreHistory = useRef(true);
+    const prevRangeInfo = useRef<any>(null);
+    const chartDataRef = useRef<any[]>([]);
+    const isSwitchingTfRef = useRef(false);
+
     // UI Panels
     const [showDatePanel, setShowDatePanel] = useState(false);
+    const [showFibMenu, setShowFibMenu] = useState(false);
     const [showIndicators, setShowIndicators] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     
@@ -55,9 +65,64 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
     const [selectedDrawing, setSelectedDrawing] = useState<number | null>(null);
     const [renderTick, setRenderTick] = useState(0);
 
+        // WebSocket Live Updates
+    useEffect(() => {
+        if (cursorDate || !symbol) return; // Do not live update historical views
+        let fetchTimeframe = timeframe;
+        if (timeframe === '3M' || timeframe === '1Y' || timeframe === 'ALL') fetchTimeframe = '1M';
+        
+        const wsUrl = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase().replace(/[^a-z0-9]/g, '')}@kline_${fetchTimeframe.toLowerCase()}`;
+        const ws = new WebSocket(wsUrl);
+
+        ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            if (message.e === 'kline') {
+                const k = message.k;
+                const newCandle = {
+                    time: k.t / 1000,
+                    open: parseFloat(k.o),
+                    high: parseFloat(k.h),
+                    low: parseFloat(k.l),
+                    close: parseFloat(k.c),
+                };
+
+                if (seriesRef.current) {
+                    seriesRef.current.update(newCandle as any);
+                }
+
+                if (chartDataRef.current && chartDataRef.current.length > 0) {
+                    const lastIdx = chartDataRef.current.length - 1;
+                    const lastCandle = chartDataRef.current[lastIdx];
+                    if (newCandle.time === lastCandle.time) {
+                        chartDataRef.current[lastIdx] = newCandle;
+                    } else if (newCandle.time > lastCandle.time) {
+                        chartDataRef.current.push(newCandle);
+                    }
+
+                    // Dynamically recalculate EMA tails
+                    if (config.ema9.show && ema9Ref.current) {
+                         const emaTails = calculateEMA(chartDataRef.current, 9);
+                         if (emaTails.length > 0) ema9Ref.current.update(emaTails[emaTails.length - 1] as any);
+                    }
+                    if (config.ema21.show && ema21Ref.current) {
+                         const emaTails = calculateEMA(chartDataRef.current, 21);
+                         if (emaTails.length > 0) ema21Ref.current.update(emaTails[emaTails.length - 1] as any);
+                    }
+                }
+            }
+        };
+
+        return () => ws.close();
+    }, [symbol, timeframe, cursorDate, config.ema9.show, config.ema21.show]);
+
     // Fetch Data
     useEffect(() => {
-        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=1000`;
+        hasMoreHistory.current = true;
+        isFetchingHistory.current = false;
+        let fetchTimeframe = timeframe;
+        if (timeframe === "3M" || timeframe === "1Y" || timeframe === "ALL") fetchTimeframe = "1M";
+        
+        let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${fetchTimeframe}&limit=1000`;
         if (cursorDate) url += `&startTime=${cursorDate}`;
 
         fetch(url)
@@ -67,24 +132,87 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                     time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]),
                 }));
                 const uniqueData = formatted.filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => (t.time === v.time)) === i);
+                chartDataRef.current = uniqueData;
                 setChartData(uniqueData);
             }).catch(console.error);
     }, [symbol, timeframe, cursorDate]);
 
+    const loadMoreHistory = async () => {
+        // Prevent simultaneous fetches or fetches when no data exists
+        if (isFetchingHistory.current || !hasMoreHistory.current) return;
+        
+        setChartData((currentData) => {
+            if (currentData.length === 0) return currentData;
+            
+            isFetchingHistory.current = true;
+            let fetchTimeframe = timeframe;
+            if (timeframe === "3M" || timeframe === "1Y" || timeframe === "ALL") fetchTimeframe = "1M";
+            
+            const earliestTime = currentData[0].time;
+            const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${fetchTimeframe}&limit=1000&endTime=${earliestTime * 1000 - 1}`;
+            
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        hasMoreHistory.current = false;
+                        isFetchingHistory.current = false;
+                        return;
+                    }
+                    const formatted = data.map((d: any) => ({
+                        time: d[0] / 1000, open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]),
+                    }));
+                    
+                    // Keep track of scroll offset
+                    if (chartRef.current) {
+                        const range = chartRef.current.timeScale().getVisibleLogicalRange();
+                        if (range) prevRangeInfo.current = { ...range, dataLength: currentData.length };
+                    }
+
+                    setChartData(prev => {
+                        const combined = [...formatted, ...prev];
+                        const unique = combined.filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => (t.time === v.time)) === i).sort((a: any, b: any) => a.time - b.time);
+                        chartDataRef.current = unique;
+                        return unique;
+                    });
+                })
+                .catch(e => {
+                    console.error(e);
+                    isFetchingHistory.current = false;
+                });
+            
+            return currentData;
+        });
+    };
+
+        const calculateEMA = (data: any[], period: number) => {
+        if (!data || data.length === 0) return [];
+        const k = 2 / (period + 1);
+        let emaData = [];
+        let ema = data[0].close;
+        for (let i = 0; i < data.length; i++) {
+            ema = (data[i].close - ema) * k + ema;
+            emaData.push({ time: data[i].time, value: ema });
+        }
+        return emaData;
+    };
+
     // Initialize Chart
     useEffect(() => {
-        if (!chartContainerRef.current || chartData.length === 0) return;
+        if (!chartContainerRef.current) return;
 
         const chart = createChart(chartContainerRef.current, {
-            layout: { background: { type: 'solid', color: '#000000' }, textColor: '#737373' },
+            layout: { background: { type: ColorType.Solid, color: '#000000' }, textColor: '#737373' },
             grid: { vertLines: { color: '#171717' }, horzLines: { color: '#171717' } },
             width: chartContainerRef.current.clientWidth,
             height: chartContainerRef.current.clientHeight,
             crosshair: { mode: 1, vertLine: { width: 1, color: '#404040', style: 3 }, horzLine: { width: 1, color: '#404040', style: 3 } },
-            timeScale: { 
-                timeVisible: true, 
-                secondsVisible: false, 
-                borderColor: '#171717', 
+            timeScale: {
+                fixLeftEdge: true,
+                fixRightEdge: true,
+                timeVisible: true,
+                secondsVisible: false,
+                borderColor: '#171717',
                 rightOffset: 12,
                 barSpacing: 10,
                 minBarSpacing: 1
@@ -92,7 +220,57 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
             rightPriceScale: { borderColor: '#171717' }
         });
 
-        chart.timeScale().subscribeVisibleLogicalRangeChange(() => setRenderTick(t => t + 1));
+                chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
+            setRenderTick(t => t + 1);
+            if (logicalRange !== null) {
+                if (logicalRange.from < -50) {
+                    loadMoreHistory();
+                }
+
+                // Auto timeframe switching mechanism
+                const visibleBars = logicalRange.to - logicalRange.from;
+
+                const now = Date.now();
+                const lastSwitch = (window as any).lastTfSwitchTime || 0;
+
+                if (!isSwitchingTfRef.current && (now - lastSwitch > 1200)) {
+                    if (visibleBars > 400 || visibleBars < 20) {
+                        isSwitchingTfRef.current = true;
+                        
+                        setTimeframe(prevTf => {
+                            const tfLevels = ["1m", "5m", "15m", "1h", "4h", "1d", "1w", "1M", "3M", "1Y", "ALL"];
+                            const currentIndex = tfLevels.indexOf(prevTf);
+
+                            if (currentIndex !== -1) {
+                                let newTf = prevTf;
+                                if (visibleBars > 400 && currentIndex < tfLevels.length - 1) {
+                                    newTf = tfLevels[currentIndex + 1];
+                                } else if (visibleBars < 20 && currentIndex > 0) {
+                                    newTf = tfLevels[currentIndex - 1];
+                                }
+                                
+                                if (newTf !== prevTf) {
+                                    if (chartRef.current && chartDataRef.current && chartDataRef.current.length > 0) {
+                                        const currentRange = chartRef.current.timeScale().getVisibleLogicalRange();
+                                        if (currentRange) {
+                                            const fromIdx = Math.max(0, Math.floor(currentRange.from));
+                                            const toIdx = Math.min(chartDataRef.current.length - 1, Math.ceil(currentRange.to));
+                                            const fromTime = chartDataRef.current[fromIdx]?.time;
+                                            const toTime = chartDataRef.current[toIdx]?.time;
+                                            prevRangeInfo.current = { isTimeframeSwitch: true, fromTime, toTime, expand: visibleBars > 400 };
+                                        }
+                                    }
+                                    (window as any).lastTfSwitchTime = Date.now();
+                                    return newTf;
+                                }
+                            }
+                            isSwitchingTfRef.current = false; // revert if no change
+                            return prevTf;
+                        });
+                    }
+                }
+            }
+        });
         chart.timeScale().subscribeVisibleTimeRangeChange(() => setRenderTick(t => t + 1));
 
         const handleResize = () => {
@@ -107,24 +285,14 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
 
         chartRef.current = chart;
         seriesRef.current = series;
-
-        const calculateEMA = (data: any[], period: number) => {
-            const k = 2 / (period + 1);
-            let emaData = [];
-            let ema = data[0].close;
-            for (let i = 0; i < data.length; i++) {
-                ema = (data[i].close - ema) * k + ema;
-                emaData.push({ time: data[i].time, value: ema });
-            }
-            return emaData;
-        };
-
-        if (config.ema9.show) {
+if (config.ema9.show) {
             const ema9 = chart.addLineSeries({ color: config.ema9.color, lineWidth: config.ema9.lineWidth as any, title: 'EMA 9' });
+            ema9Ref.current = ema9;
             ema9.setData(calculateEMA(chartData, 9));
         }
         if (config.ema21.show) {
             const ema21 = chart.addLineSeries({ color: config.ema21.color, lineWidth: config.ema21.lineWidth as any, title: 'EMA 21' });
+            ema21Ref.current = ema21;
             ema21.setData(calculateEMA(chartData, 21));
         }
 
@@ -132,7 +300,63 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
-    }, [chartData, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth]);
+        }, [symbol, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth]);
+
+    useEffect(() => {
+        if (chartData.length > 0 && seriesRef.current) {
+            seriesRef.current.setData(chartData);
+// Update EMAs
+            if (ema9Ref.current) ema9Ref.current.setData(calculateEMA(chartData, 9));
+            if (ema21Ref.current) ema21Ref.current.setData(calculateEMA(chartData, 21));
+            // Re-render EMA lines if config is ON
+            // Note: In real app, you'd add ref for EMA series to replace data, but recreating chart handles it via dependency if we just let it.
+            // Since we removed chartData from init dependencies, we just set main series data.
+
+            if (prevRangeInfo.current && chartRef.current) {
+                if (prevRangeInfo.current.isTimeframeSwitch && prevRangeInfo.current.fromTime !== undefined) {
+                    const fromTime = prevRangeInfo.current.fromTime;
+                    const toTime = prevRangeInfo.current.toTime;
+                    const expand = prevRangeInfo.current.expand;
+
+                    let fromIdx = chartData.findIndex((d: any) => d.time >= fromTime);
+                    let toIdx = chartData.findIndex((d: any) => d.time >= toTime);
+                    
+                    if (fromIdx === -1) fromIdx = 0;
+                    if (toIdx === -1) toIdx = chartData.length - 1;
+                    
+                    if (expand) {
+                         // When zooming out over 350 bars, we switch timeframe, which means fewer new bars. 350 bars on 1m = 70 bars on 5m.
+                         let mid = Math.floor((fromIdx + toIdx) / 2);
+                         fromIdx = mid - 50; 
+                         toIdx = mid + 50;
+                    } else {
+                         // When zooming in, 40 bars on 5m = 200 bars on 1m.
+                         let mid = Math.floor((fromIdx + toIdx) / 2);
+                         fromIdx = mid - 100;
+                         toIdx = mid + 100;
+                    }
+
+                    if (fromIdx < 0) fromIdx = 0;
+                    if (toIdx >= chartData.length) toIdx = chartData.length - 1;
+
+                    chartRef.current.timeScale().setVisibleLogicalRange({
+                        from: fromIdx,
+                        to: toIdx
+                    });
+                } else if (prevRangeInfo.current.from !== undefined && !prevRangeInfo.current.isTimeframeSwitch) {
+                     const newLength = chartData.length;
+                     const oldLength = prevRangeInfo.current.dataLength || 0;       
+                     const offset = newLength - oldLength;
+                     if (offset > 0) {
+                         chartRef.current.timeScale().setVisibleLogicalRange({from: prevRangeInfo.current.from + offset, to: prevRangeInfo.current.to + offset});   
+                     }
+                }
+            }
+            prevRangeInfo.current = null;
+            isFetchingHistory.current = false;
+            setTimeout(() => { isSwitchingTfRef.current = false; }, 800);
+        }
+    }, [chartData]);
 
     const handleMapToChart = (clientX: number, clientY: number) => {
         if (!chartRef.current || !seriesRef.current || !chartContainerRef.current) return null;
@@ -200,7 +424,7 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
         { id: 'line', icon: <Slash size={16} /> },
         { id: 'pencil', icon: <Pencil size={16} /> },
         { id: 'text', icon: <Type size={16} /> },
-        { id: 'fib', icon: <ListMinus size={16} /> },
+        // Fib handled externally in dropdown
     ];
 
     return (
@@ -239,15 +463,109 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                             <Activity size={14} /> <span>Indicators</span>
                         </button>
                         {showIndicators && (
-                            <div className="absolute top-10 right-0 w-56 bg-[#0A0A0A] border border-[#171717] p-2 rounded-lg shadow-2xl z-50">
-                                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-2">Moving Averages</div>
-                                <div className="space-y-1">
-                                    <label className="flex items-center px-2 py-1.5 hover:bg-[#171717] rounded cursor-pointer text-xs text-zinc-300">
-                                        <input type="checkbox" checked={config.ema9.show} onChange={(e) => setConfig({...config, ema9: {...config.ema9, show: e.target.checked}})} className="mr-2 accent-[#38BDF8]" /> EMA 9
-                                    </label>
-                                    <label className="flex items-center px-2 py-1.5 hover:bg-[#171717] rounded cursor-pointer text-xs text-zinc-300">
-                                        <input type="checkbox" checked={config.ema21.show} onChange={(e) => setConfig({...config, ema21: {...config.ema21, show: e.target.checked}})} className="mr-2 accent-[#FCD34D]" /> EMA 21
-                                    </label>
+                            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl p-4 font-sans antialiased">
+                                <div className="bg-[#0C0C0E] border border-neutral-800/60 rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden relative flex flex-col max-h-[85vh]">
+                                    <div className="p-4 border-b border-neutral-800/60 flex justify-between items-center bg-[#121214]">
+                                        <h2 className="text-xl font-semibold text-neutral-100">Indicators, Metrics & Strategies</h2>
+                                        <button onClick={() => setShowIndicators(false)} className="text-neutral-500 hover:text-white transition-colors">
+                                            <X size={20} />
+                                        </button>
+                                    </div>
+                                    <div className="p-4 border-b border-neutral-800/60 bg-[#0C0C0E]">
+                                        <div className="relative">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+                                            <input type="text" placeholder="Search for indicators..." className="w-full bg-[#1A1A1D] border border-neutral-800/60 rounded-xl pl-10 pr-4 py-3 text-sm text-neutral-200 focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20" />
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-2 bg-[#0C0C0E] custom-scrollbar">
+                                        <div className="p-4">
+                                            <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4 px-2">Trend Indicators</div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" checked={config.ema9?.show} onChange={(e) => setConfig({...config, ema9: {...config.ema9, show: e.target.checked}})} className="mt-1 mr-4 w-4 h-4 accent-[#38BDF8] rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">EMA 9</span><span className="text-xs text-zinc-500 mt-0.5">Exponential Moving Average 9</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" checked={config.ema21?.show} onChange={(e) => setConfig({...config, ema21: {...config.ema21, show: e.target.checked}})} className="mt-1 mr-4 w-4 h-4 accent-[#FCD34D] rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">EMA 21</span><span className="text-xs text-zinc-500 mt-0.5">Exponential Moving Average 21</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">SMA 50</span><span className="text-xs text-zinc-500 mt-0.5">Simple Moving Average 50</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">SMA 200</span><span className="text-xs text-zinc-500 mt-0.5">Simple Moving Average 200</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">VWMA</span><span className="text-xs text-zinc-500 mt-0.5">Volume Weighted Moving Average</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Ichimoku Cloud</span><span className="text-xs text-zinc-500 mt-0.5">Ichimoku Kinko Hyo</span></div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div className="px-4 pb-4">
+                                            <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4 px-2">Oscillators</div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">RSI</span><span className="text-xs text-zinc-500 mt-0.5">Relative Strength Index</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">MACD</span><span className="text-xs text-zinc-500 mt-0.5">Moving Average Convergence Divergence</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Stochastic</span><span className="text-xs text-zinc-500 mt-0.5">Stochastic Oscillator</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">CCI</span><span className="text-xs text-zinc-500 mt-0.5">Commodity Channel Index</span></div>
+                                                </label>
+                                                 <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Awesome Oscillator</span><span className="text-xs text-zinc-500 mt-0.5">AO</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Momentum</span><span className="text-xs text-zinc-500 mt-0.5">Momentum Indicator</span></div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div className="px-4 pb-4">
+                                            <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-4 px-2">Volatility & Volume</div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Bollinger Bands</span><span className="text-xs text-zinc-500 mt-0.5">Bollinger Bands</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">ATR</span><span className="text-xs text-zinc-500 mt-0.5">Average True Range</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Volume</span><span className="text-xs text-zinc-500 mt-0.5">Trading Volume</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">VWAP</span><span className="text-xs text-zinc-500 mt-0.5">Volume Weighted Average Price</span></div>
+                                                </label>
+                                                <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">OBV</span><span className="text-xs text-zinc-500 mt-0.5">On Balance Volume</span></div>
+                                                </label>
+                                                 <label className="flex items-start px-3 py-3 hover:bg-[#17171A] rounded-xl cursor-pointer text-sm text-zinc-300 transition-colors group">
+                                                    <input type="checkbox" className="mt-1 mr-4 w-4 h-4 accent-zinc-500 rounded bg-[#1A1A1D] border-neutral-700" />
+                                                    <div className="flex flex-col"><span className="text-neutral-200 font-medium group-hover:text-white transition-colors">Chaikin Money Flow</span><span className="text-xs text-zinc-500 mt-0.5">CMF</span></div>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -296,11 +614,30 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
 
             <div className="flex flex-1 relative bg-[#000000]">
                 <div className="flex flex-col items-center py-2 space-y-1.5 w-10 border-r border-[#171717] bg-[#0A0A0A] z-40 shrink-0">
-                    {tools.map(tool => (
-                        <button key={tool.id} title={tool.id.toUpperCase()} onClick={() => setActiveTool(tool.id)} className={`p-2 rounded-md transition-colors ${activeTool === tool.id ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                            {tool.icon}
+                    {tools.map(tool => {
+                        if (tool.id === 'pointer' || tool.id === 'line' || tool.id === 'pencil' || tool.id === 'text') {
+                            return (
+                                <button key={tool.id} title={tool.id.toUpperCase()} onClick={() => setActiveTool(tool.id)} className={`p-2 rounded-md transition-colors ${activeTool === tool.id ? 'bg-[#171717] text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                                    {tool.icon}
+                                </button>
+                            );
+                        }
+                        return null;
+                    })}
+                    <div className="relative group">
+                        <button onClick={() => setShowFibMenu(!showFibMenu)} className={`p-2 rounded-md transition-colors ${activeTool.startsWith('fib') ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-500 hover:text-zinc-300 hover:bg-[#171717]'}`} title="FIBONACCI TOOLS">
+                            <ListMinus size={16} />
                         </button>
-                    ))}
+                        {showFibMenu && (
+                            <div className="absolute left-10 top-0 w-48 bg-[#121214] border border-[#27272a] rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1">
+                                <button onClick={() => {setActiveTool('fib'); setShowFibMenu(false);}} className={`text-left px-3 py-2 rounded-lg text-xs transition-colors ${activeTool === 'fib' ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-300 hover:bg-[#27272a]'}`}>Fibonacci Retracement</button>
+                                <button onClick={() => {setActiveTool('fib-extension'); setShowFibMenu(false);}} className={`text-left px-3 py-2 rounded-lg text-xs transition-colors ${activeTool === 'fib-extension' ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-300 hover:bg-[#27272a]'}`}>Trend-Based Fib Extension</button>
+                                <button onClick={() => {setActiveTool('fib-channel'); setShowFibMenu(false);}} className={`text-left px-3 py-2 rounded-lg text-xs transition-colors ${activeTool === 'fib-channel' ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-300 hover:bg-[#27272a]'}`}>Fibonacci Channel</button>
+                                <button onClick={() => {setActiveTool('fib-timezone'); setShowFibMenu(false);}} className={`text-left px-3 py-2 rounded-lg text-xs transition-colors ${activeTool === 'fib-timezone' ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-300 hover:bg-[#27272a]'}`}>Fibonacci Time Zone</button>
+                                <button onClick={() => {setActiveTool('fib-circles'); setShowFibMenu(false);}} className={`text-left px-3 py-2 rounded-lg text-xs transition-colors ${activeTool === 'fib-circles' ? 'bg-orange-500/20 text-orange-500' : 'text-zinc-300 hover:bg-[#27272a]'}`}>Fibonacci Circles</button>
+                            </div>
+                        )}
+                    </div>
                     {drawings.length > 0 && (
                         <button onClick={() => setDrawings([])} className="p-2 mt-4 rounded-md text-xs font-bold text-rose-500 hover:bg-[#171717] transition-all" title="Clear All">
                             ?

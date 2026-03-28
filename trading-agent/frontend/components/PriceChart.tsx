@@ -10,7 +10,7 @@ export default function PriceChart({ data }: { data?: any[] }) {
         autosize
         allow_symbol_change={false}
         calendar={false}
-        studies={["MASimple@tv-basicstudies", "Auto Fib Retracement", "EMA@tv-basicstudies"]}
+        studies={["MASimple@tv-basicstudies"]}
         style="1"
         toolbar_bg="#000000"
         backgroundColor="#000000"
@@ -20,8 +20,7 @@ export default function PriceChart({ data }: { data?: any[] }) {
         save_image={false}
         container_id="tradingview_chart"
         interval="15"
-        theme="dark"
-        
+
         timezone="Etc/UTC"
       />
     </div>
