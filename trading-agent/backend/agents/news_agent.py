@@ -144,6 +144,19 @@ class LLMNewsAgent:
         while True:
             try:
                 article = await article_queue.get()
+                
+                # Push raw article to redis for the frontend dashboard widget
+                try:
+                    raw_data = json.dumps({
+                        "headline": article.headline,
+                        "source": article.source_domain,
+                        "time": datetime.utcnow().isoformat()
+                    })
+                    await self.news_queue.redis.lpush("recent_raw_news", raw_data)
+                    await self.news_queue.redis.ltrim("recent_raw_news", 0, 19)
+                except Exception as e:
+                    logger.warning("failed_to_push_raw_news", error=str(e))
+
                 trust_score, is_fast = await self.credibility_engine.score_article(article)
                 if trust_score < self.min_trust_to_analyse:
                     continue

@@ -58,7 +58,7 @@ def run_nn_agent(severe_flag):
             db_session_factory=AsyncSessionLocal
         )
         
-        from backend.execution.defi_engine import UniswapV3Executor, DefiPortfolioTracker
+        from backend.execution.defi_engine import UniswapV3Executor, DefiPortfolioTracker, DefiExecutionEngine
         from web3 import Web3
         web3_client = Web3(Web3.HTTPProvider(settings.ARBITRUM_RPC_URL or "https://arb1.arbitrum.io/rpc"))
         
@@ -78,7 +78,7 @@ def run_nn_agent(severe_flag):
             redis_client=redis_session
         )
         
-        exec_engine = ExecutionEngine(
+        exec_engine = DefiExecutionEngine(
             uniswap=uniswap,
             portfolio=portfolio,
             kite_chain=kite_chain,

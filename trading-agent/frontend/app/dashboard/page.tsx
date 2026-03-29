@@ -3,14 +3,18 @@ import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import dynamic from 'next/dynamic';
 import { useMarketData } from "@/lib/hooks/useMarketData";
+import { useNewsData } from "@/lib/hooks/useNewsData";
 import { useAppState } from "@/lib/context";
 import { Activity, DollarSign, Brain } from "lucide-react";
+import { NewsScannerWidget } from "@/components/NewsScannerWidget";
+import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
 
 // Use dynamic import for TradingView widget because it relies on window/document
 const TradingChart = dynamic(() => import('@/components/TradingChart'), { ssr: false });
 
 export default function Dashboard() {
   const { klines, orderbook, tradeHistory } = useMarketData("btcusdt");
+  const { rawNews, predictions } = useNewsData();
   const { status, signals } = useAppState();
 
   const currentPrice = klines.length > 0 ? klines[klines.length - 1].close : 0;
@@ -123,6 +127,15 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="col-span-1 border-t-0">
+          <NewsScannerWidget rawNews={rawNews} />
+        </div>
+        <div className="col-span-1 lg:col-span-2 border-t-0">
+          <NewsInsightsWidget predictions={predictions} />
+        </div>
       </div>
     </div>
   );

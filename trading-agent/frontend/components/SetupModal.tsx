@@ -138,11 +138,11 @@ export function SetupModal() {
     return null;
   }
 
-  if (!data.needs_setup && !skipped) {
-    return null; // All good!
+  if (!data.needs_setup) {
+    return null;
   }
 
-  if (skipped && data.needs_setup) {
+  if (skipped) {
     return (
       <div className="fixed bottom-0 left-0 top-auto border-t border-b-0 pointer-events-none w-full z-[100] bg-orange-950/40 border-b border-orange-500/20 backdrop-blur-md h-12 flex justify-center items-center text-xs font-medium tracking-widest text-orange-200/80 shadow-md">
         <span>AGENT OFFLINE: KEYS MISSING.</span>

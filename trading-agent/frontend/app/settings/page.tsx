@@ -48,12 +48,12 @@ export default function SettingsPage() {
   const [kiteApiSecret, setKiteApiSecret] = useState("");
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/setup/config")
-      .then((res) => {
+    const fetchConfig = async (retries = 3) => {
+      try {
+        const res = await fetch(`http://localhost:8000/api/setup/config?t=${Date.now()}`);
         if (!res.ok) throw new Error("Backend not reachable");
-        return res.json();
-      })
-      .then((cfg) => {
+        const cfg = await res.json();
+        
         setProvider(cfg.AI_PROVIDER || "gemini");
         
         let gKey = cfg.GEMINI_API_KEY || "";
@@ -94,11 +94,17 @@ export default function SettingsPage() {
         setTelegramApiHash(sanitize(cfg.TELEGRAM_API_HASH || ""));
         
         setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch setup config", err);
-        setLoading(false);
-      });
+      } catch (err) {
+        if (retries > 0) {
+          setTimeout(() => fetchConfig(retries - 1), 1000);
+        } else {
+          console.error("Failed to fetch setup config", err);
+          setLoading(false);
+        }
+      }
+    };
+    
+    fetchConfig();
   }, []);
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {

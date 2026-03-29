@@ -211,6 +211,19 @@ async def get_news_recent(limit: int = 20):
         result = await session.execute(stmt)
         return result.scalars().all()
 
+@router.get("/api/news/raw")
+async def get_raw_news():
+    redis = await get_redis()
+    raw = await redis.lrange("recent_raw_news", 0, 19)
+    # Filter out empty or unparseable items
+    valid_news = []
+    for r in raw:
+        try:
+            valid_news.append(json.loads(r))
+        except:
+            pass
+    return valid_news
+
 @router.get("/api/audit")
 async def get_audit(limit: int = 20):
     async with async_session_maker() as session:

@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 ENV_PATH = BASE_DIR / ".env"
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=str(ENV_PATH), env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(env_file=str(ENV_PATH), env_file_encoding='utf-8', extra='ignore')
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./trading-agent.db"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     ALPACA_API_KEY: str = ""
     ALPACA_SECRET: str = ""
+    ALPACA_SECRET_KEY: str = ""
 
     KITE_CHAIN_RPC_URL: str = ""
     KITE_CHAIN_PRIVATE_KEY: str = ""
