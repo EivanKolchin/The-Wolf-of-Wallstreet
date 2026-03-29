@@ -25,7 +25,8 @@ export default function SettingsPage() {
   const [agPkLocked, setAgPkLocked] = useState(false);
   const [showAgPk, setShowAgPk] = useState(false);
   const [agentWalletAddress, setAgentWalletAddress] = useState("");
-  
+  const [paperMode, setPaperMode] = useState(true);
+
   // Other Brokers / Social Services
   const [alpacaApiKey, setAlpacaApiKey] = useState("");
   const [alpacaSecretKey, setAlpacaSecretKey] = useState("");
@@ -75,8 +76,8 @@ export default function SettingsPage() {
         setLlmKey(initialLlmKey);
         if (isRealKey(initialLlmKey)) setLlmKeyLocked(true);
         
-        setArbitrumRpcUrl(sanitize(cfg.ARBITRUM_RPC_URL || ""));
-        
+        setPaperMode(cfg.PAPER_MODE === "true" || cfg.PAPER_MODE === true);
+
         setAgentPrivateKey(sanitize(cfg.AGENT_PRIVATE_KEY || ""));
         if (isRealKey(cfg.AGENT_PRIVATE_KEY)) setAgPkLocked(true);
         
@@ -134,6 +135,7 @@ export default function SettingsPage() {
         AI_PROVIDER: provider,
         GEMINI_API_KEY: provider === "gemini" ? llmKey : geminiKeyCached,
         ANTHROPIC_API_KEY: provider === "anthropic" ? llmKey : anthropicKeyCached,
+        PAPER_MODE: paperMode ? "true" : "false",
         ARBITRUM_RPC_URL: arbitrumRpcUrl,
         AGENT_PRIVATE_KEY: agentPrivateKey,
         AGENT_WALLET_ADDRESS: agentWalletAddress,
@@ -254,6 +256,34 @@ export default function SettingsPage() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
+            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500/80 mr-2"></div>
+              Trading Mode
+            </h3>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-[#161616] border border-[#333336] rounded-lg p-4">
+                <div>
+                  <h4 className="text-[14px] text-neutral-200 font-medium">Paper Trading</h4>
+                  <p className="text-[12px] text-neutral-500 mt-1">Simulate trades without using real funds.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPaperMode(!paperMode)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paperMode ? 'bg-[#FACC15]' : 'bg-neutral-600'} shrink-0`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${paperMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {!paperMode && (
+                <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-red-500 text-[12px] font-medium">
+                  WARNING: Live trading is active. Real swaps will be executed on Arbitrum. Ensure your agent wallet has sufficient USDC balance and gas.
+                </div>
+              )}
             </div>
           </div>
 

@@ -63,6 +63,12 @@ export default function Navbar() {
       {/* Utilities & States */}
       <div className="flex items-center space-x-5">
 
+        {status?.paper_mode && (
+          <Link href="/settings" className="flex items-center space-x-2 px-3 py-1 rounded bg-[#FACC15]/10 border border-[#FACC15]/20 text-[#FACC15] transition-all cursor-pointer">
+            <span className="text-[11px] font-medium uppercase tracking-widest">Paper Mode</span>
+          </Link>
+        )}
+
         <ClockPanel />
 
         {/* Missing Keys Setup Alert */}
