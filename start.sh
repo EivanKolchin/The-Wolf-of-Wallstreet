@@ -56,7 +56,7 @@ cd ..
 
 # 2. Start the Backend in a separate terminal to keep logs visible
 echo "[Backend] Starting in a new terminal..."
-BACKEND_CMD="cd '$PWD/backend' && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && $PYTHON_CMD -m venv .venv; fi && BACKEND_PY='./.venv/bin/python' && BACKEND_PIP='./.venv/bin/pip' && echo '[Backend] Installing Python dependencies...' && $BACKEND_PIP install --upgrade pip && $BACKEND_PIP install -r requirements.txt && echo '[Backend] Launching service...' && $BACKEND_PY main.py; echo; echo 'Backend exited. Press enter to close.'; read"
+BACKEND_CMD="cd \"\$PWD/backend\" && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && \"$PYTHON_CMD\" -m venv .venv; fi && echo '[Backend] Installing Python dependencies...' && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r ../requirements.txt && echo '[Backend] Launching service...' && export PYTHONPATH=\"\$PWD/..\" && .venv/bin/python main.py; echo; echo 'Backend exited. Press enter to close.'; read"
 
 if command -v gnome-terminal >/dev/null 2>&1; then
     gnome-terminal -- bash -c "$BACKEND_CMD"

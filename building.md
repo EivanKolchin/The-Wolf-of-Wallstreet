@@ -229,6 +229,8 @@ Requirements:
 - async get_redis() -> Redis  (returns connection from pool)
 ```
 
+status: done
+
 ---
 
 ## PROMPT 4 — Binance WebSocket market data feed
@@ -269,7 +271,7 @@ Also create:
   updates on each closed kline, thread-safe access via asyncio.Lock
 - Method: async get_dataframe(symbol: str) -> pd.DataFrame
 ```
-
+status: done 
 ---
 
 ## PROMPT 5 — Technical indicator engine
@@ -336,6 +338,7 @@ Functions to implement:
    Add error handling: if any single function fails, fill its outputs with 0.5 (neutral).
    Log the failure with structlog but do not raise.
 ```
+status: done
 
 ---
 
@@ -390,6 +393,7 @@ Functions:
 6. build_orderbook_feature_dict(bids, asks, trades, klines, sr_levels) -> dict
    Calls all 5 functions and merges. Error handling same as technical.py.
 ```
+status: done
 
 ---
 
