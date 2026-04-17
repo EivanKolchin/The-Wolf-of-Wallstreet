@@ -5,19 +5,22 @@ A full-stack algorithmic AI trading platform built around autonomous trade execu
 ## Structure
 - `/backend`: Python 3.11 core algorithmic agent using FastAPI, PyTorch, CCXT, Web3.py.
 - `/frontend`: Next.js 14 frontend using TypeScript, TailwindCSS, lightweight-charts, and wagmi.
-- Docker compose environment runs Postgres 16, Redis 7, Next.js frontend, and the Python backend on a shared network.
+- We rely on hosted Postgres and Redis instances to remove Docker overhead entirely.
 
-## Getting Started
+## Getting Started (Native Setup)
 
-1. Prerequisites: Docker, Docker Compose, Git
-2. Clone repo
-3. `cp .env.example .env` and fill in all values
-   You need an Arbitrum wallet with USDC to run the agent in live mode.
-   For paper mode (default), no wallet funding is required — trades are simulated.
-   Recommended: fund wallet with $100–500 USDC on Arbitrum for live demo.
-   Get Arbitrum RPC: sign up at https://www.alchemy.com (free tier sufficient)
-4. `docker-compose up --build`
-5. In a second terminal: `docker-compose exec backend python scripts/pretrain.py`
+We have removed Docker entirely to prevent architecture mismatches between Windows and Mac (Apple Silicon). Both the Web UI and Python Backend run natively.
+
+1. Prerequisites: Git, Python 3.10+, and Node.js 18+
+2. Set up Free Cloud Databases:
+   - Create a free Postgres database at [Supabase](https://supabase.com/). Get the Connection URI.
+   - Create a free Redis instance at [Upstash](https://upstash.com/). Get the Connection URI.
+3. Clone repo
+4. `cp .env.example .env` and fill in all values
+   - Specifically, ensure `DATABASE_URL` matches your Supabase target, and `REDIS_URL` matches your Upstash target.
+5. In the root of the project, run:
+   - **Windows:** Double-click `start.bat`
+   - **Mac/Linux:** Run `bash start.sh`
 6. Visit [http://localhost:3000](http://localhost:3000)
 7. Connect MetaMask to Kite AI chain (include chain params)
 8. Expected state after setup: paper mode active, NN loading pretrained weights,

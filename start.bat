@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 
+if "%~1"=="--backend" goto backend_runner
+
 echo ==============================================
 echo    AI Trading Agent - Windows Startup Script
 echo ==============================================
@@ -56,11 +58,7 @@ if not exist ".env" (
 :: Frontend
 echo [Frontend] Starting...
 pushd frontend
-set NEED_FE_INSTALL=
-if not exist "node_modules\.bin\next" set NEED_FE_INSTALL=1
-if not exist "node_modules\.bin\next.cmd" set NEED_FE_INSTALL=1
-if not exist "node_modules\autoprefixer" set NEED_FE_INSTALL=1
-if defined NEED_FE_INSTALL (
+if not exist "node_modules\" (
     echo [Frontend] Installing dependencies ^(legacy peer deps^)...
     call npm install --legacy-peer-deps
 )
@@ -69,25 +67,7 @@ popd
 
 :: Backend
 echo [Backend] Starting in a new window...
-set "BDIR=%CD%\backend"
-
-echo @echo off > ".backend_run.bat"
-echo cd /d "%BDIR%" >> ".backend_run.bat"
-echo if not exist .venv\Scripts\python.exe ( >> ".backend_run.bat"
-echo     echo [Backend] Creating virtual environment... >> ".backend_run.bat"
-echo     %PYTHON_CMD% -m venv .venv >> ".backend_run.bat"
-echo ^) >> ".backend_run.bat"
-echo echo [Backend] Installing Python dependencies... >> ".backend_run.bat"
-echo call .venv\Scripts\python.exe -m pip install --upgrade pip >> ".backend_run.bat"
-echo call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt" >> ".backend_run.bat"
-echo echo [Backend] Launching service... >> ".backend_run.bat"
-echo set "PYTHONPATH=%%CD%%\.." >> ".backend_run.bat"
-echo .venv\Scripts\python.exe main.py >> ".backend_run.bat"
-echo echo. >> ".backend_run.bat"
-echo echo Backend exited. Press any key to close this window. >> ".backend_run.bat"
-echo pause >> ".backend_run.bat"
-
-start "AI Trading Agent - Backend" cmd /k "call .backend_run.bat"
+start "AI Trading Agent - Backend" cmd /k ""%~f0" --backend "%CD%\backend" "%PYTHON_CMD%""
 
 popd
 echo.
@@ -95,3 +75,24 @@ echo Frontend and backend windows launched. Keep them open to see logs.
 echo Press any key to close this launcher window.
 pause
 endlocal
+exit /b 0
+
+:backend_runner
+set "BDIR=%~2"
+set "PYCMD=%~3"
+cd /d "%BDIR%"
+if not exist .venv\Scripts\python.exe (
+    echo [Backend] Creating virtual environment...
+    %PYCMD% -m venv .venv
+)
+echo [Backend] Installing Python dependencies...
+call .venv\Scripts\python.exe -m pip install --upgrade pip
+call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt"
+echo [Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!
+echo [Backend] Launching service...
+set "PYTHONPATH=%CD%\.."
+.venv\Scripts\python.exe main.py
+echo.
+echo Backend exited. Press any key to close this window.
+pause
+exit /b 0

@@ -45,7 +45,7 @@ trap 'echo "Stopping processes..."; kill 0; exit' SIGINT SIGTERM EXIT
 # 1. Start the Frontend in the background
 echo "[Frontend] Starting..."
 cd frontend
-if [ ! -x "node_modules/.bin/next" ] || [ ! -d "node_modules/autoprefixer" ]; then
+if [ ! -d "node_modules" ]; then
     echo "[Frontend] Installing dependencies (legacy peer deps)..."
     npm install --legacy-peer-deps
 fi
@@ -56,7 +56,7 @@ cd ..
 
 # 2. Start the Backend in a separate terminal to keep logs visible
 echo "[Backend] Starting in a new terminal..."
-BACKEND_CMD="cd \"\$PWD/backend\" && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && \"$PYTHON_CMD\" -m venv .venv; fi && echo '[Backend] Installing Python dependencies...' && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r ../requirements.txt && echo '[Backend] Launching service...' && export PYTHONPATH=\"\$PWD/..\" && .venv/bin/python main.py; echo; echo 'Backend exited. Press enter to close.'; read"
+BACKEND_CMD="cd \"\$PWD/backend\" && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && \"$PYTHON_CMD\" -m venv .venv; fi && echo '[Backend] Installing Python dependencies...' && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r ../requirements.txt && echo '[Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!' && echo '[Backend] Launching service...' && export PYTHONPATH=\"\$PWD/..\" && .venv/bin/python main.py; echo; echo 'Backend exited. Press enter to close.'; read"
 
 if command -v gnome-terminal >/dev/null 2>&1; then
     gnome-terminal -- bash -c "$BACKEND_CMD"
