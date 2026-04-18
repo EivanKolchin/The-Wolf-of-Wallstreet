@@ -31,8 +31,7 @@ sleep 3
 
 echo "[Ollama] Validating llama3 model integrity..."
 if ! ollama show llama3 >/dev/null 2>&1; then
-    echo "[Ollama] Model missing or corrupted. Purging and pulling a fresh llama3 model concurrently..."
-    ollama rm llama3 >/dev/null 2>&1 || true
+    echo "[Ollama] Model missing or interrupted. Attempting to resume or pull a fresh llama3 model concurrently..."
     # Run the heavy pull in the background parallel to npm/pip installs
     (
         echo "[Ollama Llama 3 Background Download Started]"

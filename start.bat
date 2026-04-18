@@ -55,8 +55,7 @@ timeout /t 3 /nobreak >nul
 echo [Ollama] Validating llama3 model integrity...
 ollama show llama3 >nul 2>nul
 if errorlevel 1 (
-    echo [Ollama] Model missing or corrupted. Purging and pulling a fresh llama3 model concurrently...
-    ollama rm llama3 >nul 2>nul
+    echo [Ollama] Model missing or interrupted. Attempting to resume or pull a fresh llama3 model concurrently...
     start "Installing llama3...." cmd /c "title Installing llama3.... && echo [Ollama] Downloading Llama 3 in parallel to speed up setup... && ollama pull llama3 && echo Done. && timeout /t 5 >nul"
 ) else (
     echo [Ollama] llama3 model is fully functional and ready!
