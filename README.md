@@ -14,8 +14,9 @@ The repository is split into two main sections:
 
 ## Core Features
 * Parallel Processing: The NN and LLM run on separate cores using Python multiprocessing. They communicate through a shared priority queue via Redis so the trading loop never hangs waiting for an API response.
-* Dynamic News Interruption: The continuous news feed uses Google Gemini (via google.generativeai) to categorize headlines into severity tiers (Neutral, Significant, or Severe), adjusting or stopping the trading engine dynamically.
+* Dynamic News Interruption: The continuous news feed uses local models via Ollama (e.g., Llama 3) or external APIs (e.g., Google Gemini/Anthropic Claude) to categorize headlines into severity tiers (Neutral, Significant, or Severe), adjusting or stopping the trading engine dynamically.
 * Autonomous Execution: Capable of executing swaps automatically on Arbitrum using USDC.
+* Setup Automation: Cross-platform bootloaders (`start.bat` & `start.sh`) automatically download and install Ollama, Python, and Node dependencies directly from the web, ensuring no massive installers are tracked in the repository.
 * Risk Management: Dedicated synchronous gates check hard limits on drawdowns, position sizing, correlation, and trade frequency before any order is submitted.
 * Verifiability: Features an on chain agent identity and logs trade predictions and executions on the Kite AI blockchain.
 

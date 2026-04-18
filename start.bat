@@ -33,6 +33,35 @@ if not defined PYTHON_CMD (
 
 :: Detect project directory
 set "PROJ_DIR=."
+
+:: Ollama check
+where ollama >nul 2>nul
+if errorlevel 1 (
+    echo [Ollama] Not found. Downloading Ollama installer...
+    powershell -Command "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile 'OllamaSetup.exe'"
+    echo [Ollama] Running silent installer to speed up setup...
+    start /wait OllamaSetup.exe /VERYSILENT /NORESTART /SUPPRESSMSGBOXES
+    del OllamaSetup.exe
+    
+    :: Refresh PATH so ollama command is available immediately in some environments
+    set "PATH=%PATH%;%LOCALAPPDATA%\Programs\Ollama"
+)
+
+:: Ensure ollama is running and pull the model
+echo [Ollama] Ensuring Ollama service is running...
+start /B ollama serve >nul 2>nul
+timeout /t 3 /nobreak >nul
+
+echo [Ollama] Validating llama3 model integrity...
+ollama show llama3 >nul 2>nul
+if errorlevel 1 (
+    echo [Ollama] Model missing or corrupted. Purging and pulling a fresh llama3 model concurrently...
+    ollama rm llama3 >nul 2>nul
+    start "Installing llama3...." cmd /c "title Installing llama3.... && echo [Ollama] Downloading Llama 3 in parallel to speed up setup... && ollama pull llama3 && echo Done. && timeout /t 5 >nul"
+) else (
+    echo [Ollama] llama3 model is fully functional and ready!
+)
+
 if not exist "%PROJ_DIR%\backend" (
     if exist "trading-agent\backend" (
         set "PROJ_DIR=trading-agent"

@@ -1,7 +1,10 @@
+# Node
 node_modules/
 .next/
 out/
 build/
+
+# Python
 .env
 .venv/
 __pycache__/
@@ -10,12 +13,6 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .coverage
-coverage.xml
-htmlcov/
-models/*.pt
-models/*.pth
-logs/
-.DS_Store
 
 # Ollama Setup & Model Artifacts
 OllamaSetup.exe
@@ -25,3 +22,7 @@ ollama-linux-*.tar*
 .ollama/
 *.bin
 *.gguf
+
+# OS
+.DS_Store
+Thumbs.db

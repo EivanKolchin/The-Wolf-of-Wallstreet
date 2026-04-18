@@ -118,7 +118,8 @@ def run_news_agent(severe_flag):
         llm_service = LLMService(
             provider=settings.AI_PROVIDER,
             anthropic_key=settings.ANTHROPIC_API_KEY,
-            gemini_key=settings.GEMINI_API_KEY
+            gemini_key=settings.GEMINI_API_KEY,
+            ollama_model=settings.OLLAMA_MODEL
         )
         
         credibility_engine = CredibilityEngine(db_session_factory=AsyncSessionLocal, llm_service=llm_service)

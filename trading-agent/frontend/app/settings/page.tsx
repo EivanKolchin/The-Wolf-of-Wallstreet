@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
 
   const [provider, setProvider] = useState("gemini");
+  const [ollamaModel, setOllamaModel] = useState("llama3");
   
   // Separate keys for each LLM provider
   const [geminiKey, setGeminiKey] = useState("");
@@ -59,6 +60,7 @@ export default function SettingsPage() {
         const cfg = await res.json();
         
         setProvider(cfg.AI_PROVIDER || "gemini");
+        setOllamaModel(cfg.OLLAMA_MODEL || "llama3");
         
         const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
         const sanitize = (k: string) => isRealKey(k) ? k : "";
@@ -116,6 +118,7 @@ export default function SettingsPage() {
     try {
       const payload = {
         AI_PROVIDER: provider,
+        OLLAMA_MODEL: provider.includes("ollama") || provider.includes("hybrid") ? ollamaModel : undefined,
         GEMINI_API_KEY: geminiKey,
         ANTHROPIC_API_KEY: anthropicKey,
         PAPER_MODE: paperMode ? "true" : "false",
@@ -134,6 +137,7 @@ export default function SettingsPage() {
         KITE_API_SECRET: kiteApiSecret,
       };
 
+      let successMsg = "Settings saved successfully. The backend will reboot with new keys.";
       try {
         const res = await fetch("http://127.0.0.1:8000/api/setup/save", {
           method: "POST",
@@ -145,6 +149,11 @@ export default function SettingsPage() {
           const errText = await res.text();
           throw new Error(`Server returned ${res.status}: ${errText}`);
         }
+        
+        const data = await res.json();
+        if (data.message) {
+          successMsg = data.message;
+        }
       } catch (fetchErr: any) {
         const msg = (fetchErr?.message || "").toLowerCase();
         // Browser network disconnects happen because saving .env auto-restarts the backend instantly.
@@ -155,7 +164,7 @@ export default function SettingsPage() {
         }
       }
 
-      alert("Settings saved successfully. The backend will reboot with new keys.");
+      alert(successMsg);
       localStorage.removeItem("setupSkipped"); 
       window.location.href = "/dashboard";
     } catch (err: any) {
@@ -245,6 +254,27 @@ export default function SettingsPage() {
                   <option value="hybrid_claude">Hybrid: Ollama + Claude</option>
                 </select>
               </div>
+
+              {(provider.includes("ollama") || provider.includes("hybrid")) && (
+                <div>
+                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Ollama Model</label>
+                  <select
+                    value={ollamaModel}
+                    onChange={(e) => setOllamaModel(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all appearance-none"
+                  >
+                    <option value="llama3">llama3 (Default - 8B)</option>
+                    <option value="llama3.1">llama3.1 (Latest 8B)</option>
+                    <option value="llama3.2">llama3.2 (Latest 3B - Fast)</option>
+                    <option value="llama3:70b">llama3:70b (Requires 40GB+ VRAM)</option>
+                    <option value="llama4">llama4 (Latest Generation)</option>
+                    <option value="mistral">mistral (7B)</option>
+                  </select>
+                  <p className="text-[11px] text-neutral-500 mt-2">
+                    If the selected model is not installed locally, the backend will automatically pull it.
+                  </p>
+                </div>
+              )}
               
               <div>
                   <label className="block text-[13px] font-medium text-neutral-400 mb-2">Gemini API Key</label>
