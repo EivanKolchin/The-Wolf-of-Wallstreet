@@ -44,6 +44,7 @@ class ResetHaltRequest(BaseModel):
 async def get_setup_status():
     return {
         "needs_setup": settings.needs_setup(),
+        "missing_integrations": settings.missing_integration_status(),
         "ai_provider": settings.AI_PROVIDER,
         "anthropic": not (not settings.ANTHROPIC_API_KEY or "your_" in settings.ANTHROPIC_API_KEY.lower()),
         "gemini": not (not settings.GEMINI_API_KEY or "your_" in settings.GEMINI_API_KEY.lower()),
@@ -70,6 +71,7 @@ async def get_setup_config():
         "AI_PROVIDER": env_vars.get("AI_PROVIDER", "gemini"),
         "ANTHROPIC_API_KEY": env_vars.get("ANTHROPIC_API_KEY", ""),
         "GEMINI_API_KEY": env_vars.get("GEMINI_API_KEY", ""),
+        "PAPER_MODE": env_vars.get("PAPER_MODE", "true"),
         "ARBITRUM_RPC_URL": env_vars.get("ARBITRUM_RPC_URL", ""),
         "AGENT_WALLET_ADDRESS": env_vars.get("AGENT_WALLET_ADDRESS", ""),
         "AGENT_PRIVATE_KEY": env_vars.get("AGENT_PRIVATE_KEY", ""),
@@ -103,13 +105,13 @@ class SetupRequest(BaseModel):
     telegram_api_hash: str = ""
 
 @router.post("/api/setup/save")
-async def save_setup(req: Dict[str, str] = Body(...)):
+async def save_setup(req: Dict[str, Any] = Body(...)):
     import os
     import signal
     from backend.core.config import ENV_PATH
     env_path = str(ENV_PATH)
     
-    req_dict = {k.upper(): v for k, v in req.items() if v}
+    req_dict = {k.upper(): str(v) for k, v in req.items() if v is not None}
 
     if os.path.exists(env_path):
         with open(env_path, "r") as f:

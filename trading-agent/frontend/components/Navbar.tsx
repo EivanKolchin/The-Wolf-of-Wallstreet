@@ -16,12 +16,17 @@ export default function Navbar() {
   const pathname = usePathname();
 
   const [missingKeys, setMissingKeys] = useState(false);
+  const [missingList, setMissingList] = useState<any[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/setup/status")
+    setMounted(true);
+    fetch("http://127.0.0.1:8000/api/setup/status")
       .then(res => res.json())
       .then(data => {
         if (data && data.needs_setup) setMissingKeys(true);
+        if (data && data.missing_integrations) setMissingList(data.missing_integrations);
       })
       .catch(() => setMissingKeys(true));
   }, []);
@@ -39,8 +44,7 @@ export default function Navbar() {
       {/* Brand & Main Nav */}
       <div className="flex items-center space-x-10">
         <Link href="/dashboard" className="text-[15px] font-semibold tracking-tight text-zinc-100 hover:opacity-80 transition-opacity flex items-center gap-2">        
-          <div className="w-3 h-3 rounded-[3px] bg-zinc-600"></div>
-          W.O.W.
+          WoW
         </Link>
 
         <div className="hidden md:flex space-x-6">
@@ -71,8 +75,45 @@ export default function Navbar() {
 
         <ClockPanel />
 
-        {/* Missing Keys Setup Alert */}
-        {missingKeys && (
+        {/* Informational Banner for missing non-critical dependencies */}
+        {mounted && !missingKeys && (status as any)?.missing_integrations && (status as any).missing_integrations.length > 0 && !dismissedBanner && (
+          <div className="group relative hidden lg:flex items-center space-x-2 px-4 py-1.5 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400 transition-all cursor-help">
+            <AlertCircle size={14} />
+            <span className="text-[11px] font-medium uppercase tracking-widest">
+              {(status as any).missing_integrations.map((i: any) => i.service).join(', ')} api missing
+            </span>
+            <button 
+              onClick={(e) => {
+                e.preventDefault();
+                setDismissedBanner(true);
+              }}
+              className="ml-2 text-[9px] px-2 py-0.5 bg-orange-500/20 hover:bg-orange-500/40 rounded transition-colors uppercase tracking-widest"
+            >
+              Ignore for now
+            </button>
+            
+            {/* Tooltip Hover for missing integrations */}
+            <div className="absolute top-12 right-0 w-80 bg-[#161616] border border-[#333336] rounded-xl p-4 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity z-50">
+              <h3 className="text-[12px] font-semibold text-neutral-100 uppercase tracking-widest mb-3 border-b border-[#333336] pb-2">Missing Data Sources</h3>
+              <ul className="space-y-3">
+                {(status as any).missing_integrations.map((item: any, idx: number) => (
+                  <li key={idx} className="text-[11px] leading-relaxed">
+                    <span className="text-orange-400 font-semibold block mb-0.5">{item.service}</span>
+                    <span className="text-neutral-400">{item.impact}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4 pt-2 border-t border-[#333336]">
+                <Link href="/settings" className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest font-semibold flex items-center">
+                  Configure Settings &rarr;
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Missing Keys Setup Alert (Critical) */}
+        {mounted && missingKeys && (
           <Link href="/settings" className="flex items-center space-x-2.5 px-6 py-2 rounded-md bg-[#C45A3E]/5 hover:bg-[#C45A3E]/10 border border-[#C45A3E]/20 text-[#C45A3E] transition-all cursor-pointer">
             <AlertCircle size={16} />
             <span className="text-[13px] font-medium uppercase tracking-widest">Setup Required</span>
@@ -80,25 +121,29 @@ export default function Navbar() {
         )}
 
         {/* Wallet Connection */}
-        {isConnected ? (
-          <div className="flex items-center space-x-3">
-            <span className="text-[12px] text-zinc-500 font-mono tracking-wider">
-              {address?.slice(0, 6)}...{address?.slice(-4)}
-            </span>
+        {mounted ? (
+          isConnected ? (
+            <div className="flex items-center space-x-3">
+              <span className="text-[12px] text-zinc-500 font-mono tracking-wider">
+                {address?.slice(0, 6)}...{address?.slice(-4)}
+              </span>
+              <button
+                onClick={() => disconnect()}
+                className="text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => disconnect()}
-              className="text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-100 transition-colors"
+              onClick={() => connect({ connector: connectors[0] })}
+              className="text-[13px] font-medium tracking-wide text-zinc-300 bg-transparent hover:text-white border border-[#27272A] hover:border-[#3F3F46] hover:bg-[#18181B] px-8 py-2 rounded-md transition-all"   
             >
-              Disconnect
+              Connect
             </button>
-          </div>
+          )
         ) : (
-          <button
-            onClick={() => connect({ connector: connectors[0] })}
-            className="text-[13px] font-medium tracking-wide text-zinc-300 bg-transparent hover:text-white border border-[#27272A] hover:border-[#3F3F46] hover:bg-[#18181B] px-8 py-2 rounded-md transition-all"   
-          >
-            Connect
-          </button>
+          <div className="w-[100px] h-9"></div>
         )}
 
         <div className="w-[1px] h-4 bg-[#0A0A0A]"></div>

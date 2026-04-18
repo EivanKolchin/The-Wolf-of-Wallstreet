@@ -139,7 +139,12 @@ class LLMNewsAgent:
             await article_queue.put(article)
 
         self.news_pipeline.on_article = _on_article
-        await self.news_pipeline.start()
+        
+        # Start only what we can
+        try:
+            await self.news_pipeline.start()
+        except Exception as e:
+            logger.warning("news_pipeline_start_warning", error=str(e), detail="Some feeds may be unavailable. Running in partial mode.")
 
         while True:
             try:

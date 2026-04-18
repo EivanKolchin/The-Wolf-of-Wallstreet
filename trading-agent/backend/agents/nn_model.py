@@ -130,7 +130,10 @@ class PersistentTradingModel:
         }
         
         torch.save(checkpoint, tmp_path)
-        tmp_path.rename(self.MODEL_PATH)
+        if hasattr(tmp_path, "replace"):
+            tmp_path.replace(self.MODEL_PATH)
+        else:
+            os.replace(tmp_path, self.MODEL_PATH)
         
         ckpt_filename = f"ckpt_{self.trade_count}{'_' + label if label else ''}.pt"
         ckpt_path = self.CHECKPOINT_DIR / ckpt_filename

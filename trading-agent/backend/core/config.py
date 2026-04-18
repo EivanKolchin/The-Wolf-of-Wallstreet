@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     AI_PROVIDER: str = "anthropic" 
+    OLLAMA_MODEL: str = "llama3"
 
     ARBITRUM_RPC_URL: str = ""
     AGENT_WALLET_ADDRESS: str = ""
@@ -30,8 +31,13 @@ class Settings(BaseSettings):
     KITE_AGENT_ADDRESS: str = ""
 
     X_API_KEY: str = ""
+    X_API_SECRET: str = ""
+    X_ACCESS_TOKEN: str = ""
+    X_ACCESS_TOKEN_SECRET: str = ""
     TELEGRAM_API_ID: str = ""
     TELEGRAM_API_HASH: str = ""
+    
+    PAPER_MODE: str = "true"
     
     ADMIN_KEY: str = "supersecretadmin"
     LOG_LEVEL: str = "INFO"
@@ -51,8 +57,14 @@ class Settings(BaseSettings):
 
         if self.AI_PROVIDER == "gemini":
             has_ai_key = is_valid_key(self.GEMINI_API_KEY, prefix="AIzaSy", min_len=30)
-        else:
+        elif self.AI_PROVIDER == "anthropic":
             has_ai_key = is_valid_key(self.ANTHROPIC_API_KEY, prefix="sk-ant-", min_len=30)
+        elif self.AI_PROVIDER == "hybrid_gemini":
+            has_ai_key = is_valid_key(self.GEMINI_API_KEY, prefix="AIzaSy", min_len=30)
+        elif self.AI_PROVIDER == "hybrid_claude":
+            has_ai_key = is_valid_key(self.ANTHROPIC_API_KEY, prefix="sk-ant-", min_len=30)
+        else: # ollama only
+            has_ai_key = True
 
         if not has_ai_key:
             return True
@@ -62,6 +74,31 @@ class Settings(BaseSettings):
             if not is_valid_key(val, min_len=30):
                 return False  # Not failing hard if wallet not supplied since there's paper mode
         return False
+
+    def missing_integration_status(self) -> dict:
+        """Determines which integrations are missing API keys and provides human-readable context on what features the user will lose"""
+        missing = []
+        is_real = lambda k: bool(k and len(k) > 5 and "your_" not in k.lower())
+
+        if not is_real(self.X_API_KEY):
+            missing.append({
+                "service": "X (Twitter) Firehose",
+                "impact": "Agent cannot ingest real-time sentiment from crypto Twitter. It will function purely on delayed RSS feeds."
+            })
+            
+        if not is_real(self.TELEGRAM_API_ID):
+            missing.append({
+                "service": "Telegram Scraper",
+                "impact": "Agent loses access to alpha groups and fast-breaking Telegram announcements."
+            })
+
+        if not is_real(self.ALPACA_API_KEY):
+            missing.append({
+                "service": "Alpaca Data/Broker",
+                "impact": "Agent cannot access Alpaca stock integrations or paid crypto news feeds, settling for generic free feeds."
+            })
+            
+        return missing
 
 settings = None
 try:

@@ -38,5 +38,5 @@ We have removed Docker entirely to prevent architecture mismatches between Windo
 - Note: multiprocessing requires a persistent server — Vercel serverless is NOT compatible with the backend. Use a VPS or container service.
 
 ## AWS EC2 one-liner deploy
-  `docker-compose -f docker-compose.prod.yml up -d`
+  `python main.py` or use your preferred process manager (like systemd or PM2).
   (uses the prod variant with resource limits and logging config)

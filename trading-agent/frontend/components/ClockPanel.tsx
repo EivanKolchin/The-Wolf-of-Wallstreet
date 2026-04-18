@@ -42,8 +42,8 @@ export function ClockPanel() {
         };
     }, []);
 
-    // Prevent hydration mismatch by returning null until mounted
-    if (!time) return <div className="h-8"></div>;
+    // Prevent hydration mismatch by returning empty structure matching the wrapper until mounted
+    if (!time) return <div className="hidden lg:flex items-center space-x-6 border-r border-[#171717] pr-6 mr-1 h-8 min-w-[100px]"></div>;
 
     return (
         <div className="hidden lg:flex items-center space-x-6 border-r border-[#171717] pr-6 mr-1">

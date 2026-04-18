@@ -104,6 +104,7 @@ class Trade(Base):
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     kite_tx_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    highest_price_seen: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
 
 class ModelCheckpoint(Base):
     __tablename__ = "model_checkpoints"

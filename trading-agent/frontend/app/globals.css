@@ -12,6 +12,25 @@ body {
   background: var(--background);
 }
 
+/* Modern minimalist scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a; /* zinc-800 */
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46; /* zinc-700 */
+}
+
 /* Hide lightweight-charts open-source logo */
 a[href*='tradingview.com'] { display: none !important; }
 table tr:last-child td a { display: none !important; }

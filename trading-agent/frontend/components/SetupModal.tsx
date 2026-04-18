@@ -35,8 +35,8 @@ export function SetupModal() {
     }
 
     Promise.all([
-      fetch("http://localhost:8000/api/setup/status").then(res => res.json()),
-      fetch("http://localhost:8000/api/setup/config").then(res => res.json()).catch(() => ({}))
+      fetch("http://127.0.0.1:8000/api/setup/status").then(res => res.json()),
+      fetch("http://127.0.0.1:8000/api/setup/config").then(res => res.json()).catch(() => ({}))
     ])
       .then(([statusData, configData]) => {
         setData(statusData);
@@ -77,11 +77,13 @@ export function SetupModal() {
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newProv = e.target.value;
     
-    if (provider === "gemini") setGeminiKeyCached(llmKey);
-    if (provider === "anthropic") setAnthropicKeyCached(llmKey);
+    if (provider.includes("gemini") && provider !== "hybrid_gemini") setGeminiKeyCached(llmKey);
+    if (provider.includes("anthropic") || provider.includes("claude")) setAnthropicKeyCached(llmKey);
 
     setProvider(newProv);
-    setLlmKey(newProv === "gemini" ? geminiKeyCached : anthropicKeyCached);
+    if (newProv.includes("gemini")) setLlmKey(geminiKeyCached);
+    else if (newProv.includes("anthropic") || newProv.includes("claude")) setLlmKey(anthropicKeyCached);
+    else setLlmKey(""); 
   };
 
   const handleSave = async (e?: React.FormEvent) => {
@@ -92,8 +94,8 @@ export function SetupModal() {
     try {
       const payload = {
         AI_PROVIDER: provider,
-        GEMINI_API_KEY: provider === "gemini" ? llmKey : geminiKeyCached,
-        ANTHROPIC_API_KEY: provider === "anthropic" ? llmKey : anthropicKeyCached,
+        GEMINI_API_KEY: provider.includes("gemini") ? llmKey : geminiKeyCached,
+        ANTHROPIC_API_KEY: (provider.includes("anthropic") || provider.includes("claude")) ? llmKey : anthropicKeyCached,
         ARBITRUM_RPC_URL: arbitrumRpcUrl,
         AGENT_PRIVATE_KEY: agentPrivateKey,
         AGENT_WALLET_ADDRESS: agentWalletAddress,
@@ -102,7 +104,7 @@ export function SetupModal() {
         X_API_KEY: xApiKey,
       };
 
-      const res = await fetch("http://localhost:8000/api/setup/save", {
+      const res = await fetch("http://127.0.0.1:8000/api/setup/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -188,10 +190,14 @@ export function SetupModal() {
                     onChange={handleProviderChange}
                     className="w-full bg-[#18181A] border border-[#333336] rounded-lg px-3 py-2 text-sm text-neutral-200 outline-none"
                   >
-                    <option value="gemini">Google Gemini (Recommended)</option>
-                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="gemini">Gemini Only</option>
+                    <option value="anthropic">Claude Only</option>
+                    <option value="ollama">Ollama Only (Local)</option>
+                    <option value="hybrid_gemini">Hybrid: Ollama + Gemini (Recommended)</option>
+                    <option value="hybrid_claude">Hybrid: Ollama + Claude</option>
                   </select>
                 </div>
+                {provider !== "ollama" && (
                 <div>
                   <label className="block text-xs font-medium text-neutral-400 mb-1.5 ml-1">API Key</label>
                   <input
@@ -199,9 +205,10 @@ export function SetupModal() {
                     value={llmKey}
                     onChange={(e) => setLlmKey(e.target.value)}
                     className="w-full bg-[#18181A] border border-[#333336] rounded-lg px-3 py-2 text-sm text-neutral-200 outline-none font-mono placeholder:font-sans"
-                    placeholder={`e.g. ${provider === 'gemini' ? 'AIza...' : 'sk-ant-...'}`}
+                    placeholder={`e.g. ${provider.includes('gemini') ? 'AIza...' : 'sk-ant-...'}`}
                   />
                 </div>
+                )}
               </div>
             )}
 

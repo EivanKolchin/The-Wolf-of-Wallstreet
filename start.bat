@@ -59,10 +59,10 @@ if not exist ".env" (
 echo [Frontend] Starting...
 pushd frontend
 if not exist "node_modules\" (
-    echo [Frontend] Installing dependencies ^(legacy peer deps^)...
+    echo [Frontend] node_modules not found. Installing dependencies...
     call npm install --legacy-peer-deps
 )
-start "AI Trading Agent - Frontend" cmd /k "npm run dev || echo Frontend crashed. Please check logs. ^& pause"
+start "AI Trading Agent - Frontend" cmd /k "npm run dev || (echo [Frontend] Run failed, attempting dependency install... ^& call npm install --legacy-peer-deps ^& npm run dev) || echo Frontend crashed. Please check logs. ^& pause"
 popd
 
 :: Backend
@@ -84,14 +84,23 @@ cd /d "%BDIR%"
 if not exist .venv\Scripts\python.exe (
     echo [Backend] Creating virtual environment...
     %PYCMD% -m venv .venv
+    echo [Backend] Installing Python dependencies...
+    call .venv\Scripts\python.exe -m pip install --upgrade pip
+    call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt"
 )
-echo [Backend] Installing Python dependencies...
-call .venv\Scripts\python.exe -m pip install --upgrade pip
-call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt"
+
 echo [Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!
 echo [Backend] Launching service...
 set "PYTHONPATH=%CD%\.."
 .venv\Scripts\python.exe main.py
+
+if %ERRORLEVEL% neq 0 (
+    echo [Backend] Execution failed. Attempting to install missing dependencies...
+    call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt"
+    echo [Backend] Relaunching service...
+    .venv\Scripts\python.exe main.py
+)
+
 echo.
 echo Backend exited. Press any key to close this window.
 pause

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Eye, EyeOff } from "lucide-react";
+import { useEffect, useState, useRef } from "react";
+import { ArrowLeft, Save, Eye, EyeOff, Info } from "lucide-react";
 import Link from "next/link";
 
 export default function SettingsPage() {
@@ -9,15 +9,18 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
 
   const [provider, setProvider] = useState("gemini");
-  const [llmKey, setLlmKey] = useState("");
-  const [llmKeyLocked, setLlmKeyLocked] = useState(false);
-  const [showLlmKey, setShowLlmKey] = useState(false);
   
-  // Track specific AI keys to restore them if toggled
-  const [geminiKeyCached, setGeminiKeyCached] = useState("");
-  const [anthropicKeyCached, setAnthropicKeyCached] = useState("");
+  // Separate keys for each LLM provider
+  const [geminiKey, setGeminiKey] = useState("");
+  const [geminiKeyLocked, setGeminiKeyLocked] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+
+  const [anthropicKey, setAnthropicKey] = useState("");
+  const [anthropicKeyLocked, setAnthropicKeyLocked] = useState(false);
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
   
   // DeFi / App Config
   const [arbitrumRpcUrl, setArbitrumRpcUrl] = useState("");
@@ -51,30 +54,23 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchConfig = async (retries = 3) => {
       try {
-        const res = await fetch(`http://localhost:8000/api/setup/config?t=${Date.now()}`);
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/config?t=${Date.now()}`);
         if (!res.ok) throw new Error("Backend not reachable");
         const cfg = await res.json();
         
         setProvider(cfg.AI_PROVIDER || "gemini");
         
-        let gKey = cfg.GEMINI_API_KEY || "";
-        let aKey = cfg.ANTHROPIC_API_KEY || "";
-        
-        setGeminiKeyCached(gKey);
-        setAnthropicKeyCached(aKey);
-
-        let initialLlmKey = "";
-        if (cfg.AI_PROVIDER === "anthropic") {
-           initialLlmKey = aKey;
-        } else {
-           initialLlmKey = gKey;
-        }
-        
         const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
         const sanitize = (k: string) => isRealKey(k) ? k : "";
 
-        setLlmKey(initialLlmKey);
-        if (isRealKey(initialLlmKey)) setLlmKeyLocked(true);
+        const gKey = sanitize(cfg.GEMINI_API_KEY || "");
+        const aKey = sanitize(cfg.ANTHROPIC_API_KEY || "");
+        
+        setGeminiKey(gKey);
+        if (isRealKey(gKey)) setGeminiKeyLocked(true);
+        
+        setAnthropicKey(aKey);
+        if (isRealKey(aKey)) setAnthropicKeyLocked(true);
         
         setPaperMode(cfg.PAPER_MODE === "true" || cfg.PAPER_MODE === true);
 
@@ -109,32 +105,19 @@ export default function SettingsPage() {
   }, []);
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newProv = e.target.value;
-    
-    // Save current typed key into cache before switching
-    if (provider === "gemini" && !llmKeyLocked) setGeminiKeyCached(llmKey);
-    if (provider === "anthropic" && !llmKeyLocked) setAnthropicKeyCached(llmKey);
-
-    setProvider(newProv);
-    
-    // Load the matching cached key
-    const targetKey = newProv === "gemini" ? geminiKeyCached : anthropicKeyCached;
-    setLlmKey(targetKey);
-    const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
-    setLlmKeyLocked(isRealKey(targetKey));
-    setShowLlmKey(false);
+    setProvider(e.target.value);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setErrorDetails(null);
 
     try {
       const payload = {
         AI_PROVIDER: provider,
-        GEMINI_API_KEY: provider === "gemini" ? llmKey : geminiKeyCached,
-        ANTHROPIC_API_KEY: provider === "anthropic" ? llmKey : anthropicKeyCached,
+        GEMINI_API_KEY: geminiKey,
+        ANTHROPIC_API_KEY: anthropicKey,
         PAPER_MODE: paperMode ? "true" : "false",
         ARBITRUM_RPC_URL: arbitrumRpcUrl,
         AGENT_PRIVATE_KEY: agentPrivateKey,
@@ -151,21 +134,33 @@ export default function SettingsPage() {
         KITE_API_SECRET: kiteApiSecret,
       };
 
-      const res = await fetch("http://localhost:8000/api/setup/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/setup/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (!res.ok) {
-        throw new Error("Failed to save configuration");
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Server returned ${res.status}: ${errText}`);
+        }
+      } catch (fetchErr: any) {
+        const msg = (fetchErr?.message || "").toLowerCase();
+        // Browser network disconnects happen because saving .env auto-restarts the backend instantly.
+        if (fetchErr instanceof TypeError || msg.includes("fetch") || msg.includes("network") || msg.includes("connection") || msg.includes("failed")) {
+          console.warn("Backend .env reloaded the server. Assuming success.", fetchErr);
+        } else {
+          throw fetchErr;
+        }
       }
 
       alert("Settings saved successfully. The backend will reboot with new keys.");
       localStorage.removeItem("setupSkipped"); 
       window.location.href = "/dashboard";
     } catch (err: any) {
-      setError(err.message || "Network error while saving settings");
+      setError("Network or server error while saving settings.");
+      setErrorDetails(err.message || err.toString());
     } finally {
       setSaving(false);
     }
@@ -196,17 +191,44 @@ export default function SettingsPage() {
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-4 rounded-lg mb-8 backdrop-blur-sm">
-            {error}
+            <div className="font-semibold">{error}</div>
+            {errorDetails && (
+               <details className="mt-2 text-xs text-red-400/80 cursor-pointer outline-none">
+                 <summary className="hover:text-red-300 transition-colors uppercase tracking-widest font-semibold flex items-center">
+                   Show Full Error
+                 </summary>
+                 <pre className="mt-4 whitespace-pre-wrap font-mono p-3 bg-[#0A0A0A] rounded-lg border border-red-500/20 text-[11px] leading-relaxed">
+                   {errorDetails}
+                 </pre>
+               </details>
+            )}
           </div>
         )}
 
         <form onSubmit={handleSave} className="space-y-8 relative z-10 w-full max-w-xl">
           
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
-            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-neutral-800/80 mr-2"></div>
-              Intelligence Matrix
-            </h3>
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-neutral-800/80 mr-2"></div>
+                AI Trading Engine
+              </h3>
+              <div className="relative group">
+                <button 
+                  type="button"
+                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
+                >
+                  <Info size={16} />
+                </button>
+                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="font-semibold text-neutral-100 mb-2">AI Trading Engine</div>
+                  The AI interprets real-time news severity and extracts trade sentiment.<br/><br/>
+                  <span className="text-neutral-400">Gemini/Claude:</span> Highest accuracy, uses external API. Best for production.<br/><br/>
+                  <span className="text-neutral-400">Ollama:</span> Runs locally. Zero API cost, requires strong hardware.<br/><br/>
+                  <span className="text-neutral-400">Hybrid:</span> Local Ollama for routine processing, overrides to Gemini/Claude for complex tasks.
+                </div>
+              </div>
+            </div>
             
             <div className="space-y-5">
               <div>
@@ -216,59 +238,114 @@ export default function SettingsPage() {
                   onChange={handleProviderChange}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all appearance-none"
                 >
-                  <option value="gemini">Google Gemini (GenAI Core)</option>
-                  <option value="anthropic">Anthropic Claude (Alternative)</option>
+                  <option value="gemini">Gemini Only</option>
+                  <option value="anthropic">Claude Only</option>
+                  <option value="ollama">Ollama Only (Local)</option>
+                  <option value="hybrid_gemini">Hybrid: Ollama + Gemini (Recommended)</option>
+                  <option value="hybrid_claude">Hybrid: Ollama + Claude</option>
                 </select>
               </div>
-
+              
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Secret Authentication Key</label>
-                <div className="flex gap-3">
-                  <div className="relative w-full">
-                    <input
-                      type={showLlmKey ? "text" : "password"}
-                      value={llmKey}
-                      onChange={(e) => !llmKeyLocked && setLlmKey(e.target.value)}
-                      disabled={llmKeyLocked}
-                      className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${llmKeyLocked ? 'pr-10 text-neutral-500 opacity-70' : 'text-neutral-200'} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
-                      placeholder={provider === 'gemini' ? 'AIza...' : 'sk-ant-...'}
-                    />
-                    {llmKeyLocked && (
+                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Gemini API Key</label>
+                  <div className="flex gap-3">
+                    <div className="relative w-full">
+                      <input
+                        type={showGeminiKey ? "text" : "password"}
+                        value={geminiKey}
+                        onChange={(e) => !geminiKeyLocked && setGeminiKey(e.target.value)}
+                        disabled={geminiKeyLocked}
+                        className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${geminiKeyLocked ? "pr-10 text-neutral-500 opacity-70" : "text-neutral-200"} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
+                        placeholder="AIza..."
+                      />
+                      {geminiKeyLocked && (
+                        <button
+                          type="button"
+                          onClick={() => setShowGeminiKey(!showGeminiKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                        >
+                          {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      )}
+                    </div>
+                    {geminiKeyLocked ? (
                       <button
                         type="button"
-                        onClick={() => setShowLlmKey(!showLlmKey)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                        onClick={() => { setGeminiKeyLocked(false); setGeminiKey(""); setShowGeminiKey(false); }}
+                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
                       >
-                        {showLlmKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        Update Key
                       </button>
+                    ) : (
+                      geminiKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
                     )}
                   </div>
-                  {llmKeyLocked ? (
-                    <button
-                      type="button"
-                      onClick={() => { setLlmKeyLocked(false); setLlmKey(""); setShowLlmKey(false); }}
-                      className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
-                    >
-                      Update Key
-                    </button>
-                  ) : (
-                    llmKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div> // spacer
-                  )}
                 </div>
-              </div>
+
+                <div>
+                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Claude API Key (Anthropic)</label>
+                  <div className="flex gap-3">
+                    <div className="relative w-full">
+                      <input
+                        type={showAnthropicKey ? "text" : "password"}
+                        value={anthropicKey}
+                        onChange={(e) => !anthropicKeyLocked && setAnthropicKey(e.target.value)}
+                        disabled={anthropicKeyLocked}
+                        className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${anthropicKeyLocked ? "pr-10 text-neutral-500 opacity-70" : "text-neutral-200"} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
+                        placeholder="sk-ant-..."
+                      />
+                      {anthropicKeyLocked && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAnthropicKey(!showAnthropicKey)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
+                        >
+                          {showAnthropicKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      )}
+                    </div>
+                    {anthropicKeyLocked ? (
+                      <button
+                        type="button"
+                        onClick={() => { setAnthropicKeyLocked(false); setAnthropicKey(""); setShowAnthropicKey(false); }}
+                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
+                      >
+                        Update Key
+                      </button>
+                    ) : (
+                      anthropicKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
+                    )}
+                  </div>
+                </div>
             </div>
           </div>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
-            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500/80 mr-2"></div>
-              Trading Mode
-            </h3>
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500/80 mr-2"></div>
+                Trading Mode
+              </h3>
+              <div className="relative group">
+                <button 
+                  type="button"
+                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
+                >
+                  <Info size={16} />
+                </button>
+                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="font-semibold text-neutral-100 mb-2">Trading Mode</div>
+                  Choose whether the AI places actual financial trades or simulates them.<br/><br/>
+                  <span className="text-neutral-400">Paper Trading:</span> Safe test mode. Virtual funds, no real risk.<br/><br/>
+                  <span className="text-neutral-400">Live Trading:</span> Sends real capital to Arbitrum network blocks. Requires USDC balance.
+                </div>
+              </div>
+            </div>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-[#161616] border border-[#333336] rounded-lg p-4">
                 <div>
-                  <h4 className="text-[14px] text-neutral-200 font-medium">Paper Trading</h4>
+                  <h4 className="text-[14px] text-neutral-200 font-medium">Safe Test Mode (Paper)</h4>
                   <p className="text-[12px] text-neutral-500 mt-1">Simulate trades without using real funds.</p>
                 </div>
                 <button
@@ -287,15 +364,31 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
-            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-orange-500/80 mr-2"></div>
-              Execution Environment (DeFi & Web3)
-            </h3>
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-orange-500/80 mr-2"></div>
+                Trading Wallets (Web3)
+              </h3>
+              <div className="relative group">
+                <button 
+                  type="button"
+                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
+                >
+                  <Info size={16} />
+                </button>
+                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="font-semibold text-neutral-100 mb-2">Trading Wallets</div>
+                  Configures where your AI stores and uses its capital.<br/><br/>
+                  <span className="text-neutral-400">RPC URL:</span> The gateway node to talk with the Ethereum/Arbitrum blockchain.<br/><br/>
+                  <span className="text-neutral-400">Private Key:</span> The AI's secret signature allowing it to buy/sell directly. Do not share.
+                </div>
+              </div>
+            </div>
             
             <div className="space-y-5">
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Arbitrum RPC URL</label>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Network Gateway URL (Arbitrum RPC)</label>
                 <input
                   type="text"
                   value={arbitrumRpcUrl}
@@ -306,7 +399,7 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Agent Private Key (Optional - Needed for Trades)</label>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Wallet Private Key (Optional - Needed for live trades)</label>
                 <div className="flex gap-3">
                   <div className="relative w-full">
                     <input
@@ -336,13 +429,13 @@ export default function SettingsPage() {
                       Update Key
                     </button>
                   ) : (
-                    agentPrivateKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div> // spacer
+                    agentPrivateKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
                   )}
                 </div>
               </div>
 
               <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Agent Wallet Address</label>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Public Wallet Address</label>
                 <input
                   type="text"
                   value={agentWalletAddress}
@@ -354,11 +447,27 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl">
-            <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold mb-6 flex items-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-blue-500/80 mr-2"></div>
-              Other Integrations
-            </h3>
+          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500/80 mr-2"></div>
+                Data Sources & Social
+              </h3>
+              <div className="relative group">
+                <button 
+                  type="button"
+                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
+                >
+                  <Info size={16} />
+                </button>
+                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="font-semibold text-neutral-100 mb-2">Data Sources</div>
+                  Lets the AI gather sentiment from external networks.<br/><br/>
+                  <span className="text-neutral-400">Alpaca:</span> Used for traditional stock pricing data.<br/><br/>
+                  <span className="text-neutral-400">X (Twitter):</span> Used to read public sentiment and meme-coin hype.
+                </div>
+              </div>
+            </div>
 
             <div className="space-y-5 mb-8">
               <h4 className="text-sm text-neutral-300 font-medium">Alpaca Markets</h4>
@@ -476,8 +585,8 @@ export default function SettingsPage() {
 
             <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
 
-            <div className="space-y-5">
-              <h4 className="text-sm text-neutral-300 font-medium">Telegram Integrations</h4>
+            <div className="space-y-5 mb-8">
+              <h4 className="text-sm text-neutral-300 font-medium">Telegram Integration</h4>
               <div>
                 <label className="block text-[13px] font-medium text-neutral-400 mb-2">API ID</label>
                 <input
@@ -485,63 +594,30 @@ export default function SettingsPage() {
                   value={telegramApiId}
                   onChange={(e) => setTelegramApiId(e.target.value)}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="API ID"
+                  placeholder="ID"
                 />
               </div>
               <div>
                 <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Hash</label>
                 <input
-                  type="password"
+                  type="text"
                   value={telegramApiHash}
                   onChange={(e) => setTelegramApiHash(e.target.value)}
                   className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="API Hash"
+                  placeholder="Hash"
                 />
               </div>
             </div>
-
-            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
-
-            <div className="space-y-5">
-              <h4 className="text-sm text-neutral-300 font-medium">Kite (Zerodha) Integrations</h4>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Key</label>
-                <input
-                  type="text"
-                  value={kiteApiKey}
-                  onChange={(e) => setKiteApiKey(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="Kite API Key"
-                />
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Secret</label>
-                <input
-                  type="password"
-                  value={kiteApiSecret}
-                  onChange={(e) => setKiteApiSecret(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="Kite API Secret"
-                />
-              </div>
-            </div>
-
+            
           </div>
 
-          <div className="flex items-center justify-end mt-4">
+          <div className="flex justify-end pt-4 pb-12">
             <button
               type="submit"
               disabled={saving}
-              className="bg-neutral-100 hover:bg-white text-black font-medium py-3 px-6 rounded-lg text-sm transition-all disabled:opacity-50 tracking-wide flex items-center"
+              className="px-8 py-3 bg-neutral-100 hover:bg-white text-neutral-900 font-semibold rounded-lg shadow-lg flex items-center transition-all disabled:opacity-50"
             >
-              {saving ? (
-                "Synchronizing..."
-              ) : (
-                <>
-                  <Save size={16} className="mr-2" />
-                  Save
-                </>
-              )}
+              {saving ? "Saving..." : <><Save size={18} className="mr-2" /> Save & Restart Agents</>}
             </button>
           </div>
         </form>
@@ -549,3 +625,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+
