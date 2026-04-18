@@ -69,6 +69,7 @@ async def get_setup_config():
     # Return plaintext values for the settings page so it can pre-fill
     return {
         "AI_PROVIDER": env_vars.get("AI_PROVIDER", "gemini"),
+        "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", "llama3"),
         "ANTHROPIC_API_KEY": env_vars.get("ANTHROPIC_API_KEY", ""),
         "GEMINI_API_KEY": env_vars.get("GEMINI_API_KEY", ""),
         "PAPER_MODE": env_vars.get("PAPER_MODE", "true"),
@@ -141,12 +142,39 @@ async def save_setup(req: Dict[str, Any] = Body(...)):
             for k, v in req_dict.items():
                 f.write(f"{k}={v}\n")
 
+    # Check if we need to pull Ollama model
+    import subprocess
+    target_ollama_model = req_dict.get("OLLAMA_MODEL")
+    provider = req_dict.get("AI_PROVIDER", "gemini").lower()
+    
+    installing_model = False
+    msg = "Applying configuration and restarting..."
+
+    if target_ollama_model and ("ollama" in provider or "hybrid" in provider):
+        try:
+            # Check if the requested model exists locally
+            res = subprocess.run(["ollama", "show", target_ollama_model], capture_output=True, text=True)
+            if res.returncode != 0:
+                # Not installed, we need to pull it in the background
+                installing_model = True
+                msg = f"Applying config. The model '{target_ollama_model}' is not installed locally. A new terminal window has opened to download it. The app will restart when ready."
+                
+                if os.name == 'nt':
+                    subprocess.Popen(
+                        f'start "Installing {target_ollama_model}...." cmd /c "title Installing {target_ollama_model}.... && color 0a && echo Download in progress, please wait... && ollama pull {target_ollama_model} && echo Done! && timeout /t 5 >nul"',
+                        shell=True
+                    )
+                else:
+                    subprocess.Popen(["ollama", "pull", target_ollama_model], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            logger.error(f"Failed to check/pull ollama model: {e}")
+
     # Trigger an orchestrated restart
     def restart():
         os.kill(os.getpid(), signal.SIGTERM)
     
     asyncio.get_event_loop().call_later(1.0, restart)
-    return {"status": "saved", "message": "Applying configuration and restarting..."}
+    return {"status": "saved", "message": msg, "installing_model": installing_model}
 
 @router.get("/api/health", response_model=HealthResponse)
 async def get_health():
