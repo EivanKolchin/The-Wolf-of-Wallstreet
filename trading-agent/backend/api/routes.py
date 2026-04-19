@@ -313,6 +313,7 @@ class SetupRequest(BaseModel):
 async def save_setup(req: Dict[str, Any] = Body(...)):
     import os
     import signal
+    import urllib.request
     from backend.core.config import ENV_PATH
     env_path = str(ENV_PATH)
     
@@ -398,11 +399,51 @@ async def save_setup(req: Dict[str, Any] = Body(...)):
     # Trigger an orchestrated restart only if we're not waiting for a download background task
     if not installing_model:
         def restart():
-            os.kill(os.getpid(), signal.SIGTERM)
+            import sys
+            os.execv(sys.executable, ['python'] + sys.argv)
         import asyncio
         asyncio.get_event_loop().call_later(1.0, restart)
         
     return {"status": "saved", "message": msg, "installing_model": installing_model}
+
+@router.get("/api/market/klines")
+async def get_market_klines(symbol: str, interval: str, limit: int = 100):
+    try:
+        import urllib.request
+        import json
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol.upper()}&interval={interval}&limit={limit}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            return data
+    except Exception as e:
+        return []
+
+@router.get("/api/market/depth")
+async def get_market_depth(symbol: str, limit: int = 50):
+    try:
+        import urllib.request
+        import json
+        url = f"https://api.binance.com/api/v3/depth?symbol={symbol.upper()}&limit={limit}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            return data
+    except Exception as e:
+        return {"bids": [], "asks": []}
+
+@router.get("/api/market/trades")
+async def get_market_trades(symbol: str, limit: int = 50):
+    try:
+        import urllib.request
+        import json
+        url = f"https://api.binance.com/api/v3/trades?symbol={symbol.upper()}&limit={limit}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            return data
+    except Exception as e:
+        return []
 
 @router.get("/api/health", response_model=HealthResponse)
 async def get_health():

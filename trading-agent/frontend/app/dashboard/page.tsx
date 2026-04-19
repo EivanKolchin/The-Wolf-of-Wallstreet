@@ -17,10 +17,15 @@ export default function Dashboard() {
   const { rawNews, predictions } = useNewsData();
   const { status, signals } = useAppState();
 
-  const currentPrice = klines.length > 0 ? klines[klines.length - 1].close : 0;
-  const prevPrice = klines.length > 2 ? klines[klines.length - 2].close : 0;
-  const priceDiff = currentPrice - prevPrice;
-  const priceDiffPct = prevPrice > 0 ? (priceDiff / prevPrice) * 100 : 0;
+  const lastKline = klines.length > 0 ? klines[klines.length - 1] : null;
+  const prevKline = klines.length > 2 ? klines[klines.length - 2] : null;
+  const currentPrice = lastKline ? (lastKline.close ?? lastKline[4] ?? 0) : 0;
+  const prevPrice = prevKline ? (prevKline.close ?? prevKline[4] ?? 0) : 0;
+  
+  const parsedCurrent = parseFloat(currentPrice?.toString() || "0");
+  const parsedPrev = parseFloat(prevPrice?.toString() || "0");
+  const priceDiff = parsedCurrent - parsedPrev;
+  const priceDiffPct = parsedPrev > 0 ? (priceDiff / parsedPrev) * 100 : 0;
 
   const latestSignal = signals?.[0];
 
@@ -35,7 +40,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-xl tracking-tight font-semibold text-[#D1D4DC] font-mono">
-              ${parseFloat(currentPrice.toString()).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              ${parsedCurrent.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </div>
             <p className={`text-[12px] font-mono mt-1 font-medium ${priceDiff >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
               {priceDiff >= 0 ? '+' : ''}{priceDiff.toFixed(2)} ({priceDiffPct.toFixed(2)}%)

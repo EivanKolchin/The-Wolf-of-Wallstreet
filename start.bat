@@ -73,8 +73,8 @@ start "AI Trading Agent - Backend" cmd /k ""%~f0" --backend "%CD%\backend" "%PYT
 popd
 echo.
 echo Frontend and backend windows launched. Keep them open to see logs.
-echo Press any key to close this launcher window.
-pause
+echo This launcher window will close automatically...
+timeout /t 3 >nul
 endlocal
 exit /b 0
 
@@ -91,15 +91,20 @@ if not exist .venv\Scripts\python.exe (
 )
 
 echo [Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!
-echo [Backend] Launching service...
 set "PYTHONPATH=%CD%\.."
+
+:backend_loop
+echo [Backend] Launching service...
 .venv\Scripts\python.exe main.py
 
 if %ERRORLEVEL% neq 0 (
-    echo [Backend] Execution failed. Attempting to install missing dependencies...
+    echo [Backend] Execution failed or deliberate restart. Attempting to check dependencies...
     call .venv\Scripts\python.exe -m pip install -r "..\requirements.txt"
     echo [Backend] Relaunching service...
-    .venv\Scripts\python.exe main.py
+    goto backend_loop
+) else (
+    echo [Backend] Service restarting smoothly...
+    goto backend_loop
 )
 
 echo.
