@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, Body
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 
 from backend.memory.database import AsyncSessionLocal as async_session_maker, Trade, NewsPrediction, AgentEvent, TradeStatus
 from backend.memory.redis_client import FeatureCache, HeartbeatClient, get_redis
@@ -243,6 +243,100 @@ class HealthResponse(BaseModel):
 
 class ResetHaltRequest(BaseModel):
     confirm: bool
+
+@router.get("/api/agent/status")
+async def get_agent_status():
+    redis_client = await get_redis()
+    status_str = await redis_client.get("agent_frontend_status")
+    
+    if not status_str:
+        return {
+            "is_halted": False,
+            "buffer_current": 0,
+            "buffer_required": 60,
+            "cycle_interval": 5.0,
+            "status_text": "Starting up agent core..."
+        }
+        
+    try:
+        data = json.loads(status_str)
+        curr = data.get("buffer_current", 0)
+        req = data.get("buffer_required", 60)
+        halted = data.get("is_halted", False)
+        
+        status_text = "Analyzing Live Action..."
+        if halted:
+            status_text = "Trading Force Halted (Manual Stop)"
+        elif not data.get("has_market_data", False):
+            status_text = f"Awaiting 5m Kline closure (Fetching initial market data)..."
+        elif curr < req:
+            status_text = f"Warming up neural pathways ({curr}/{req} sequences)..."
+            
+        return {
+            "is_halted": halted,
+            "buffer_current": curr,
+            "buffer_required": req,
+            "cycle_interval": data.get("cycle_interval", 5.0),
+            "started_at": data.get("started_at", 0),
+            "has_market_data": data.get("has_market_data", False),
+            "status_text": status_text
+        }
+    except Exception as e:
+        logger.error("error_parsing_agent_status", error=str(e))
+        return {
+            "is_halted": False,
+            "buffer_current": 0,
+            "buffer_required": 60,
+            "cycle_interval": 5.0,
+            "status_text": "Signal Interrupted..."
+        }
+
+class StopResumeRequest(BaseModel):
+    halt: bool
+
+@router.post("/api/agent/stop")
+async def toggle_agent_stop(req: StopResumeRequest):
+    redis_client = await get_redis()
+    val = "true" if req.halt else "false"
+    await redis_client.set("agent_force_stopped", val)
+    return {"status": "success", "is_halted": req.halt}
+
+@router.get("/api/portfolio")
+async def get_portfolio():
+    redis_client = await get_redis()
+    live_state_str = await redis_client.get("portfolio:live_state")
+    portfolio_live_state = {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
+    
+    if live_state_str:
+        try:
+            portfolio_live_state = json.loads(live_state_str)
+        except Exception as e:
+            logger.error("error_parsing_live_state", error=str(e))
+            
+    async with async_session_maker() as session:
+        initial_usdc = settings.INITIAL_USDC_AMOUNT
+
+        result = await session.execute(select(func.sum(Trade.pnl_usd)).where(Trade.status == TradeStatus.closed))
+        realized_pnl = result.scalar() or 0.0
+
+        result_open = await session.execute(select(func.sum(Trade.size_usd)).where(Trade.status == TradeStatus.open))
+        locked_cash = result_open.scalar() or 0.0
+
+        available_cash = initial_usdc + realized_pnl - locked_cash
+        if available_cash < 0:
+            available_cash = 0.0
+            
+    total_portfolio_value = available_cash + locked_cash + portfolio_live_state.get("unrealized_pnl", 0.0)
+
+    return {
+        "initial_usdc": initial_usdc,
+        "available_cash": available_cash,
+        "locked_cash": locked_cash,
+        "realized_pnl": realized_pnl,
+        "unrealized_pnl": portfolio_live_state.get("unrealized_pnl", 0.0),
+        "total_value": total_portfolio_value,
+        "live_positions": portfolio_live_state.get("positions", [])
+    }
 
 @router.get("/api/setup/status")
 async def get_setup_status():
@@ -494,19 +588,6 @@ async def get_health():
         news_alive=news_alive,
         model_trade_count=trade_count
     )
-
-@router.get("/api/portfolio")
-async def get_portfolio():
-    status = risk_manager.get_status()
-    return {
-        "total_value_usd": status["portfolio_value_usd"],
-        "available_cash": status["portfolio_value_usd"] - status["daily_pnl_usd"], # rough est
-        "unrealised_pnl": 0.0,
-        "daily_pnl": status["daily_pnl_usd"],
-        "drawdown_pct": status["current_drawdown_pct"],
-        "peak_value": status["peak_portfolio_value"],
-        "is_halted": status["is_halted"],
-    }
 
 @router.get("/api/positions")
 async def get_positions():

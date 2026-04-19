@@ -19,16 +19,150 @@ const TIMEFRAMES = [
     { label: "ALL", value: "ALL" }
 ];
 
+const generatePredictions = (data: any[], timeframeStr: string, predState: any) => {
+    if (!data || data.length < 30) return [];
+    
+    // Determine interval in seconds
+    let seconds = 900; // default 15m
+    const tf = timeframeStr.toLowerCase();
+    if (tf === "1m") seconds = 60;
+    else if (tf === "5m") seconds = 300;
+    else if (tf === "15m") seconds = 900;
+    else if (tf === "1h") seconds = 3600;
+    else if (tf === "4h") seconds = 14400;
+    else if (tf === "1d") seconds = 86400;
+    else if (tf === "1w") seconds = 604800;
+    else if (tf === "1m") seconds = 2592000;
+    
+    const steps = 12; // Predict next 12 candles logically
+    
+    const last = data[data.length - 1];
+    const prev = data[data.length - 12]; // drift across earlier point 
+    
+    const baseTime = typeof last.time === 'string' ? new Date(last.time).getTime() / 1000 : last.time;
+    
+    let needsRecalc = false;
+
+    // Detect if we advanced to a new candle period
+    if (predState.lastBaseTime !== baseTime) {
+        if (predState.future.length > 0) {
+            const oldPred = predState.future[0]; // the prediction that was meant for this very candle
+            if (oldPred && oldPred.time === baseTime) {
+                 predState.historical.push({
+                     ...oldPred,
+                     color: 'rgba(167, 139, 250, 0.5)',
+                     borderColor: '#000000', // Black outline for visibility against real ticker
+                     wickColor: '#000000'
+                 });
+            }
+            if (predState.historical.length > 1) {
+                 predState.historical[predState.historical.length - 2].color = 'rgba(167, 139, 250, 0.2)';
+                 predState.historical[predState.historical.length - 2].borderColor = 'rgba(0, 0, 0, 0.5)';
+                 predState.historical[predState.historical.length - 2].wickColor = 'rgba(0, 0, 0, 0.5)';
+            }
+            if (predState.historical.length > 2) {
+                 predState.historical.shift(); // keep max 2 historical predictions
+            }
+        }
+        predState.lastBaseTime = baseTime;
+        needsRecalc = true;
+    }
+    
+    // Smoothness / Stability check
+    if (!needsRecalc && predState.future.length > 0) {
+        const threshold = predState.threshold || 0;
+        if (Math.abs(last.close - predState.lastPrice) > threshold) {
+            needsRecalc = true; // Price blew past the volatility envelope, redraw cone!
+        }
+    } else if (predState.future.length === 0) {
+        needsRecalc = true;
+    }
+
+    if (needsRecalc) {
+        // Look back over 20 candles
+        const lookback = Math.min(20, data.length);
+        let sumCloses = 0;
+        for (let i = data.length - lookback; i < data.length; i++) sumCloses += data[i].close;
+        const meanClose = sumCloses / lookback;
+        
+        let sumVariance = 0;
+        for (let i = data.length - lookback; i < data.length; i++) sumVariance += Math.pow(data[i].close - meanClose, 2);
+        const stdDev = Math.sqrt(sumVariance / lookback);
+        
+        // Calculate recent velocity vs older velocity to find "acceleration" (curve)
+        const vRecent = (data[data.length - 1].close - data[data.length - 4].close) / 3;
+        const vOlder = (data[data.length - 4].close - data[data.length - 8].close) / 4;
+        
+        const acceleration = vRecent - vOlder; // Positive means curving UP, negative curving DOWN
+        
+        predState.lastPrice = last.close;
+        predState.threshold = stdDev * 0.8; 
+        
+        let currentPrice = last.close;
+        let currentVelocity = vRecent;
+        
+        let newFuture = [];
+        
+        for (let i = 1; i <= steps; i++) {
+            // Predict the polynomial curve: Velocity decays, Acceleration decays but applies to velocity
+            const decayedAcc = acceleration * Math.pow(0.7, i); // acceleration fades quickly
+            currentVelocity += decayedAcc;
+            
+            // Mean Reversion: slowly pulls the ticker back to the recent moving average
+            const meanReversionPull = (meanClose - currentPrice) * 0.05; 
+            
+            currentVelocity += meanReversionPull; // Gravity pulling it towards its 20-candle mean
+            currentVelocity *= 0.9; // Friction (prevent runaway parabolic curves)
+            
+            currentPrice += currentVelocity;
+            
+            // Expected expanding volatility
+            const expansion = stdDev * 0.4 * Math.sqrt(i);
+            
+            const high = currentPrice + expansion;
+            const low = currentPrice - expansion;
+            const open = currentPrice - (currentVelocity * 0.5);
+            const close = currentPrice + (currentVelocity * 0.5);
+            
+            const opacity = Math.max(0.15, 0.8 - (i * (0.65 / steps)));
+            const color = `rgba(167, 139, 250, ${opacity})`;
+            const wickColor = `rgba(167, 139, 250, ${Math.min(1, opacity + 0.2)})`;
+            
+            newFuture.push({
+                time: (baseTime + (i * seconds)) as import('lightweight-charts').Time,
+                open,
+                high,
+                low,
+                close,
+                color,
+                borderColor: wickColor,
+                wickColor: wickColor
+            });
+        }
+        predState.future = newFuture;
+    }
+    
+    // Combine and sort ensuring ascending time order
+    const combined = [...predState.historical, ...predState.future].sort((a, b) => (a.time as number) - (b.time as number));
+    // Deduplicate just in case
+    return combined.filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => (t.time === v.time)) === i);
+};
+
 export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const predictionSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
     const ema9Ref = useRef<ISeriesApi<"Line"> | null>(null);
     const ema21Ref = useRef<ISeriesApi<"Line"> | null>(null);
 
     const [chartData, setChartData] = useState<any[]>([]);
         const [timeframe, setTimeframe] = useState("15m");
     const [cursorDate, setCursorDate] = useState<number | null>(null);
+
+    const predStateRef = useRef<{ historical: any[], future: any[], lastBaseTime: number, lastPrice: number, threshold: number }>({
+        historical: [], future: [], lastBaseTime: 0, lastPrice: 0, threshold: 0
+    });
 
     // Scroll Pagination States
     const isFetchingHistory = useRef(false);
@@ -168,6 +302,12 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
                     if (config.ema21.show && ema21Ref.current) {
                          const emaTails = calculateEMA(chartDataRef.current, 21);
                          if (emaTails.length > 0) ema21Ref.current.update(emaTails[emaTails.length - 1] as any);
+                    }
+                    
+                    // Update live predictions
+                    if (predictionSeriesRef.current) {
+                        const preds = generatePredictions(chartDataRef.current, timeframe, predStateRef.current);
+                        predictionSeriesRef.current.setData(preds);
                     }
                 }
             }
@@ -345,10 +485,35 @@ export default function TradingChart({ symbol = "BTCUSDT" }: { symbol?: string }
             wickUpColor: isVibrantColors ? '#089981' : '#34d399', 
             wickDownColor: isVibrantColors ? '#f23645' : '#f87171',
         });
+        
+        const predictionSeries = chart.addCandlestickSeries({
+            upColor: 'rgba(167, 139, 250, 0.4)',
+            downColor: 'rgba(167, 139, 250, 0.4)',
+            borderVisible: true,
+            borderColor: 'rgba(167, 139, 250, 0.8)',
+            wickUpColor: 'rgba(167, 139, 250, 0.8)',
+            wickDownColor: 'rgba(167, 139, 250, 0.8)',
+        });
+
         series.setData(chartData);
+        predictionSeriesRef.current = predictionSeries;
+
+        // Try load initial predictions
+        if (predictionSeriesRef.current) {
+            predictionSeriesRef.current.setData(generatePredictions(chartData, timeframe));
+        }
 
         chartRef.current = chart;
         seriesRef.current = series;
+
+        // Force a resize slightly after mount to ensure layout calculation
+        setTimeout(() => {
+            if (chartContainerRef.current) {
+                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+                chart.timeScale().fitContent();
+            }
+        }, 100);
+
 if (config.ema9.show) {
             const ema9 = chart.addLineSeries({ color: config.ema9.color, lineWidth: config.ema9.lineWidth as any, title: 'EMA 9' });
             ema9Ref.current = ema9;
@@ -369,6 +534,9 @@ if (config.ema9.show) {
     useEffect(() => {
         if (chartData.length > 0 && seriesRef.current) {
             seriesRef.current.setData(chartData);
+            if (predictionSeriesRef.current) {
+                predictionSeriesRef.current.setData(generatePredictions(chartData, timeframe, predStateRef.current));
+            }
 // Update EMAs
             if (ema9Ref.current) ema9Ref.current.setData(calculateEMA(chartData, 9));
             if (ema21Ref.current) ema21Ref.current.setData(calculateEMA(chartData, 21));

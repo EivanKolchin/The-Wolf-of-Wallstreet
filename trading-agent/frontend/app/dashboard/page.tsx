@@ -6,6 +6,8 @@ import { useMarketData } from "@/lib/hooks/useMarketData";
 import { useNewsData } from "@/lib/hooks/useNewsData";
 import { useAppState } from "@/lib/context";
 import { Activity, DollarSign, Brain } from "lucide-react";
+import { VirtualWalletCard } from "@/components/VirtualWalletCard";
+import { AgentStatusBanner } from "@/components/AgentStatusBanner";
 import { NewsScannerWidget } from "@/components/NewsScannerWidget";
 import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
 
@@ -73,6 +75,15 @@ export default function Dashboard() {
             <p className="text-[12px] tracking-wide text-zinc-400 mt-1 capitalize">Mode: Standing By</p>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="col-span-1 md:col-span-2 grid gap-6 md:grid-cols-2">
+           <VirtualWalletCard />
+        </div>
+        <div className="col-span-1 md:col-span-2">
+           <AgentStatusBanner />
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-7 lg:grid-cols-8">

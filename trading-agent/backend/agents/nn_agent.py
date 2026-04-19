@@ -1,8 +1,10 @@
 import asyncio
 import ctypes
 import multiprocessing
+import json
 from collections import deque
 from datetime import datetime, timedelta, timezone
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -14,6 +16,8 @@ from backend.signals.regime import RegimeDetector
 from backend.agents.nn_model import PersistentTradingModel, TradeExperience
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
 from backend.memory.database import Trade, TradeStatus
+from sqlalchemy import select, func
+from backend.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -65,9 +69,41 @@ class NNTradingAgent:
 
     async def run(self) -> None:
         logger.info("nn_trading_agent_started", symbols=self.symbols)
+        self.started_at = time.time()
         
         while True:
             try:
+                # Expose state to Redis for the frontend timer and check for manual halt
+                try:
+                    longest_seq = max([len(seq) for seq in self.feature_sequences.values()]) if self.feature_sequences else 0
+                    is_forced_stop = await self.heartbeat_client.redis.get("agent_force_stopped")
+                    
+                    status_payload = {
+                        "is_halted": is_forced_stop == b"true",
+                        "buffer_current": longest_seq,
+                        "buffer_required": self.model.SEQUENCE_LENGTH,
+                        "cycle_interval": self.cycle_interval_seconds,
+                        "started_at": self.started_at,
+                        "has_market_data": False
+                    }
+                    
+                    # Update has_market_data if any symbol has dataframe
+                    for sym in self.symbols:
+                        try:
+                            df = await self.market_feed.get_dataframe(sym)
+                            if df is not None and not df.empty:
+                                status_payload["has_market_data"] = True
+                        except:
+                            pass
+
+                    await self.heartbeat_client.redis.set("agent_frontend_status", json.dumps(status_payload))
+                    
+                    if is_forced_stop == b"true":
+                        await asyncio.sleep(self.cycle_interval_seconds)
+                        continue
+                except Exception as e:
+                    logger.error("redis_status_sync_error", error=str(e))
+
                 # 1. Check severe flag
                 if self.severe_flag.value:
                     await self._emergency_protocol()
@@ -153,7 +189,24 @@ class NNTradingAgent:
                         timestamp=datetime.utcnow()
                     )
                     
-                    portfolio_state = {"available_cash": 10000.0} 
+                    # Calculate true portfolio state
+                    async with self.db_session_factory() as session:
+                        # 1. Start with initial amount
+                        initial_usdc = settings.INITIAL_USDC_AMOUNT
+
+                        # 2. Add Realized PnL from closed trades
+                        result = await session.execute(select(func.sum(Trade.pnl_usd)).where(Trade.status == TradeStatus.closed))
+                        realized_pnl = result.scalar() or 0.0
+
+                        # 3. Subtract Locked Cash from open trades
+                        result_open = await session.execute(select(func.sum(Trade.size_usd)).where(Trade.status == TradeStatus.open))
+                        locked_cash = result_open.scalar() or 0.0
+
+                        available_cash = initial_usdc + realized_pnl - locked_cash
+                        if available_cash < 0:
+                            available_cash = 0.0
+                            
+                    portfolio_state = {"available_cash": available_cash}
                     
                     approved, reason = self.risk_manager.approve(decision, portfolio_state)
                     if approved:
