@@ -152,13 +152,30 @@ class LLMNewsAgent:
                 
                 # Push raw article to redis for the frontend dashboard widget
                 try:
-                    raw_data = json.dumps({
+                    raw_dict = {
                         "headline": article.headline,
                         "source": article.source_domain,
                         "time": datetime.utcnow().isoformat()
-                    })
+                    }
+                    raw_data = json.dumps(raw_dict)
+                    
                     await self.news_queue.redis.lpush("recent_raw_news", raw_data)
                     await self.news_queue.redis.ltrim("recent_raw_news", 0, 19)
+                    
+                    # Bypass FakeRedis multiprocessing limits using a JSON file cache
+                    if "FakeRedis" in str(type(self.news_queue.redis)):
+                        import os
+                        cache_file = os.path.join(os.getcwd(), "raw_news_cache.json")
+                        existing = []
+                        if os.path.exists(cache_file):
+                            try:
+                                with open(cache_file, "r") as f:
+                                    existing = json.load(f)
+                            except: pass
+                        existing.insert(0, raw_dict)
+                        existing = existing[:20]
+                        with open(cache_file, "w") as f:
+                            json.dump(existing, f)
                 except Exception as e:
                     logger.warning("failed_to_push_raw_news", error=str(e))
 

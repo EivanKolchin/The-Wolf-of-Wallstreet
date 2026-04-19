@@ -12,14 +12,14 @@ from structlog import get_logger
 log = get_logger("data.news_feed")
 
 DEFAULT_RSS_FEEDS = [
-    "https://feeds.reuters.com/reuters/businessNews",
+    "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
     "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
-    "https://finance.yahoo.com/rss/",
+    "https://finance.yahoo.com/news/rss",
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
     "https://feeds.bbci.co.uk/news/business/rss.xml",
-    "https://news.sky.com/",
-    "https://www.theguardian.com/business"
+    "https://feeds.skynews.com/feeds/rss/business.xml",
+    "https://www.theguardian.com/business/rss"
 ]
 
 KEYWORDS = [

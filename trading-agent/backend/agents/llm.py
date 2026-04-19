@@ -40,7 +40,16 @@ class LLMService:
         url = "http://localhost:11434/api/generate"
         # Provide structural prompt hint to reduce hallucinations
         safe_prompt = prompt + "\n\nIMPORTANT: Provide ONLY valid JSON. No conversational text."
-        data = {"model": self.ollama_model, "prompt": safe_prompt, "stream": False, "format": "json"}
+        
+        # Adding options to prevent VRAM spikes (Out Of Memory causing 500 Internal Server Errors)
+        data = {
+            "model": self.ollama_model, 
+            "prompt": safe_prompt, 
+            "stream": False,
+            "options": {
+                "num_ctx": 4096
+            }
+        }
         
         req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'),
                                     headers={'Content-Type': 'application/json'})
@@ -49,6 +58,7 @@ class LLMService:
                 with urllib.request.urlopen(req, timeout=120) as response:
                     return json.loads(response.read().decode())['response']
             except urllib.error.HTTPError as e:
+                error_body = e.read().decode('utf-8', errors='ignore')
                 if e.code == 404 and retry_on_404:
                     print(f"[Ollama Info] Model '{self.ollama_model}' not found locally. Auto-downloading (this may take a few minutes)...")
                     try:
@@ -62,7 +72,7 @@ class LLMService:
                         print(f"[Ollama Auto-Pull Error] {pe}")
                         return ""
                 else:
-                    print(f"[Ollama Error] HTTP Error {e.code}: {e.reason}")
+                    print(f"[Ollama Error] HTTP Status {e.code}: {e.reason} - Details: {error_body}")
                     return ""
             except Exception as e:
                 print(f"[Ollama Error] {e}")

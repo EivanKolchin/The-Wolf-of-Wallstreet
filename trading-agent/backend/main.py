@@ -168,6 +168,63 @@ def create_app() -> FastAPI:
 if __name__ == "__main__":
     logger.info("starting_trading_agent_processes")
     
+    # Auto-start Redis if needed and not running on Windows
+    try:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect(("127.0.0.1", 6379))
+    except Exception:
+        import subprocess, os
+        if os.name == 'nt':
+            logger.info("Real Redis not found on port 6379. Attempting to download/run portable Windows Redis...")
+            import urllib.request, zipfile
+            redis_dir = os.path.join(os.getcwd(), ".redis_win")
+            redis_exe = os.path.join(redis_dir, "redis-server.exe")
+            
+            if not os.path.exists(redis_exe):
+                try:
+                    os.makedirs(redis_dir, exist_ok=True)
+                    redis_url = "https://github.com/microsoftarchive/redis/releases/download/win-3.0.504/Redis-x64-3.0.504.zip"
+                    zip_path = os.path.join(redis_dir, "redis.zip")
+                    urllib.request.urlretrieve(redis_url, zip_path)
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(redis_dir)
+                    os.remove(zip_path)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-install Redis: {e}. Will continue falling back to FakeRedis.")
+            
+            if os.path.exists(redis_exe):
+                try:
+                    creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                    subprocess.Popen([redis_exe], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                    import time
+                    time.sleep(1) # Let Redis bind to the port
+                except Exception as e:
+                    pass
+
+    # Auto-start Ollama if needed and not running
+    if "ollama" in settings.AI_PROVIDER.lower() or "hybrid" in settings.AI_PROVIDER.lower():
+        try:
+            import urllib.request
+            urllib.request.urlopen("http://127.0.0.1:11434/api/version", timeout=1)
+        except Exception:
+            logger.info("Ollama not running. Starting in background...")
+            import subprocess, os
+            if os.name == 'nt':
+                creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                try:
+                    subprocess.Popen(["ollama", "serve"], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    pass
+            else:
+                try:
+                    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    pass
+            import time
+            time.sleep(3)
+
     multiprocessing.set_start_method('spawn')
     
     shared_severe_flag = multiprocessing.Value(ctypes.c_bool, False)

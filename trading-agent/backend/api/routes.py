@@ -514,13 +514,27 @@ async def get_news_recent(limit: int = 20):
 async def get_raw_news():
     redis = await get_redis()
     raw = await redis.lrange("recent_raw_news", 0, 19)
-    # Filter out empty or unparseable items
+    
+    is_fake_redis = "FakeRedis" in str(type(redis))
+    
     valid_news = []
-    for r in raw:
-        try:
-            valid_news.append(json.loads(r))
-        except:
-            pass
+    if raw and not is_fake_redis:
+        for r in raw:
+            try:
+                valid_news.append(json.loads(r))
+            except:
+                pass
+    else:
+        # Fallback to physical cross-process JSON cache if FakeRedis is active
+        import os
+        cache_file = os.path.join(os.getcwd(), "raw_news_cache.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r") as f:
+                    valid_news = json.load(f)
+            except Exception:
+                pass
+                
     return valid_news
 
 @router.get("/api/audit")
