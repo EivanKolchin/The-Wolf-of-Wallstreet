@@ -12,9 +12,213 @@ from backend.memory.redis_client import FeatureCache, HeartbeatClient, get_redis
 from backend.risk.manager import RiskManager
 from backend.core.config import settings
 import structlog
+import os
+import signal
+import subprocess
+import threading
+import json
+import time
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
+
+pull_state = {
+    "status": "idle",
+    "model": "",
+    "pct": 0.0,
+    "total_mb": 0.0,
+    "comp_mb": 0.0,
+    "speed_mb": 0.0,
+    "rem_time": 0.0,
+    "error_msg": "",
+    "ollama_status": ""
+}
+
+def ollama_background_task(target_ollama_model, install_ollama=False):
+    import urllib.request
+    import shutil
+    try:
+        ollama_cmd = "ollama"
+        if install_ollama:
+            pull_state["status"] = "installing_ollama"
+            if os.name == 'nt':
+                setup_path = "OllamaSetup.exe"
+                url = "https://ollama.com/download/OllamaSetup.exe"
+                
+                # Fetch remote total size
+                try:
+                    req_head = urllib.request.Request(url, method="HEAD")
+                    with urllib.request.urlopen(req_head) as response:
+                        total_size = int(response.headers.get("Content-Length", 0))
+                except Exception:
+                    total_size = 0
+                
+                downloaded_size = 0
+                if os.path.exists(setup_path):
+                    downloaded_size = os.path.getsize(setup_path)
+
+                if downloaded_size != total_size or total_size == 0:
+                    if downloaded_size > total_size and total_size > 0:
+                        os.remove(setup_path)
+                        downloaded_size = 0
+                    
+                    req_dl = urllib.request.Request(url)
+                    if downloaded_size > 0:
+                        req_dl.add_header("Range", f"bytes={downloaded_size}-")
+                    
+                    start_time = time.time()
+                    mode = "ab" if downloaded_size > 0 else "wb"
+                    pull_state["model"] = "OllamaSetup.exe"
+                    
+                    try:
+                        with urllib.request.urlopen(req_dl) as response, open(setup_path, mode) as out_file:
+                            block_size = 32768
+                            start_down = downloaded_size
+                            while True:
+                                buffer = response.read(block_size)
+                                if not buffer:
+                                    break
+                                downloaded_size += len(buffer)
+                                out_file.write(buffer)
+                                
+                                # Update Stats
+                                if total_size > 0:
+                                    pct = downloaded_size / total_size
+                                    now = time.time()
+                                    elapsed = now - start_time
+                                    down_session = downloaded_size - start_down
+                                    speed = down_session / elapsed if elapsed > 0 else 0
+                                    rem_time = (total_size - downloaded_size) / speed if speed > 0 else 0
+                                    
+                                    pull_state["pct"] = pct
+                                    pull_state["total_mb"] = total_size / (1024*1024)
+                                    pull_state["comp_mb"] = downloaded_size / (1024*1024)
+                                    pull_state["speed_mb"] = speed / (1024*1024)
+                                    pull_state["rem_time"] = rem_time
+                    except Exception as e:
+                        pull_state["status"] = "error"
+                        pull_state["error_msg"] = f"Download failed: {e}"
+                        return
+                
+                # After download is done
+                pull_state["status"] = "installing_ollama"
+                pull_state["comp_mb"] = pull_state["total_mb"]
+                pull_state["pct"] = 1.0
+                
+                install_res = subprocess.run(f"{setup_path} /VERYSILENT /NORESTART /SUPPRESSMSGBOXES", shell=True)
+                
+                # If installation failed, it likely got corrupted. Delete & abort.
+                if install_res.returncode != 0:
+                    pull_state["status"] = "error"
+                    pull_state["error_msg"] = "Corrupted download detected. Please try again."
+                    if os.path.exists(setup_path):
+                        os.remove(setup_path)
+                    return
+                
+                if os.path.exists(setup_path):
+                    try:
+                        os.remove(setup_path)
+                    except:
+                        pass
+                
+                local_app_data = os.environ.get("LOCALAPPDATA", "")
+                ollama_dir = os.path.join(local_app_data, "Programs", "Ollama")
+                os.environ["PATH"] += os.pathsep + ollama_dir
+                
+                # Directly specify the binary to bypass "command not found" PATH sync problems
+                ollama_bin = os.path.join(ollama_dir, "ollama.exe")
+                if os.path.exists(ollama_bin):
+                    ollama_cmd = ollama_bin
+
+                # Kill the system tray app if the installer started it (Optional, but highly helpful if user doesn't want the visual app)
+                try:
+                    subprocess.run(["taskkill", "/F", "/IM", "ollama app.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+            else:
+                subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True)
+            
+            pull_state["status"] = "starting_ollama"
+            
+            # Start the background CLI server
+            if os.name == 'nt':
+                creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                # To prevent child process from opening console windows, we set CREATE_NO_WINDOW
+                try:
+                    subprocess.Popen([ollama_cmd, "serve"], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    subprocess.Popen(["ollama", "serve"], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            else:
+                subprocess.Popen([ollama_cmd, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(5)
+        
+        # Ensure the server is actually running even if we didn't just install it natively
+        if not install_ollama:
+            try:
+                urllib.request.urlopen("http://127.0.0.1:11434/api/version", timeout=1)
+            except Exception:
+                if os.name == 'nt':
+                    local_app_data = os.environ.get("LOCALAPPDATA", "")
+                    ollama_dir = os.path.join(local_app_data, "Programs", "Ollama")
+                    os.environ["PATH"] += os.pathsep + ollama_dir
+                    ollama_bin = os.path.join(ollama_dir, "ollama.exe")
+                    if os.path.exists(ollama_bin):
+                        ollama_cmd = ollama_bin
+                    
+                    creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+                    try:
+                        subprocess.Popen([ollama_cmd, "serve"], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                    except FileNotFoundError:
+                        subprocess.Popen(["ollama", "serve"], creationflags=creation_flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                else:
+                    subprocess.Popen([ollama_cmd, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(3)
+
+        pull_state["status"] = "pulling_model"
+        pull_state["model"] = target_ollama_model
+        
+        url = "http://127.0.0.1:11434/api/pull"
+        data = json.dumps({"name": target_ollama_model}).encode('utf-8')
+        req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+        
+        start_time = time.time()
+        with urllib.request.urlopen(req) as response:
+            for line in response:
+                if line:
+                    info = json.loads(line.decode('utf-8'))
+                    
+                    if "status" in info:
+                        pull_state["ollama_status"] = info["status"]
+
+                    if "total" in info and "completed" in info:
+                        total = info["total"]
+                        completed = info["completed"]
+                        if total > 0:
+                            pct = completed / total
+                            now = time.time()
+                            elapsed = now - start_time
+                            speed = completed / elapsed if elapsed > 0 else 0
+                            rem_time = (total - completed) / speed if speed > 0 else 0
+                            
+                            pull_state["pct"] = pct
+                            pull_state["total_mb"] = total / (1024*1024)
+                            pull_state["comp_mb"] = completed / (1024*1024)
+                            pull_state["speed_mb"] = speed / (1024*1024)
+                            pull_state["rem_time"] = rem_time
+    except Exception as e:
+        pull_state["status"] = "error"
+        pull_state["error_msg"] = str(e)
+        logger.error(f"Error pulling model: {e}")
+        return
+
+    pull_state["status"] = "done"
+    time.sleep(2)
+    os.kill(os.getpid(), signal.SIGTERM)
+
+@router.get("/api/setup/ollama-progress")
+async def get_ollama_progress():
+    return pull_state
+
 
 # Global RiskManager instance to share state, realistically this would be 
 # injected or read via Redis, but for FastAPI endpoint purposes we'll instantiate 
@@ -143,7 +347,7 @@ async def save_setup(req: Dict[str, Any] = Body(...)):
                 f.write(f"{k}={v}\n")
 
     # Check if we need to pull Ollama model
-    import subprocess
+    import shutil
     target_ollama_model = req_dict.get("OLLAMA_MODEL")
     provider = req_dict.get("AI_PROVIDER", "gemini").lower()
     
@@ -151,29 +355,53 @@ async def save_setup(req: Dict[str, Any] = Body(...)):
     msg = "Applying configuration and restarting..."
 
     if target_ollama_model and ("ollama" in provider or "hybrid" in provider):
-        try:
-            # Check if the requested model exists locally
-            res = subprocess.run(["ollama", "show", target_ollama_model], capture_output=True, text=True)
-            if res.returncode != 0:
-                # Not installed, we need to pull it in the background
-                installing_model = True
-                msg = f"Applying config. The model '{target_ollama_model}' is not installed locally. A new terminal window has opened to download it. The app will restart when ready."
+        ollama_installed = shutil.which("ollama") is not None
+        
+        if not ollama_installed and os.name == 'nt':
+            # Check if it was secretly installed but just not in PATH
+            ollama_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama")
+            if os.path.exists(os.path.join(ollama_dir, "ollama.exe")):
+                os.environ["PATH"] += os.pathsep + ollama_dir
+                ollama_installed = True
+        
+        if not ollama_installed:
+            installing_model = True
+            msg = f"Applying config. Installing Ollama & {target_ollama_model} in the background..."
+            threading.Thread(target=ollama_background_task, args=(target_ollama_model, True)).start()
+        else:
+            try:
+                # Check directly via the local API instead of CLI to prevent the Windows GUI tray app from triggering
+                req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+                model_exists = False
                 
-                if os.name == 'nt':
-                    subprocess.Popen(
-                        f'start "Installing {target_ollama_model}...." cmd /c "title Installing {target_ollama_model}.... && color 0a && echo Download in progress, please wait... && ollama pull {target_ollama_model} && echo Done! && timeout /t 5 >nul"',
-                        shell=True
-                    )
-                else:
-                    subprocess.Popen(["ollama", "pull", target_ollama_model], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            logger.error(f"Failed to check/pull ollama model: {e}")
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        tags_data = json.loads(response.read().decode('utf-8'))
+                        for model_obj in tags_data.get("models", []):
+                            model_name = model_obj.get("name", "")
+                            if model_name == target_ollama_model or model_name.startswith(f"{target_ollama_model}:"):
+                                model_exists = True
+                                break
+                except Exception:
+                    # If the API doesn't answer, the server is down so the model "doesn't exist" in memory state
+                    pass
 
-    # Trigger an orchestrated restart
-    def restart():
-        os.kill(os.getpid(), signal.SIGTERM)
-    
-    asyncio.get_event_loop().call_later(1.0, restart)
+                if not model_exists:
+                    installing_model = True
+                    msg = f"Applying config. Downloading {target_ollama_model} in the background..."
+                    threading.Thread(target=ollama_background_task, args=(target_ollama_model, False)).start()
+                else:
+                    logger.info(f"Ollama model {target_ollama_model} is already installed locally. Skipping download.")
+            except Exception as e:
+                logger.error(f"Failed to check ollama model: {e}")
+
+    # Trigger an orchestrated restart only if we're not waiting for a download background task
+    if not installing_model:
+        def restart():
+            os.kill(os.getpid(), signal.SIGTERM)
+        import asyncio
+        asyncio.get_event_loop().call_later(1.0, restart)
+        
     return {"status": "saved", "message": msg, "installing_model": installing_model}
 
 @router.get("/api/health", response_model=HealthResponse)

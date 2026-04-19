@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass, asdict
 from typing import Optional
 from redis.asyncio import Redis, ConnectionPool
-from core.config import settings
+from backend.core.config import settings
 
 # Redis connection pool
 try:
@@ -24,12 +24,13 @@ async def get_redis() -> Redis:
 
     real_redis = Redis(connection_pool=redis_pool)
     try:
-        # Ping the server to see if it's there
+        # Actually attempt to execute a command to force a connection check
         await real_redis.ping()
         return real_redis
-    except Exception:
-        # Server not found, fallback to fakeredis
-        pass
+    except Exception as e:
+        # Server not found or connection refused, fallback to fakeredis
+        import logging
+        logging.getLogger(__name__).warning("Real Redis unreachable. Falling back to FakeRedis.")
 
     if _has_fake_redis:
         if not _fake_redis_instance:

@@ -19,29 +19,6 @@ else
     exit 1
 fi
 
-# Ollama check and install
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "[Ollama] Not found. Downloading and installing Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh
-fi
-
-echo "[Ollama] Ensuring Ollama service is running..."
-ollama serve >/dev/null 2>&1 &
-sleep 3
-
-echo "[Ollama] Validating llama3 model integrity..."
-if ! ollama show llama3 >/dev/null 2>&1; then
-    echo "[Ollama] Model missing or interrupted. Attempting to resume or pull a fresh llama3 model concurrently..."
-    # Run the heavy pull in the background parallel to npm/pip installs
-    (
-        echo "[Ollama Llama 3 Background Download Started]"
-        ollama pull llama3 >/dev/null 2>&1
-        echo "[Ollama Llama 3 Background Download Finished]"
-    ) &
-else
-    echo "[Ollama] llama3 model is fully functional and ready!"
-fi
-
 if [ -d "backend" ] && [ -d "frontend" ]; then
     PROJ_DIR="."
 elif [ -d "trading-agent/backend" ]; then

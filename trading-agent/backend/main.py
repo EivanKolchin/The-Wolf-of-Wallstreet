@@ -138,8 +138,20 @@ def run_news_agent(severe_flag):
     except KeyboardInterrupt:
         pass
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    asyncio.create_task(ws_live_updater())
+    logger.info("fastapi_startup_complete")
+    yield
+    # Shutdown
+    logger.info("fastapi_shutdown_complete")
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Trading Agent API")
+    app = FastAPI(title="Trading Agent API", lifespan=lifespan)
     
     app.add_middleware(
         CORSMiddleware,
@@ -150,12 +162,6 @@ def create_app() -> FastAPI:
     )
     
     app.include_router(router)
-    
-    @app.on_event("startup")
-    async def startup_event():
-        await init_db()
-        asyncio.create_task(ws_live_updater())
-        logger.info("fastapi_startup_complete")
         
     return app
 

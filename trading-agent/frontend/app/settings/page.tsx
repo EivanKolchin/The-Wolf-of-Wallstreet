@@ -52,6 +52,43 @@ export default function SettingsPage() {
   const [kiteApiKey, setKiteApiKey] = useState("");
   const [kiteApiSecret, setKiteApiSecret] = useState("");
 
+  const [installModalOpen, setInstallModalOpen] = useState(false);
+  const [installState, setInstallState] = useState<any>({
+    status: "idle",
+    pct: 0,
+    model: "",
+    total_mb: 0,
+    comp_mb: 0,
+    speed_mb: 0,
+    rem_time: 0,
+    error_msg: ""
+  });
+
+  const startPollingProgress = () => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/ollama-progress?t=${Date.now()}`);
+        if (res.ok) {
+          const st = await res.json();
+          setInstallState(st);
+          if (st.status === "done" || st.status === "error") {
+            clearInterval(interval);
+            setTimeout(() => {
+              if (st.status !== "error") alert(`Installation of ${st.model || "model"} completed successfully. Proceeding to Dashboard.`);
+              window.location.href = "/dashboard";
+            }, 1000);
+          }
+        }
+      } catch (err) {
+        // Backend restarted maybe? If so, we're likely done.
+        clearInterval(interval);
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 1500);
+      }
+    }, 500);
+  };
+
   useEffect(() => {
     const fetchConfig = async (retries = 3) => {
       try {
@@ -151,6 +188,13 @@ export default function SettingsPage() {
         }
         
         const data = await res.json();
+        
+        if (data.installing_model) {
+          setInstallModalOpen(true);
+          startPollingProgress();
+          return; // Wait for background download to finish before resolving settings page.
+        }
+
         if (data.message) {
           successMsg = data.message;
         }
@@ -170,7 +214,6 @@ export default function SettingsPage() {
     } catch (err: any) {
       setError("Network or server error while saving settings.");
       setErrorDetails(err.message || err.toString());
-    } finally {
       setSaving(false);
     }
   };
@@ -652,6 +695,89 @@ export default function SettingsPage() {
           </div>
         </form>
       </div>
+
+      {/* Model Download Modal */}
+      {installModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
+          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-2xl w-full max-w-lg shadow-2xl relative overflow-hidden">
+            <div className="flex flex-col items-center justify-center mb-8">
+              <h2 className="text-xl font-semibold mb-2">
+                {installState.status === "installing_ollama" && installState.pct < 1
+                  ? "Downloading Ollama Engine..."
+                  : installState.status === "installing_ollama"
+                  ? "Installing Ollama Engine..."
+                  : installState.status === "starting_ollama"
+                  ? "Starting Ollama Service..."
+                  : installState.status === "pulling_model"
+                  ? (installState.ollama_status && !installState.ollama_status.includes("pulling ") && !installState.ollama_status.includes("downloading ") 
+                     ? (installState.ollama_status.charAt(0).toUpperCase() + installState.ollama_status.slice(1) + "...")
+                     : `Downloading ${installState.model}`)
+                  : installState.status === "done" 
+                  ? "Installation Complete!"
+                  : "Preparing Engine..."}
+              </h2>
+              <p className="text-neutral-400 text-sm text-center">
+                Please securely keep this window open while the background processor downloads external dependencies.
+              </p>
+            </div>
+
+            {(installState.status === "pulling_model" || (installState.status === "installing_ollama" && installState.total_mb > 0)) && (
+              <div className="space-y-5 animate-in fade-in zoom-in duration-300">
+                <div className="w-full bg-neutral-800/80 rounded-full h-3.5 mb-2 relative overflow-hidden border border-neutral-700">
+                  <div 
+                    className="bg-blue-500 h-full rounded-none transition-all duration-300 ease-out shadow-lg shadow-blue-500/20" 
+                    style={{ width: `${(installState.pct * 100).toFixed(1)}%` }}
+                  ></div>
+                </div>
+                
+                <div className="grid grid-cols-2 text-sm gap-y-4 gap-x-2">
+                  <div className="flex flex-col pl-1">
+                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Total Progress</span>
+                    <span className="font-mono text-neutral-100">{(installState.pct * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex flex-col text-right pr-1">
+                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">File Progress</span>
+                    <span className="font-mono text-neutral-100">
+                      {installState.comp_mb >= 1024 ? `${(installState.comp_mb / 1024).toFixed(2)} GB` : `${installState.comp_mb.toFixed(1)} MB`}
+                      <span className="text-neutral-500 text-xs mx-1">/</span>
+                      {installState.total_mb >= 1024 ? `${(installState.total_mb / 1024).toFixed(2)} GB` : `${installState.total_mb.toFixed(1)} MB`}
+                    </span>
+                  </div>
+                  <div className="flex flex-col pl-1">
+                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Network Speed</span>
+                    <span className="font-mono text-emerald-400">
+                      {installState.speed_mb >= 1024 ? `${(installState.speed_mb / 1024).toFixed(2)} GB/s` : `${installState.speed_mb.toFixed(1)} MB/s`}
+                    </span>
+                  </div>
+                  <div className="flex flex-col text-right pr-1">
+                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Time Remaining</span>
+                    <span className="font-mono text-neutral-100">
+                      {(() => {
+                        if (installState.status === "pulling_model" && installState.pct >= 1) return "Finalizing...";
+                        if (installState.rem_time === undefined || installState.rem_time === null || isNaN(installState.rem_time) || installState.rem_time < 0) return "Calculating...";
+                        if (installState.rem_time === 0 && installState.total_mb > 0) return "Almost Done...";
+                        const hrs = Math.floor(installState.rem_time / 3600);
+                        const mins = Math.floor((installState.rem_time % 3600) / 60);
+                        const secs = Math.floor(installState.rem_time % 60);
+                        if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`;
+                        if (mins > 0) return `${mins}m ${secs}s`;
+                        return `${secs}s`;
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {installState.status === "error" && (
+              <div className="text-red-400 font-mono text-center text-sm p-4 bg-red-900/10 rounded-lg border border-red-500/20 shadow-inner">
+                {installState.error_msg || "Unknown error occurred during setup."}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
