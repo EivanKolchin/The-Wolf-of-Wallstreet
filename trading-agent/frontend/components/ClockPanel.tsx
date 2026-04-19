@@ -18,13 +18,42 @@ export function ClockPanel() {
             if (saved) {
                 try { 
                     const parsed = JSON.parse(saved);
-                    setZones(parsed.length > 0 ? parsed : [{ label: "LOCAL", tz: "local" }]);
+                    if (parsed.length > 0) {
+                        setZones(parsed);
+                        return;
+                    }
                 } catch (e) {
-                    setZones([{ label: "LOCAL", tz: "local" }]);
+                    // fallthrough to default
                 }
-            } else {
-                setZones([{ label: "LOCAL", tz: "local" }]);
             }
+            
+            // Create default zones array with detected timezones
+            let tzAbbr = "LOCAL";
+            try {
+                const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
+                const tzPart = parts.find(p => p.type === 'timeZoneName');
+                if (tzPart && tzPart.value) {
+                    tzAbbr = `LOCAL (${tzPart.value})`;
+                }
+            } catch (e) {}
+
+            const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+            const defaultZones: TimeZoneConfig[] = [];
+
+            // Add London if user is not in London
+            if (!localTz.includes("Europe/London") && !localTz.includes("Europe/Belfast") && !localTz.includes("Europe/Dublin") && !localTz.includes("GB") && localTz !== "UTC") {
+                defaultZones.push({ label: "LDN", tz: "Europe/London" });
+            }
+            
+            // Add New York if user is not in New York
+            if (!localTz.includes("America/New_York") && !localTz.includes("America/Detroit") && !localTz.includes("EST") && !localTz.includes("EDT")) {
+                defaultZones.push({ label: "NY", tz: "America/New_York" });
+            }
+            
+            // Add Local
+            defaultZones.push({ label: tzAbbr, tz: "local" });
+            
+            setZones(defaultZones);
         };
 
         loadZones();

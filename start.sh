@@ -57,7 +57,7 @@ cd ..
 
 # 2. Start the Backend in a separate terminal to keep logs visible
 echo "[Backend] Starting in a new terminal..."
-BACKEND_CMD="cd \"\$PWD/backend\" && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && \"$PYTHON_CMD\" -m venv .venv && echo '[Backend] Installing Python dependencies...' && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r ../requirements.txt; fi && echo '[Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!' && echo '[Backend] Launching service...' && export PYTHONPATH=\"\$PWD/..\" && (.venv/bin/python main.py || (echo '[Backend] Execution failed. Attempting to install missing dependencies...' && .venv/bin/pip install -r ../requirements.txt && .venv/bin/python main.py)); echo; echo 'Backend exited. Press enter to close.'; read"
+BACKEND_CMD="cd \"\$PWD/backend\" && if [ ! -x .venv/bin/python ]; then echo '[Backend] Creating virtual environment...' && \"$PYTHON_CMD\" -m venv .venv && echo '[Backend] Installing Python dependencies...' && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r ../requirements.txt; fi && echo '[Backend] Note: Ensure you have added your hosted DATABASE_URL and REDIS_URL to the .env file!' && export PYTHONPATH=\"\$PWD/..\" && while true; do echo '[Backend] Launching service...'; .venv/bin/python main.py; if [ \$? -ne 0 ]; then echo '[Backend] Execution failed or deliberate restart. Attempting to check dependencies...'; .venv/bin/pip install -r ../requirements.txt; echo '[Backend] Relaunching service...'; else echo '[Backend] Service restarting smoothly...'; fi; sleep 1; done"
 
 if command -v gnome-terminal >/dev/null 2>&1; then
     gnome-terminal -- bash -c "$BACKEND_CMD"

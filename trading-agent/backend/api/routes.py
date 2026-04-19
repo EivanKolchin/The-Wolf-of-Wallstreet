@@ -261,6 +261,39 @@ async def get_setup_status():
         "telegram": not (not settings.TELEGRAM_API_ID or "your_" in settings.TELEGRAM_API_ID.lower())
     }
 
+@router.get("/api/llm/status")
+async def get_llm_status():
+    import os, json, time
+    state_file = os.path.join(os.getcwd(), "llm_state.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+                if state.get("is_overloaded", False):
+                    elapsed = time.time() - state.get("downgrade_time", 0)
+                    rem = int(max(0, 120 - elapsed))
+                    state["time_remaining"] = rem
+                else:
+                    state["time_remaining"] = 0
+                return state
+        except: pass
+    return {"is_overloaded": False, "time_remaining": 0}
+
+@router.post("/api/llm/force-revert")
+async def force_llm_revert():
+    import os, json
+    state_file = os.path.join(os.getcwd(), "llm_state.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+            state["force_revert"] = True
+            with open(state_file, "w") as f:
+                json.dump(state, f)
+            return {"status": "success", "message": "Manual revert triggered."}
+        except: pass
+    return {"status": "error"}
+
 @router.get("/api/setup/config")
 async def get_setup_config():
     import os

@@ -78,12 +78,13 @@ class PriorityNewsQueue:
         await self.redis.zadd(self.QUEUE_KEY, {impact.to_json(): score})
 
     async def get_nowait(self) -> Optional[NewsImpact]:
-        # Pop the element with the lowest score
-        result = await self.redis.zpopmin(self.QUEUE_KEY, count=1)
-        if not result:
+        # Pop the element with the lowest score using legacy Redis 3.0 support
+        items = await self.redis.zrange(self.QUEUE_KEY, 0, 0, withscores=True)
+        if not items:
             return None
         
-        member, _score = result[0]
+        member, _score = items[0]
+        await self.redis.zrem(self.QUEUE_KEY, member)
         return NewsImpact.from_json(member)
 
     async def size(self) -> int:

@@ -252,6 +252,14 @@ if __name__ == "__main__":
         if not needs_setup or p2.is_alive():
             p2.terminate()
             p2.join()
+            
+        import subprocess, os
+        if os.name == 'nt':
+            subprocess.run(["taskkill", "/F", "/IM", "ollama.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["taskkill", "/F", "/IM", "ollama app.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.run(["pkill", "-f", "ollama"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     signal.signal(signal.SIGTERM, handle_sigterm)
     
     # Run FastAPI in the main process

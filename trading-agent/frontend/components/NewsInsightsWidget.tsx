@@ -8,7 +8,6 @@ export function NewsInsightsWidget({ predictions }: { predictions: any[] }) {
     <Card className="h-full flex flex-col overflow-hidden">
       <CardHeader className="border-b border-zinc-800/50 pb-4 flex flex-row items-center justify-between">
         <CardTitle className="text-sm">LLM Intel Log</CardTitle>
-        <BrainCircuit size={15} className="text-purple-500" />
       </CardHeader>
       <CardContent className="font-sans text-[12px] text-zinc-400 p-0 flex-1 overflow-y-auto max-h-[300px]">
         <table className="w-full text-left">

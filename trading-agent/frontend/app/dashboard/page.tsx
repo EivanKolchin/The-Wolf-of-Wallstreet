@@ -51,7 +51,6 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>AI Conviction</CardTitle>
-            <Activity size={15} className="text-zinc-400" />
           </CardHeader>
           <CardContent>
             <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] flex items-center capitalize">
@@ -66,7 +65,6 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle>LLM Analysis</CardTitle>
-            <Brain size={15} className="text-zinc-400" />
           </CardHeader>
           <CardContent>
             <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] flex items-center">
@@ -125,7 +123,7 @@ export default function Dashboard() {
                 {tradeHistory?.slice(0, 8).map((trade: any, i: number) => (
                   <div key={i} className={`flex justify-between ${trade.is_buyer_maker ? 'text-rose-500' : 'text-emerald-500'}`}>
                     <span>${parseFloat(trade.price).toFixed(1)}</span>
-                    <span className="text-[#D1D4DC]">{new Date(trade.time).toLocaleTimeString([], { hour12: false, second: '2-digit' })}</span>
+                    <span className="text-[#D1D4DC]">{new Date(trade.time).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                 ))}
               </div>

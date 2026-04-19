@@ -9,7 +9,11 @@ logger = logging.getLogger(__name__)
 class LLMService:
     def __init__(self, provider: str, anthropic_key: str, gemini_key: str, ollama_model: str = "llama3"):
         self.provider = (provider or "ollama").lower()
-        self.ollama_model = ollama_model
+        self.primary_ollama_model = ollama_model
+        self.current_ollama_model = ollama_model
+        self.fallback_ollama_model = "llama3.2:1b"
+        self.downgrade_time = 0
+
         self.anthropic_client = None
         self.gemini_model_haiku = None
         self.gemini_model_sonnet = None
@@ -35,38 +39,105 @@ class LLMService:
             except ImportError:
                 logger.error("anthropic package not installed")
 
+    def _push_system_alert(self, message: str):
+        import os, datetime
+        try:
+            cache_file = os.path.join(os.getcwd(), "raw_news_cache.json")
+            existing = []
+            if os.path.exists(cache_file):
+                with open(cache_file, "r") as f:
+                    existing = json.load(f)
+                    
+            existing.insert(0, {
+                "headline": "⚡ SYSTEM ALERT: " + message,
+                "source": "RESOURCE MANAGER",
+                "time": datetime.datetime.utcnow().isoformat()
+            })
+            with open(cache_file, "w") as f:
+                json.dump(existing[:20], f)
+        except: pass
+
+    def _sync_llm_state(self, active: bool = False):
+        """Synchronizes LLM status to a shared file for the FastAPI frontend to read/write."""
+        import os
+        state_file = os.path.join(os.getcwd(), "llm_state.json")
+        try:
+            if os.path.exists(state_file):
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+                    # Check if frontend requested a force revert
+                    if state.get("force_revert", False) and self.current_ollama_model != self.primary_ollama_model:
+                        print(f"[Resource Manager] User forced immediate revert to {self.primary_ollama_model}!")
+                        self.current_ollama_model = self.primary_ollama_model
+                        self.downgrade_time = 0
+            
+            # Write current actual state
+            with open(state_file, "w") as f:
+                json.dump({
+                    "primary_model": self.primary_ollama_model,
+                    "current_model": self.current_ollama_model,
+                    "downgrade_time": self.downgrade_time,
+                    "is_overloaded": self.current_ollama_model != self.primary_ollama_model,
+                    "force_revert": False
+                }, f)
+        except Exception: pass
+
     async def _call_ollama(self, prompt: str) -> str:
-        """Call local Ollama instance with optional JSON format enforcement (grammar) if needed."""
+        """Call local Ollama instance with auto-downgrade failover protection if hardware gets overloaded."""
+        import time
         url = "http://localhost:11434/api/generate"
-        # Provide structural prompt hint to reduce hallucinations
+        
+        self._sync_llm_state()
+        
+        # Check if we should attempt to recover back up to the primary model (cooldown: 2 mins)
+        if self.current_ollama_model != self.primary_ollama_model:
+            if time.time() - self.downgrade_time > 120:
+                print(f"[Resource Manager] Cooldown finished. Attempting to restore primary {self.primary_ollama_model} engine.")
+                self._push_system_alert(f"Cooldown completed. Testing memory resources with primary {self.primary_ollama_model} model again...")
+                self.current_ollama_model = self.primary_ollama_model
+                self.downgrade_time = 0
+                self._sync_llm_state()
+
         safe_prompt = prompt + "\n\nIMPORTANT: Provide ONLY valid JSON. No conversational text."
         
-        # Adding options to prevent VRAM spikes (Out Of Memory causing 500 Internal Server Errors)
-        data = {
-            "model": self.ollama_model, 
-            "prompt": safe_prompt, 
-            "stream": False,
-            "options": {
-                "num_ctx": 4096
+        def build_request():
+            data = {
+                "model": self.current_ollama_model, 
+                "prompt": safe_prompt, 
+                "stream": False,
+                "options": {
+                    "num_ctx": 4096
+                }
             }
-        }
-        
-        req = urllib.request.Request(url, data=json.dumps(data).encode('utf-8'),
-                                    headers={'Content-Type': 'application/json'})
+            return urllib.request.Request(url, data=json.dumps(data).encode('utf-8'),
+                                        headers={'Content-Type': 'application/json'})
+
         def fetch(retry_on_404=True):
+            req = build_request()
             try:
                 with urllib.request.urlopen(req, timeout=120) as response:
                     return json.loads(response.read().decode())['response']
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode('utf-8', errors='ignore')
+                
+                # Check for OOM/Hardware overload triggers
+                if e.code == 500 and ("terminated" in error_body or "memory" in error_body.lower() or "oom" in error_body.lower() or "failed to allocate" in error_body.lower()):
+                    if self.current_ollama_model == self.primary_ollama_model:
+                        print(f"[Ollama Critical] VRAM overload on {self.primary_ollama_model}! Fallback to {self.fallback_ollama_model} triggered.")
+                        self.current_ollama_model = self.fallback_ollama_model
+                        self.downgrade_time = time.time()
+                        self._sync_llm_state()
+                        self._push_system_alert(f"Critical memory overload. The primary engine ({self.primary_ollama_model}) crashed the LLM handler. Auto-downgrading to lightweight {self.fallback_ollama_model} parameters to keep data flowing. Will re-attempt the {self.primary_ollama_model} engine in 2 minutes.")
+                        return fetch(retry_on_404=True) # Retry immediately with fallback model
+                        
                 if e.code == 404 and retry_on_404:
-                    print(f"[Ollama Info] Model '{self.ollama_model}' not found locally. Auto-downloading (this may take a few minutes)...")
+                    print(f"[Ollama Info] Model '{self.current_ollama_model}' not found locally. Auto-downloading...")
                     try:
                         pull_req = urllib.request.Request("http://localhost:11434/api/pull",
-                            data=json.dumps({"name": self.ollama_model, "stream": False}).encode('utf-8'),
+                            data=json.dumps({"name": self.current_ollama_model, "stream": False}).encode('utf-8'),
                             headers={'Content-Type': 'application/json'})
-                        urllib.request.urlopen(pull_req, timeout=600)  # Up to 10 mins for auto-pull
-                        print(f"[Ollama Info] Successfully downloaded '{self.ollama_model}'. Resuming operation...")
+                        urllib.request.urlopen(pull_req, timeout=600)
+                        print(f"[Ollama Info] Successfully downloaded '{self.current_ollama_model}'.")
                         return fetch(retry_on_404=False)
                     except Exception as pe:
                         print(f"[Ollama Auto-Pull Error] {pe}")

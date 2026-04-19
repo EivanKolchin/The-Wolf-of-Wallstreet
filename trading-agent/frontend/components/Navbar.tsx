@@ -4,9 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { useAppState } from "../lib/context";
-import { Settings, AlertCircle } from "lucide-react";
+import { Settings, AlertCircle, Cpu } from "lucide-react";
 import { ClockPanel } from "./ClockPanel";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { API_BASE } from "../api";
 
 export default function Navbar() {
   const { status } = useAppState();
@@ -20,6 +21,11 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
 
+  // LLM Switch State
+  const [llmStatus, setLlmStatus] = useState<any>(null);
+  const [showLlmDrop, setShowLlmDrop] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     setMounted(true);
     fetch("http://127.0.0.1:8000/api/setup/status")
@@ -29,7 +35,23 @@ export default function Navbar() {
         if (data && data.missing_integrations) setMissingList(data.missing_integrations);
       })
       .catch(() => setMissingKeys(true));
+
+    const pollLLM = setInterval(() => {
+      fetch("http://127.0.0.1:8000/api/llm/status")
+        .then(res => res.json())
+        .then(data => setLlmStatus(data))
+        .catch(() => setLlmStatus(null));
+    }, 2000);
+    
+    return () => clearInterval(pollLLM);
   }, []);
+
+  const handleForceRevert = async () => {
+    try {
+      await fetch("http://127.0.0.1:8000/api/llm/force-revert", { method: 'POST' });
+      setShowLlmDrop(false);
+    } catch(e) {}
+  };
 
   const navItems = [
     { name: "Overview", path: "/dashboard" },
@@ -118,6 +140,43 @@ export default function Navbar() {
             <AlertCircle size={16} />
             <span className="text-[13px] font-medium uppercase tracking-widest">Setup Required</span>
           </Link>
+        )}
+
+        {/* LLM Status Dropdown */}
+        {mounted && llmStatus?.is_overloaded && (
+          <div className="relative" ref={dropRef}>
+            <button 
+              onClick={() => setShowLlmDrop(!showLlmDrop)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-orange-500/30 bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 transition-all cursor-pointer shadow-lg animate-pulse"
+            >
+              <Cpu size={14} />
+              <span className="text-[11px] uppercase tracking-widest font-mono">
+                {llmStatus.time_remaining}s Cooldown
+              </span>
+            </button>
+
+            {/* Dropdown Menu */}
+            {showLlmDrop && (
+              <div className="absolute top-10 right-0 w-[280px] bg-[#111] border border-[#2A2A2A] rounded-xl p-4 shadow-2xl z-50">
+                <div className="flex items-center gap-2 mb-3 border-b border-[#2A2A2A] pb-3">
+                  <AlertCircle size={16} className="text-orange-400" />
+                  <span className="text-[12px] font-semibold text-zinc-200 uppercase tracking-wider">Engine Downgraded</span>
+                </div>
+                
+                <p className="text-[11px] text-zinc-400 leading-relaxed mb-4">
+                  The primary <span className="text-emerald-400">{llmStatus.primary_model}</span> crashed from extreme memory load. 
+                  Currently running <span className="text-orange-400">{llmStatus.current_model}</span> to maintain feed processing.
+                </p>
+
+                <button 
+                  onClick={handleForceRevert}
+                  className="w-full py-2 bg-[#2A2A2A] hover:bg-[#3A3A3A] hover:text-white text-[11px] uppercase tracking-widest text-zinc-300 font-semibold rounded transition"
+                >
+                  Force Revert Now &rarr;
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Wallet Connection */}
