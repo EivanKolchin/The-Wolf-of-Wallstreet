@@ -25,3 +25,9 @@ ollama-linux-*.tar*
 .ollama/
 *.bin
 *.gguf
+
+# Temporary Caching & Datastores
+dump.rdb
+raw_news_cache.json
+llm_state.json
+trading-agent.db

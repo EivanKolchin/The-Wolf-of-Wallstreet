@@ -26,3 +26,9 @@ ollama-linux-*.tar*
 # OS
 .DS_Store
 Thumbs.db
+
+# Temporary Caching & Datastores
+dump.rdb
+raw_news_cache.json
+llm_state.json
+trading-agent.db
