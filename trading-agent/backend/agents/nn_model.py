@@ -158,6 +158,13 @@ class PersistentTradingModel:
             
             # Extract to scalars
             probs_arr = direction_probs[0].numpy()
+            
+            # Suppress extreme hold bias from imbalanced pretraining
+            # This allows the AI's subtle directional leaning to express itself as actionable trades
+            # instead of sitting idle.
+            probs_arr[2] *= 0.015
+            probs_arr = probs_arr / probs_arr.sum()
+            
             raw_size = size[0].item()
             
             probs_dict = {

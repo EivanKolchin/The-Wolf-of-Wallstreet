@@ -78,8 +78,33 @@ class BinanceMarketFeed:
         self._orderbooks: Dict[str, dict] = {s.upper(): None for s in self.symbols}
         self._recent_trades: Dict[str, deque] = {s.upper(): deque(maxlen=100) for s in self.symbols}
         
+    async def _fetch_historical(self) -> None:
+        try:
+            import requests
+            import asyncio
+            def fetch():
+                for symbol in self.symbols:
+                    url = f"https://api.binance.us/api/v3/klines?symbol={symbol.upper()}&interval=5m&limit=100"
+                    resp = requests.get(url, timeout=10)
+                    if resp.status_code == 200:
+                        klines = resp.json()
+                        for k in klines:
+                            self._closed_klines[symbol.upper()].append({
+                                "timestamp": int(k[0]),
+                                "open": float(k[1]),
+                                "high": float(k[2]),
+                                "low": float(k[3]),
+                                "close": float(k[4]),
+                                "volume": float(k[5])
+                            })
+            await asyncio.to_thread(fetch)
+            log.info("Historical klines prefetched")
+        except Exception as e:
+            log.error("error_fetching_historical", error=str(e))
+
     async def start(self) -> None:
         self.running = True
+        await self._fetch_historical()
         self._task = asyncio.create_task(self._run_loop())
         self._watchdog_task = asyncio.create_task(self._watchdog())
         log.info("Market feed started", symbols=self.symbols)
@@ -132,6 +157,8 @@ class BinanceMarketFeed:
         
         try:
             data = json.loads(message)
+            if "data" in data and "stream" in data:
+                data = data["data"]
         except Exception as e:
             log.error("Failed to parse message", error=str(e))
             return

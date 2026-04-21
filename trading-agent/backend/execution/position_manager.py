@@ -77,7 +77,18 @@ class PositionManager:
                     unrealized = ((current_price - trade.entry_price) / trade.entry_price) * size_usd * direction_mult
                     portfolio_live_state["unrealized_pnl"] += unrealized
                     portfolio_live_state["total_value_locked"] += size_usd
-                    portfolio_live_state["positions"].append({"symbol": symbol, "unrealized": unrealized, "size_usd": size_usd})
+                    
+                    asset_size = size_usd / trade.entry_price if trade.entry_price > 0 else 0
+                    
+                    portfolio_live_state["positions"].append({
+                        "symbol": symbol,
+                        "unrealized": unrealized,
+                        "size_usd": size_usd,
+                        "asset_size": asset_size,
+                        "entry_price": float(trade.entry_price),
+                        "current_price": float(current_price),
+                        "direction": str(trade.direction)
+                    })
 
                     # Trigger closure if price dumps below our dynamic trailing stop limit
                     if current_price <= trailing_stop_limit:

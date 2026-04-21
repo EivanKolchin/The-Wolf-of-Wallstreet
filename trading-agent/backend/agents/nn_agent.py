@@ -15,7 +15,7 @@ from backend.signals.features import FeatureVectorBuilder
 from backend.signals.regime import RegimeDetector
 from backend.agents.nn_model import PersistentTradingModel, TradeExperience
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
-from backend.memory.database import Trade, TradeStatus
+from backend.memory.database import Trade, TradeStatus, get_session
 from sqlalchemy import select, func
 from backend.core.config import settings
 
@@ -66,10 +66,140 @@ class NNTradingAgent:
         
         self.current_news_impact: NewsImpact | None = None
         self.news_impact_expires_at: datetime | None = None
+        self.db_session_factory = None
+
+    async def _background_predictions_loop(self) -> None:
+        """Asynchronous background task to broadcast CNN prediction visualization for the UI, decoupled from trading loop"""
+        while True:
+            try:
+                for symbol in self.symbols:
+                    if len(self.feature_sequences[symbol]) < self.model.SEQUENCE_LENGTH:
+                        continue
+                    
+                    df = await self.market_feed.get_dataframe(symbol)
+                    if df is None or df.empty:
+                        continue
+                    
+                    recent_trades = await self.market_feed.get_recent_trades(symbol, n=1)
+                    if recent_trades and 'price' in recent_trades[-1]:
+                        current_price = recent_trades[-1]['price']
+                    else:
+                        current_price = df.iloc[-1]['close']
+                        
+                    sequence = np.stack(self.feature_sequences[symbol])
+                    
+                    # Offload purely for visual rendering
+                    decision_str, size_pct, probs = self.model.infer(sequence)
+                    
+                    p_long = probs.get("long", 0.0)
+                    p_short = probs.get("short", 0.0)
+                    
+                    # Convert AI intention directly to a slope
+                    # High long probability = strong upward slope. High short probability = strong downward slope.
+                    slope_magnitude = (p_long - p_short) * current_price * 0.005 # Base slope modifier
+                    
+                    # Size pct drives confidence and volatility cone
+                    confidence = max(0.1, size_pct / 0.20) # Normalize to 0-1 range based on max position limit
+                    base_expansion = current_price * 0.002 * (1.0 - confidence + 0.1) # Higher confidence = tighter cone
+
+                    predictions = []
+                    projected_price = current_price
+                    velocity = slope_magnitude
+                    
+                    for i in range(1, 13):
+                        projected_price += velocity
+                        velocity *= 0.85 # Decay the velocity to prevent runaway charts (curve shaping)
+                        
+                        expansion = base_expansion * np.sqrt(i)
+                        
+                        predictions.append({
+                            "step": i,
+                            "open": projected_price - (velocity * 0.5),
+                            "high": projected_price + expansion,
+                            "low": projected_price - expansion,
+                            "close": projected_price + (velocity * 0.5)
+                        })
+                    
+                    target_price = predictions[-1]['close']
+                    confidence_pct = max(probs.values()) * 100
+                    
+                    time_range = "10 to 15 minutes"
+                    
+                    target_buy_price = None
+                    target_sell_price = None
+                    
+                    if target_price > current_price:
+                        target_sell_price = target_price
+                    else:
+                        target_buy_price = target_price
+
+                    if decision_str == "hold":
+                        if target_price > current_price:
+                            # It expects the price to go UP. It should buy now while it is cheap.
+                            price_diff = ((target_price - current_price) / current_price) * 100
+                            if price_diff > 0.05:
+                                thought = f"Detected significant upside potential (+{price_diff:.2f}%). Price is currently low (~${current_price:,.2f}). Considering entering LONG position to target ~${target_price:,.2f} within {time_range}."
+                            else:
+                                thought = f"Projecting mild upside to ~${target_price:,.2f} within {time_range}, but current price (~${current_price:,.2f}) isn't low enough for a strong entry. Waiting for better risk/reward."
+                        else:
+                            price_diff = ((current_price - target_price) / current_price) * 100
+                            thought = f"Projecting a dip of ~{price_diff:.2f}% down to ~${target_price:,.2f} over the next {time_range}. Holding off buys until price drops to that support level."
+                    elif decision_str == "long":
+                        thought = f"Optimal buying conditions met! Current price (~${current_price:,.2f}) is favorable. Executing LONG order to capture projected run-up to ~${target_price:,.2f} ({confidence_pct:.1f}% confidence)."
+                    elif decision_str == "short":
+                        thought = f"Price is overextended at ~${current_price:,.2f}. Executing SHORT order to capture projected drop to ~${target_price:,.2f} ({confidence_pct:.1f}% confidence)."
+                    else:
+                        thought = f"Analyzing momentum across recent history and news impact..."
+
+                    payload = {
+                        "symbol": symbol,
+                        "predictions": predictions,
+                        "current_price": current_price,
+                        "target_buy_price": target_buy_price,
+                        "target_sell_price": target_sell_price,
+                        "thought": thought
+                    }
+                    await self.heartbeat_client.redis.set("agent_visual_predictions", json.dumps(payload))
+            except Exception as e:
+                logger.error("background_predictions_loop_error", error=str(e))
+                
+            await asyncio.sleep(self.cycle_interval_seconds)
 
     async def run(self) -> None:
         logger.info("nn_trading_agent_started", symbols=self.symbols)
         self.started_at = time.time()
+        
+        # Pre-fill historical sequences
+        for symbol in self.symbols:
+            logger.info("prefilling_historical_features", symbol=symbol)
+            try:
+                df = await self.market_feed.get_dataframe(symbol)
+                if df is not None and not df.empty:
+                    req = self.model.SEQUENCE_LENGTH
+                    available = len(df); logger.info("df_length_check", length=available)
+                    if available > req:
+                        start_idx = max(0, available - req)
+                        for i in range(start_idx, available):
+                            sub_df = df.iloc[:i+1] 
+                            regime_name, regime_conf = self.regime_detector.detect(sub_df, None)
+                            vector = await self.feature_builder.build(
+                                symbol=symbol,
+                                df=sub_df,
+                                bids=[],
+                                asks=[],
+                                trades=[],
+                                sr_levels=[],
+                                regime=regime_name,
+                                regime_confidence=regime_conf,
+                                news_impact=None
+                            )
+                            self.feature_sequences[symbol].append(vector)
+                        logger.info("buffer_filled_successfully", buf_len=len(self.feature_sequences[symbol]))
+            except Exception as e:
+                logger.error("failed_to_prefill_buffer", symbol=symbol, error=str(e))
+                
+        # Start background predictions loop
+        asyncio.create_task(self._background_predictions_loop())
         
         while True:
             try:
@@ -165,6 +295,7 @@ class NNTradingAgent:
                         trades=trades,
                         sr_levels=sr_levels,
                         regime=regime_name,
+                        regime_confidence=regime_conf,
                         news_impact=self.current_news_impact
                     )
                     
@@ -190,7 +321,8 @@ class NNTradingAgent:
                     )
                     
                     # Calculate true portfolio state
-                    async with self.db_session_factory() as session:
+                    from backend.memory.database import get_session
+                    async with get_session() as session:
                         # 1. Start with initial amount
                         initial_usdc = settings.INITIAL_USDC_AMOUNT
 
@@ -206,17 +338,25 @@ class NNTradingAgent:
                         if available_cash < 0:
                             available_cash = 0.0
                             
-                    portfolio_state = {"available_cash": available_cash}
+                    portfolio_state = {"available_cash": available_cash, "available_usdc": available_cash}
+                    
+                    # Prevent opening a duplicate trade in the same direction if we are already holding one
+                    if symbol in self.open_trades and hasattr(self.open_trades[symbol], 'direction'):
+                        if self.open_trades[symbol].direction.value == decision_str:
+                            decision_str = "hold"
+                            decision.direction = "hold"
                     
                     approved, reason = self.risk_manager.approve(decision, portfolio_state)
                     if approved:
-                        trade = await self.execution_engine.execute(decision, portfolio_state["available_cash"])
+                        trade = await self.execution_engine.execute(decision, portfolio_state)
                         if trade:
                             self.open_trades[symbol] = trade
                             logger.info("trade_executed", symbol=symbol, direction=decision_str, size=size_pct)
                     else:
                         if decision_str != "hold":
-                            logger.debug("trade_rejected", symbol=symbol, reason=reason)
+                            logger.info("trade_rejected", symbol=symbol, reason=reason, direction=decision_str)
+                        else:
+                            logger.info("trade_hold_decision", symbol=symbol, probs=probs, seq_mean=float(sequence.mean()), seq_max=float(sequence.max()))
 
                 await self.heartbeat_client.ping("nn_trading_agent")
                 

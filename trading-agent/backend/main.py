@@ -41,10 +41,14 @@ def run_nn_agent(severe_flag):
     async def _run():
         import ccxt.async_support as ccxt_async
         
-        market_feed = BinanceMarketFeed(symbols=["BTCUSDT"])
+        market_feed = BinanceMarketFeed(symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"])
         await market_feed.start()
         
-        feature_builder = FeatureVectorBuilder(None, None, None)
+        from backend.memory.redis_client import get_redis
+        redis_session = await get_redis()
+        
+        from backend.signals import technical, orderbook
+        feature_builder = FeatureVectorBuilder(redis_session, technical, orderbook)
         regime_detector = RegimeDetector()
         
         global _model_instance
@@ -61,9 +65,6 @@ def run_nn_agent(severe_flag):
         from backend.execution.defi_engine import UniswapV3Executor, DefiPortfolioTracker, DefiExecutionEngine
         from web3 import Web3
         web3_client = Web3(Web3.HTTPProvider(settings.ARBITRUM_RPC_URL or "https://arb1.arbitrum.io/rpc"))
-        
-        from backend.memory.redis_client import get_redis
-        redis_session = await get_redis()
         
         uniswap = UniswapV3Executor(
             web3=web3_client,
@@ -97,7 +98,7 @@ def run_nn_agent(severe_flag):
             execution_engine=exec_engine,
             news_queue=news_queue,
             severe_flag=severe_flag,
-            symbols=["BTCUSDT"]
+            symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
         )
         await agent.run()
 

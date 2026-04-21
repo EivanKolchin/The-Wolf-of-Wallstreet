@@ -14,18 +14,78 @@ import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
 // Use dynamic import for TradingView widget because it relies on window/document
 const TradingChart = dynamic(() => import('@/components/TradingChart'), { ssr: false });
 
-export default function Dashboard() {
-  const { klines, orderbook, tradeHistory } = useMarketData("btcusdt");
-  const { rawNews, predictions } = useNewsData();
-  const { status, signals } = useAppState();
+const availableCoins = ["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"];
 
+export default function Dashboard() {
+  const [symbol, setSymbol] = React.useState("ALL");
+  // Main data hook for the active chart symbol (defaults to BTCUSDT if ALL is selected)
+  const activeChartSymbol = symbol === "ALL" ? "BTCUSDT" : symbol;
+  const { klines, orderbook, tradeHistory } = useMarketData(activeChartSymbol);
+  const { rawNews, predictions } = useNewsData();
+  const { status, signals, currency, exchangeRates } = useAppState();
+
+  const rate = exchangeRates[currency] || 1;
+  const currencySymbol = currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : currency === 'JPY' ? '¥' : '$';
+
+  // Fetch prices for all coins if "ALL" is selected
+  const [allPrices, setAllPrices] = React.useState<Record<string, { current: number, diff: number, pct: number }>>({});
+  
+  React.useEffect(() => {
+    if (symbol !== "ALL") return;
+    
+    // Initial fetch for 24h stats to calculate diffs
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?' + new URLSearchParams({
+          symbols: JSON.stringify(availableCoins)
+        }));
+        const data = await res.json();
+        const initialPrices: any = {};
+        for (const d of data) {
+          const current = parseFloat(d.lastPrice);
+          const diff = parseFloat(d.priceChange);
+          const pct = parseFloat(d.priceChangePercent);
+          initialPrices[d.symbol] = { current, diff, pct };
+        }
+        setAllPrices(initialPrices);
+      } catch (e) { console.error(e); }
+    };
+    fetchStats();
+
+    // Subscribe to live combined streams
+    const streams = availableCoins.map(c => `${c.toLowerCase()}@ticker`).join('/');
+    const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload?.data?.s) {
+          const d = payload.data;
+          setAllPrices(prev => ({
+            ...prev,
+            [d.s]: {
+              current: parseFloat(d.c),
+              diff: parseFloat(d.p),
+              pct: parseFloat(d.P)
+            }
+          }));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    return () => ws.close();
+  }, [symbol]);
+
+  // Single active coin info
   const lastKline = klines.length > 0 ? klines[klines.length - 1] : null;
   const prevKline = klines.length > 2 ? klines[klines.length - 2] : null;
   const currentPrice = lastKline ? (lastKline.close ?? lastKline[4] ?? 0) : 0;
   const prevPrice = prevKline ? (prevKline.close ?? prevKline[4] ?? 0) : 0;
   
-  const parsedCurrent = parseFloat(currentPrice?.toString() || "0");
-  const parsedPrev = parseFloat(prevPrice?.toString() || "0");
+  const parsedCurrent = parseFloat(currentPrice?.toString() || "0") * rate;
+  const parsedPrev = parseFloat(prevPrice?.toString() || "0") * rate;
   const priceDiff = parsedCurrent - parsedPrev;
   const priceDiffPct = parsedPrev > 0 ? (priceDiff / parsedPrev) * 100 : 0;
 
@@ -33,22 +93,61 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pt-4 font-sans fadeIn">
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="flex flex-wrap gap-2 mb-4">
+        {["ALL", ...availableCoins].map(coin => (
+          <button
+            key={coin}
+            onClick={() => setSymbol(coin)}
+            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${symbol === coin ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}
+          >
+            {coin.replace('USDT', '')}
+          </button>
+        ))}
+      </div>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle>Current Price</CardTitle>
-            <DollarSign size={15} className="text-zinc-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl tracking-tight font-semibold text-[#D1D4DC] font-mono">
-              ${parsedCurrent.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-            </div>
-            <p className={`text-[12px] font-mono mt-1 font-medium ${priceDiff >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-              {priceDiff >= 0 ? '+' : ''}{priceDiff.toFixed(2)} ({priceDiffPct.toFixed(2)}%)
-            </p>
-          </CardContent>
-        </Card>
+      <div className={`grid gap-6 ${symbol === "ALL" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+
+        {symbol === "ALL" ? (
+          <Card className="col-span-1 md:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle>All Markets</CardTitle>
+              <DollarSign size={15} className="text-zinc-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
+                {availableCoins.map(coin => {
+                  const data = allPrices[coin] || { current: 0, diff: 0, pct: 0 };
+                  return (
+                    <div key={coin} className="p-3 bg-[#121214] border border-zinc-800/50 rounded-xl">
+                      <div className="text-xs text-zinc-400 font-medium mb-1">{coin.replace('USDT', '')}</div>
+                      <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] font-mono">
+                        {currencySymbol}{(data.current * rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className={`text-[11px] font-mono mt-1 ${data.diff >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                        {data.diff >= 0 ? '+' : ''}{(data.diff * rate).toFixed(2)} ({data.diff >= 0 ? '+' : ''}{data.pct.toFixed(2)}%)
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle>Current Price</CardTitle>
+              <DollarSign size={15} className="text-zinc-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl tracking-tight font-semibold text-[#D1D4DC] font-mono">
+                {currencySymbol}{parsedCurrent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <p className={`text-[12px] font-mono mt-1 font-medium ${priceDiff >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                {priceDiff >= 0 ? '+' : ''}{priceDiff.toFixed(2)} ({priceDiffPct.toFixed(2)}%)
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -92,7 +191,7 @@ export default function Dashboard() {
             <CardTitle>Market Trajectory</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 p-0 m-0">
-            <TradingChart symbol="BTCUSDT" />
+            <TradingChart symbol={activeChartSymbol} currencyRate={rate} currencyPrefix={currencySymbol} />
           </CardContent>
         </Card>
 
@@ -103,13 +202,13 @@ export default function Dashboard() {
           <CardContent className="font-mono text-[11px] text-zinc-400 space-y-4 pt-4">
             <div>
               <div className="flex justify-between mb-2 text-zinc-400">
-                <span>Price (USD)</span>
-                <span>Size (BTC)</span>
+                <span>Price ({currency})</span>
+                <span>Size ({activeChartSymbol.replace('USDT', '')})</span>
               </div>
               <div className="space-y-1.5 mt-2">
                 {orderbook?.asks?.slice(0, 5).reverse().map((ask: number[], i: number) => (
                   <div key={i} className="flex justify-between text-rose-500/90">
-                    <span>{parseFloat(ask[0].toString()).toFixed(2)}</span>
+                    <span>{(parseFloat(ask[0].toString()) * rate).toFixed(2)}</span>
                     <span className="text-[#D1D4DC]">{parseFloat(ask[1].toString()).toFixed(4)}</span>
                   </div>
                 ))}
@@ -118,7 +217,7 @@ export default function Dashboard() {
                 </div>
                 {orderbook?.bids?.slice(0, 5).map((bid: number[], i: number) => (
                   <div key={i} className="flex justify-between text-emerald-500/90">
-                    <span>{parseFloat(bid[0].toString()).toFixed(2)}</span>
+                    <span>{(parseFloat(bid[0].toString()) * rate).toFixed(2)}</span>
                     <span className="text-[#D1D4DC]">{parseFloat(bid[1].toString()).toFixed(4)}</span>
                   </div>
                 ))}
@@ -133,7 +232,7 @@ export default function Dashboard() {
               <div className="space-y-2 opacity-90">
                 {tradeHistory?.slice(0, 8).map((trade: any, i: number) => (
                   <div key={i} className={`flex justify-between ${trade.is_buyer_maker ? 'text-rose-500' : 'text-emerald-500'}`}>
-                    <span>${parseFloat(trade.price).toFixed(1)}</span>
+                    <span>{currencySymbol}{(parseFloat(trade.price) * rate).toFixed(1)}</span>
                     <span className="text-[#D1D4DC]">{new Date(trade.time).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                 ))}

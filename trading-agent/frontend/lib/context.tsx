@@ -10,20 +10,35 @@ interface AppState {
     signals: any[];
     positions: Trade[];
     news: NewsImpact | null;
+    currency: string;
+    exchangeRates: Record<string, number>;
+    setCurrency: (currency: string) => void;
 }
 
 const AppContext = createContext<AppState | null>(null);
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
-    const [state, setState] = useState<AppState>({
+    const [state, setState] = useState<Omit<AppState, 'setCurrency'>>({
         status: { running: true, paper_mode: true, address: "0xAgentPlaceholder..." },
         portfolio: null,
         signals: [],
         positions: [],
         news: null,
+        currency: "USD",
+        exchangeRates: { USD: 1 },
     });
 
     useEffect(() => {
+        // Fetch exchange rates from an open API initially
+        fetch("https://api.exchangerate-api.com/v4/latest/USD")
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.rates) {
+                    setState(prev => ({ ...prev, exchangeRates: data.rates }));
+                }
+            })
+            .catch(err => console.error("Failed to fetch exchange rates", err));
+
         const ws = subscribeToLiveWs((topic, data) => {
             setState((prev) => {
                 if (topic === "state") {
@@ -62,7 +77,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         return () => ws.close();
     }, []);
 
-    return <AppContext.Provider value={state}>{children}</AppContext.Provider>;
+    return (
+        <AppContext.Provider value={{
+            ...state,
+            setCurrency: (c: string) => setState(prev => ({ ...prev, currency: c }))
+        }}>
+            {children}
+        </AppContext.Provider>
+    );    
 }
 
 export function useAppState() {

@@ -14,7 +14,9 @@ export function subscribeToLiveWs(
     ws.onmessage = (event) => {
         try {
             const parsed = JSON.parse(event.data);
-            if (Object.keys(parsed).length === 1) {
+            if (parsed.type && parsed.data !== undefined) {
+                onMessage(parsed.type, parsed.data);
+            } else if (Object.keys(parsed).length === 1) {
                 const topic = Object.keys(parsed)[0];
                 onMessage(topic, parsed[topic]);
             }

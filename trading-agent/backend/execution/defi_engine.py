@@ -111,7 +111,7 @@ class UniswapV3Executor:
                     raise ValueError(f"Unknown token in for USD conversion: {token_in}")
                 
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}") as resp:
+                    async with session.get(f"https://api.binance.us/api/v3/ticker/price?symbol={symbol}") as resp:
                         data = await resp.json()
                         price = float(data["price"])
                         
@@ -205,11 +205,11 @@ class DefiPortfolioTracker:
         
         async with aiohttp.ClientSession() as session:
             if balances["WETH"] > 0:
-                async with session.get("https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT") as resp:
+                async with session.get("https://api.binance.us/api/v3/ticker/price?symbol=ETHUSDT") as resp:
                     data = await resp.json()
                     usd_value += balances["WETH"] * float(data["price"])
             if balances["WBTC"] > 0:
-                async with session.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") as resp:
+                async with session.get("https://api.binance.us/api/v3/ticker/price?symbol=BTCUSDT") as resp:
                     data = await resp.json()
                     usd_value += balances["WBTC"] * float(data["price"])
         return usd_value
@@ -218,7 +218,7 @@ class DefiPortfolioTracker:
         balances = await self.get_balances()
         if asset == "ETHUSDT" and balances["WETH"] > 0.001:
             async with aiohttp.ClientSession() as session:
-                async with session.get("https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT") as resp:
+                async with session.get("https://api.binance.us/api/v3/ticker/price?symbol=ETHUSDT") as resp:
                     data = await resp.json()
                     price = float(data["price"])
             size_usd = balances["WETH"] * price
@@ -238,7 +238,7 @@ class DefiPortfolioTracker:
             }
         elif asset == "BTCUSDT" and balances["WBTC"] > 0.0001:
             async with aiohttp.ClientSession() as session:
-                async with session.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT") as resp:
+                async with session.get("https://api.binance.us/api/v3/ticker/price?symbol=BTCUSDT") as resp:
                     data = await resp.json()
                     price = float(data["price"])
             size_usd = balances["WBTC"] * price
@@ -301,7 +301,7 @@ class DefiExecutionEngine:
                 return None
 
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}") as resp:
+                async with session.get(f"https://api.binance.us/api/v3/ticker/price?symbol={symbol}") as resp:
                     data = await resp.json()
                     current_price = float(data["price"])
 
@@ -377,7 +377,7 @@ class DefiExecutionEngine:
         token_balance = balances.get(token_key, 0.0)
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}") as resp:
+            async with session.get(f"https://api.binance.us/api/v3/ticker/price?symbol={symbol}") as resp:
                 data = await resp.json()
                 current_price = float(data["price"])
 

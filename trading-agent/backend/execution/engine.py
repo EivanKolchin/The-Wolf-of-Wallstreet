@@ -28,6 +28,14 @@ class ExecutionEngine:
         self.db_session_factory = db_session_factory
         self.paper_mode = paper_mode
 
+    async def get_current_price(self, symbol: str) -> float:
+        try:
+            ticker = self.exchange.fetch_ticker(symbol)
+            return float(ticker["last"])
+        except Exception as e:
+            logger.error("failed_to_get_current_price", symbol=symbol, error=str(e))
+            return 0.0
+
     async def execute(self, decision: TradeDecision, available_cash: float) -> Trade | None:
         size_usd = decision.size_pct * available_cash
         

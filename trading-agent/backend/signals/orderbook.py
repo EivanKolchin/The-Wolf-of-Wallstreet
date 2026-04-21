@@ -6,7 +6,7 @@ log = get_logger("signals.orderbook")
 
 def calculate_book_imbalance(bids: list, asks: list, depth: int = 10) -> float:
     try:
-        if not bids or !asks:
+        if not bids or not asks:
             return 0.0
 
         top_bids = bids[:depth]

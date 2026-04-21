@@ -4,13 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { useAppState } from "../lib/context";
-import { Settings, AlertCircle, Cpu } from "lucide-react";
+import { Settings, AlertCircle, Cpu, DollarSign, PoundSterling, Euro, ChevronDown } from "lucide-react";
 import { ClockPanel } from "./ClockPanel";
 import { useEffect, useState, useRef } from "react";
 import { API_BASE } from "../api";
 
 export default function Navbar() {
-  const { status } = useAppState();
+  const { status, currency, setCurrency } = useAppState();
   const { address, isConnected } = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
@@ -20,6 +20,10 @@ export default function Navbar() {
   const [missingList, setMissingList] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
+  
+  // Currency Dropdown State
+  const [showCurrencyDrop, setShowCurrencyDrop] = useState(false);
+  const currencyDropRef = useRef<HTMLDivElement>(null);
 
   // LLM Switch State
   const [llmStatus, setLlmStatus] = useState<any>(null);
@@ -43,7 +47,17 @@ export default function Navbar() {
         .catch(() => setLlmStatus(null));
     }, 2000);
     
-    return () => clearInterval(pollLLM);
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (currencyDropRef.current && !currencyDropRef.current.contains(e.target as Node)) {
+        setShowCurrencyDrop(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      clearInterval(pollLLM);
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
   }, []);
 
   const handleForceRevert = async () => {
@@ -88,6 +102,47 @@ export default function Navbar() {
 
       {/* Utilities & States */}
       <div className="flex items-center space-x-5">
+
+        {/* Currency Switcher */}
+        <div className="relative" ref={currencyDropRef}>
+          <button 
+            onClick={() => setShowCurrencyDrop(!showCurrencyDrop)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-800 bg-[#121214] text-zinc-300 hover:bg-zinc-800 transition-colors"
+          >
+            <div className="flex items-center -space-x-1">
+              <DollarSign size={14} className="text-zinc-400 z-10 bg-[#121214] rounded-full" />
+              <PoundSterling size={14} className="text-zinc-600" />
+            </div>
+            <span className="text-[12px] font-medium tracking-wide">{currency}</span>
+            <ChevronDown size={14} className={`text-zinc-500 transition-transform ${showCurrencyDrop ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showCurrencyDrop && (
+            <div className="absolute top-full mt-2 w-32 right-0 bg-[#121214] border border-[#27272a] rounded-xl shadow-2xl z-[999] p-1 flex flex-col fadeIn">
+              {['USD', 'GBP', 'EUR', 'JPY', 'CAD'].map((code) => (
+                <button 
+                  key={code}
+                  onClick={() => {
+                    setCurrency(code);
+                    setShowCurrencyDrop(false);
+                  }}
+                  className={`text-left px-3 py-2 rounded-lg text-xs transition-colors flex items-center justify-between ${
+                    currency === code 
+                      ? 'bg-zinc-800/80 text-zinc-200 font-medium' 
+                      : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-300'
+                  }`}
+                >
+                  {code}
+                  {code === 'USD' && <DollarSign size={12} />}
+                  {code === 'GBP' && <PoundSterling size={12} />}
+                  {code === 'EUR' && <Euro size={12} />}
+                  {code === 'JPY' && <span className="text-[12px]">¥</span>}
+                  {code === 'CAD' && <DollarSign size={12} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {status?.paper_mode && (
           <Link href="/settings" className="flex items-center space-x-2 px-3 py-1 rounded bg-[#FACC15]/10 border border-[#FACC15]/20 text-[#FACC15] transition-all cursor-pointer">

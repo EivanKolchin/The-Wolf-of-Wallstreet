@@ -312,6 +312,15 @@ async def get_portfolio():
             portfolio_live_state = json.loads(live_state_str)
         except Exception as e:
             logger.error("error_parsing_live_state", error=str(e))
+
+    agent_thought = "Initializing CNN market analysis..."
+    predictions_str = await redis_client.get("agent_visual_predictions")
+    if predictions_str:
+        try:
+            preds_data = json.loads(predictions_str)
+            agent_thought = preds_data.get("thought", agent_thought)
+        except:
+            pass
             
     async with async_session_maker() as session:
         initial_usdc = settings.INITIAL_USDC_AMOUNT
@@ -335,7 +344,8 @@ async def get_portfolio():
         "realized_pnl": realized_pnl,
         "unrealized_pnl": portfolio_live_state.get("unrealized_pnl", 0.0),
         "total_value": total_portfolio_value,
-        "live_positions": portfolio_live_state.get("positions", [])
+        "live_positions": portfolio_live_state.get("positions", []),
+        "agent_thought": agent_thought
     }
 
 @router.get("/api/setup/status")
@@ -703,6 +713,13 @@ async def ws_live_updater():
             features = await cache.get_features("BTCUSDT")
             if features:
                 await broadcast_ws_message("cycle_update", features)
+                
+            # Broadcast NN predictions for UI overlay
+            predictions_str = await redis.get("agent_visual_predictions")
+            if predictions_str:
+                predictions = json.loads(predictions_str)
+                await broadcast_ws_message("prediction_update", predictions)
+                
         except Exception as e:
             logger.error("ws_broadcast_error", error=str(e))
         await asyncio.sleep(5)

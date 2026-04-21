@@ -9,7 +9,19 @@ export function useMarketData(symbol: string) {
     useEffect(() => {
         // Initial fetch
         fetchFromAPI(`/market/klines?symbol=${symbol}&interval=1m&limit=100`)
-            .then(data => data && setKlines(data))
+            .then(data => {
+                if (data) {
+                    const formatted = data.map((d: any) => ({
+                        time: d[0],
+                        open: parseFloat(d[1]),
+                        high: parseFloat(d[2]),
+                        low: parseFloat(d[3]),
+                        close: parseFloat(d[4]),
+                        volume: parseFloat(d[5]),
+                    }));
+                    setKlines(formatted);
+                }
+            })
             .catch(console.error);
 
         fetchFromAPI(`/market/depth?symbol=${symbol}`)
@@ -20,28 +32,51 @@ export function useMarketData(symbol: string) {
             .then(data => data && setTradeHistory(data))
             .catch(console.error);
 
-        // Subscribe to live websocket updates
-        const ws = subscribeToLiveWs((topic, data) => {
-            if (topic === "kline" && data.symbol === symbol) {
-                setKlines(prev => {
-                    const next = [...prev];
-                    const last = next[next.length - 1];
-                    if (last && last.time === data.time) {
-                        next[next.length - 1] = data;
-                    } else {
-                        next.push(data);
-                        if (next.length > 100) next.shift();
-                    }
-                    return next;
-                });
-            } else if (topic === "depth" && data.symbol === symbol) {
-                setOrderbook(data);
-            } else if (topic === "trade" && data.symbol === symbol) {
-                setTradeHistory(prev => [data, ...prev].slice(0, 50));
-            }
+        // Subscribe to live websocket updates from the backend (for predictions, signals, etc)
+        const backendWs = subscribeToLiveWs((topic, data) => {
+            // Unlikely to get market updates here anymore but keep for compatibility
         });
 
-        return () => ws.close();
+        // Set up direct connection to Binance WS to sync prices exactly with TradingView
+        const safeSymbol = symbol.toLowerCase();
+        const binanceWs = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${safeSymbol}@kline_1m`);
+        
+        binanceWs.onmessage = (event) => {
+            try {
+                const payload = JSON.parse(event.data);
+                if (payload && payload.data && payload.data.e === 'kline') {
+                    const k = payload.data.k;
+                    const newCandle = {
+                        time: k.t,
+                        open: parseFloat(k.o),
+                        high: parseFloat(k.h),
+                        low: parseFloat(k.l),
+                        close: parseFloat(k.c),
+                        volume: parseFloat(k.v),
+                    };
+                    
+                    setKlines(prev => {
+                        const next = [...prev];
+                        if (next.length === 0) return [newCandle];
+                        const last = next[next.length - 1];
+                        if (last && last.time === newCandle.time) {
+                            next[next.length - 1] = newCandle;
+                        } else if (newCandle.time > last.time) {
+                            next.push(newCandle);
+                            if (next.length > 100) next.shift();
+                        }
+                        return next;
+                    });
+                }
+            } catch (e) {
+                console.error("Binance WS error", e);
+            }
+        };
+
+        return () => {
+            backendWs.close();
+            binanceWs.close();
+        };
     }, [symbol]);
 
     return { klines, orderbook, tradeHistory };
