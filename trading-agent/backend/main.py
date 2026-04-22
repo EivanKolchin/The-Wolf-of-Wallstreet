@@ -30,6 +30,20 @@ from backend.execution.engine import ExecutionEngine
 from backend.execution.kite_chain import KiteChainClient
 from backend.agents.llm import LLMService
 import ccxt
+import subprocess
+
+try:
+    # Start the watchdog to monitor terminal shutdown in an entirely detached process
+    watchdog_script = os.path.join(os.path.dirname(__file__), "watchdog.py")
+    subprocess.Popen(
+        [sys.executable, watchdog_script],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000 # CREATE_NO_WINDOW
+    )
+except Exception as e:
+    pass
 
 logger = get_logger("main")
 
