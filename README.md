@@ -21,6 +21,8 @@ The Wolf of Wallstreet is an AI assisted trading platform that combines a Python
 - [Paper mode and live mode](#paper-mode-and-live-mode)
 - [Troubleshooting](#troubleshooting)
 
+
+
 ## What this program does
 At a high level, the platform continuously watches market data, generates model driven trade decisions, checks those decisions against risk limits, and then executes trades in either paper mode or live mode.
 
@@ -28,12 +30,14 @@ In parallel, a separate news LLM based intelligence process monitors financial R
 
 The frontend provides a clean browser based control and monitoring surface for setup, status, positions, and related system information.
 
+
 ## Who this project is for
 This project is most useful for:
 - Developers who want a full stack reference for an autonomous trading workflow.
 - Quant and ML practitioners testing model driven execution logic with an interactive UI.
 
 This project is not a beginner financial product and should be treated as an engineering system that requires careful setup and validation.
+
 
 ## System architecture at a glance
 The repository includes three major layers:
@@ -47,6 +51,7 @@ The repository includes three major layers:
 3. **Startup scripts (repository root)**  
    Cross platform launch scripts (`start.sh`, `start.bat`) that help initialize and run frontend and backend services quickly with ease.
 
+
 ## Getting started
 
 ### Prerequisites
@@ -56,6 +61,7 @@ Install the following before launch if not already installed:
 - Git
 
 You should also have a terminal where you can keep service windows open to view logs.
+
 
 ### Fast start with startup scripts
 If you want the easiest path, use one of the startup scripts from the repository root.
@@ -70,6 +76,7 @@ If you want the easiest path, use one of the startup scripts from the repository
    - The backend service loop in a separate terminal window when available
 4. On your browser open: `http://localhost:3000`.
 
+
 ### What `start.sh` vs `start.bat` should be used for
 Use this rule:
 
@@ -80,6 +87,7 @@ Use this rule:
   It uses Bash, Unix process management, and `.venv/bin` paths.
 
 Do not mix them. Running the wrong script on the wrong operating system will fail because shell syntax and path conventions are different.
+
 
 ### Manual startup option
 If you prefer manual control:
@@ -95,6 +103,7 @@ If you prefer manual control:
    - Install dependencies from `../requirements.txt`
    - Start service with `python main.py` (or `.venv` interpreter equivalent)
 4. Open `http://localhost:3000`.
+
 
 ## How the system works in simple terms
 Think of the system as two coordinated AI workers plus a dashboard:
@@ -114,6 +123,7 @@ Think of the system as two coordinated AI workers plus a dashboard:
 - **Dashboard**  
   Shows system state and lets you monitor behavior in real time with a modern interface.
 
+
 ## Technical deep dive
 
 ### Backend process model
@@ -122,6 +132,7 @@ The backend entrypoint initializes FastAPI, database setup, websocket updater ta
 - `LLMNewsAgent` process for news analysis and event severity signaling.
 
 A shared severe event flag coordinates emergency behavior across processes.
+
 
 ### Neural trading loop
 The neural process performs repeated cycles that include:
@@ -133,10 +144,12 @@ The neural process performs repeated cycles that include:
 
 The agent also pushes visualization oriented prediction payloads to Redis for frontend consumption.
 
+
 ### News ingestion and AI interpretation
 News ingestion polls a configured RSS list, deduplicates articles with hash based tracking, filters by finance and macro keywords, and forwards relevant items into downstream analysis.
 
 The LLM based news agent and credibility pipeline classify impact severity. Significant events can bias risk behavior, and severe events can trigger emergency safeguards.
+
 
 ### Risk controls and execution
 The risk manager enforces hard constraints including:
@@ -154,16 +167,19 @@ Execution supports paper or live behavior. For each approved trade, the engine:
 3. Records trade metadata in the database.
 4. Emits audit style trade logging through Kite chain integration.
 
+
 ### API and frontend integration
 FastAPI routes provide health, setup, risk, and operational endpoints, while websocket tasks stream live updates used by the Next.js UI.
 
 The frontend is implemented with modern React and TypeScript patterns and is organized into dashboard pages, widgets, and shared libraries for API and state handling.
+
 
 ## Configuration notes
 - Startup scripts attempt to create `.env` from `.env.example` when available.
 - Backend settings are loaded through the project configuration module.
 - External providers may require keys and endpoint configuration before full functionality is available.
 - Optional local LLM flows may depend on Ollama availability.
+
 
 ## Paper mode and live mode
 - **Paper mode** is the safe default path for simulation and validation. By default $1000 awarded in digital fake money for monitoring and test the model.
@@ -173,20 +189,25 @@ If you enable live execution, treat this as production trading infrastructure an
 
 **We are NOT liable for ANY financial losses due to our program, this program is intended for experimental and educational purposes not profit making**
 
+
 ## Troubleshooting
 
 ### Frontend dependency issues
 If `npm run dev` fails, try reinstalling dependencies:
 - `npm install --legacy-peer-deps`
 
+
 ### Backend restarts repeatedly
 Review backend logs for missing dependency, provider credential, database, or Redis connectivity errors.
+
 
 ### No secondary terminal opens on Linux
 `start.sh` attempts `gnome-terminal`, `xterm`, or `konsole`, then falls back to inline execution.
 
+
 ### Issues with the trading execution / LLM news agent 
 Ensure on start you have completed the setup as asked for on start. if you close this you can complete it in settings and then click save. If there are issues saving this data you can manually enter the required data in the .env file (\trading-agent\.env)
+
 
 ## License
 This repository is distributed under the terms of the included `LICENSE` file.
