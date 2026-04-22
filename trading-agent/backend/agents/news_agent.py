@@ -11,6 +11,7 @@ from backend.data.news_feed import NewsIngestionPipeline, NewsArticle
 from backend.agents.credibility import CredibilityEngine
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
 from backend.memory.database import NewsPrediction, Severity, Direction
+from backend.training.backbone import map_asset_to_symbol, extract_symbol_relevance
 
 logger = structlog.get_logger(__name__)
 
@@ -91,6 +92,13 @@ class LLMNewsAgent:
 
         try:
             direction_str = data.get("direction", "neutral").lower()
+            combined_text = f"{article.headline}\n{article.body[:2000]}"
+            symbol_relevance, matched_keywords = extract_symbol_relevance(combined_text)
+            mapped_symbol = map_asset_to_symbol(data.get("asset"))
+            if mapped_symbol:
+                # Ensure model-declared asset is always represented in relevance map
+                symbol_relevance[mapped_symbol] = max(symbol_relevance.get(mapped_symbol, 0.0), 0.75)
+                matched_keywords.setdefault(mapped_symbol, [])
             impact = NewsImpact(
                 severity=severity_str,
                 asset=data.get("asset", "UNKNOWN"),
@@ -121,7 +129,9 @@ class LLMNewsAgent:
                     t_max_minutes=impact.t_max_minutes,
                     rationale=impact.rationale,
                     trust_score_at_time=impact.trust_score,
-                    created_at=datetime.fromisoformat(impact.created_at)
+                    created_at=datetime.fromisoformat(impact.created_at),
+                    symbol_relevance=symbol_relevance if symbol_relevance else None,
+                matched_keywords=matched_keywords if matched_keywords else None,
                 )
                 session.add(prediction)
                 await session.commit()

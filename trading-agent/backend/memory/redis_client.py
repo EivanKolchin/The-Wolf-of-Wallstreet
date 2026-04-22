@@ -55,6 +55,8 @@ class NewsImpact:
     source_domain: str
     trust_score: float
     created_at: str
+    symbol_relevance: dict[str, float] | None = None
+    matched_keywords: dict[str, list[str]] | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))

@@ -19,7 +19,6 @@ export function AgentStatusBanner() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now() / 1000);
-  const [localStart, setLocalStart] = useState<number | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -43,12 +42,6 @@ export function AgentStatusBanner() {
     };
   }, []);
 
-  useEffect(() => {
-    if (status && !localStart) {
-      setLocalStart(status.started_at || Date.now() / 1000);
-    }
-  }, [status, localStart]);
-
   const toggleStop = async (halt: boolean) => {
     setLoading(true);
     try {
@@ -67,16 +60,15 @@ export function AgentStatusBanner() {
 
   if (!status) return null;
 
-  const isWarmingUp = ((now - (status.started_at * 1000) < 300000) || status.buffer_current < status.buffer_required) && !status.is_halted;
+  const warmupWindowSeconds = 300;
+  const elapsedSinceStart = Math.max(0, now - (status.started_at || now));
+  const isWarmingUp = ((elapsedSinceStart < warmupWindowSeconds) || status.buffer_current < status.buffer_required) && !status.is_halted;
   
   // Real-time calculation mechanics
   let remainingSeconds = 0;
-  if (isWarmingUp) {
-     const elapsedSinceStart = (now - (status.started_at * 1000)) / 1000;
-     
+  if (isWarmingUp) {     
      // Start from 5 minutes (300 seconds) since that's what the UI usually requires to buffer
-     let calculatedRemaining = Math.max(0, 300 - elapsedSinceStart);
-     
+      let calculatedRemaining = Math.max(0, warmupWindowSeconds - elapsedSinceStart);
      if (!status.has_market_data || status.buffer_current === 0) {
         // Still waiting for first kline. Keep ticking down but pause at 0 if no data
         if (calculatedRemaining < 0) calculatedRemaining = 0;
@@ -97,8 +89,7 @@ export function AgentStatusBanner() {
   if (status.buffer_current < status.buffer_required) {
       progressPct = Math.max(0, (status.buffer_current / status.buffer_required) * 100);
   } else if (isWarmingUp) {
-      const elapsed = (now - (status.started_at * 1000)) / 1000;
-      progressPct = Math.max(0, Math.min(100, (elapsed / 300) * 100));
+      progressPct = Math.max(0, Math.min(100, (elapsedSinceStart / warmupWindowSeconds) * 100));
   }
 
   return (

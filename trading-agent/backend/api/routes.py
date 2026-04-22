@@ -320,17 +320,22 @@ async def toggle_agent_stop(req: StopResumeRequest):
 @router.get("/api/portfolio")
 async def get_portfolio():
     redis_client = await get_redis()
-    live_state_str = await redis_client.get("portfolio:live_state")
     portfolio_live_state = {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
     
-    if live_state_str:
-        try:
-            portfolio_live_state = json.loads(live_state_str)
-        except Exception as e:
-            logger.error("error_parsing_live_state", error=str(e))
+    # Show simulated paper positions only in paper mode.
+    # When PAPER_MODE is false (live trading), hide any historical paper positions.
+    if settings.PAPER_MODE.lower() == "true":
+        live_state_str = await redis_client.get("portfolio:live_state")
+        if live_state_str:
+            try:
+                portfolio_live_state = json.loads(live_state_str)
+            except Exception as e:
+                logger.error("error_parsing_live_state", error=str(e))
 
     agent_thought = "Initializing CNN market analysis..."
-    predictions_str = await redis_client.get("agent_visual_predictions")
+    predictions_str = await redis_client.get("agent_visual_predictions:BTCUSDT")
+    if not predictions_str:
+        predictions_str = await redis_client.get("agent_visual_predictions")
     if predictions_str:
         try:
             preds_data = json.loads(predictions_str)
@@ -736,11 +741,21 @@ async def ws_live_updater():
                 await broadcast_ws_message("cycle_update", features)
                 
             # Broadcast NN predictions for UI overlay
-            predictions_str = await redis.get("agent_visual_predictions")
-            if predictions_str:
-                predictions = json.loads(predictions_str)
-                await broadcast_ws_message("prediction_update", predictions)
-                
+            prediction_keys = await redis.keys("agent_visual_predictions:*")
+            if prediction_keys:
+                for key in prediction_keys:
+                    predictions_str = await redis.get(key)
+                    if not predictions_str:
+                        continue
+                    predictions = json.loads(predictions_str)
+                    await broadcast_ws_message("prediction_update", predictions)
+            else:
+                # Backward-compatible fallback to legacy single-payload key
+                predictions_str = await redis.get("agent_visual_predictions")
+                if predictions_str:
+                    predictions = json.loads(predictions_str)
+                    await broadcast_ws_message("prediction_update", predictions)
+
         except Exception as e:
             logger.error("ws_broadcast_error", error=str(e))
         await asyncio.sleep(5)

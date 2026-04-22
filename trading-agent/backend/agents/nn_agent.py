@@ -6,6 +6,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 import time
 from dataclasses import dataclass
+from dataclasses import asdict
 
 import numpy as np
 import structlog
@@ -18,6 +19,7 @@ from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, Heartbeat
 from backend.memory.database import Trade, TradeStatus, get_session
 from sqlalchemy import select, func
 from backend.core.config import settings
+from backend.training.backbone import TrainingBackbone, map_asset_to_symbol
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +69,26 @@ class NNTradingAgent:
         self.current_news_impact: NewsImpact | None = None
         self.news_impact_expires_at: datetime | None = None
         self.db_session_factory = None
+        self.training_backbone = TrainingBackbone()
+        self.open_trade_context: dict[str, np.ndarray] = {}
+
+    def _get_news_for_symbol(self, symbol: str) -> NewsImpact | None:
+        if not self.current_news_impact:
+            return None
+
+        impact = self.current_news_impact
+        mapped_symbol = map_asset_to_symbol(getattr(impact, "asset", None))
+        relevance = (impact.symbol_relevance or {}).get(symbol, 0.0) if hasattr(impact, "symbol_relevance") else 0.0
+        if mapped_symbol and mapped_symbol != symbol and relevance <= 0:
+            return None
+        if relevance <= 0 and not mapped_symbol:
+            return None
+
+        # Clone and adjust confidence by symbol-level keyword relevance
+        adjusted = NewsImpact(**asdict(impact))
+        if relevance > 0:
+            adjusted.confidence = float(max(0.0, min(1.0, adjusted.confidence * (0.5 + relevance))))
+        return adjusted
 
     async def _background_predictions_loop(self) -> None:
         """Asynchronous background task to broadcast CNN prediction visualization for the UI, decoupled from trading loop"""
@@ -159,6 +181,9 @@ class NNTradingAgent:
                         "target_sell_price": target_sell_price,
                         "thought": thought
                     }
+                    # Persist per-symbol predictions so the frontend can subscribe to the active asset
+                    await self.heartbeat_client.redis.set(f"agent_visual_predictions:{symbol}", json.dumps(payload))
+                    # Keep a legacy key for backward compatibility with components still reading a single payload
                     await self.heartbeat_client.redis.set("agent_visual_predictions", json.dumps(payload))
             except Exception as e:
                 logger.error("background_predictions_loop_error", error=str(e))
@@ -284,7 +309,8 @@ class NNTradingAgent:
                     
                     sr_levels = []
                     
-                    regime_name, regime_conf = self.regime_detector.detect(df, self.current_news_impact)
+                    symbol_news_impact = self._get_news_for_symbol(symbol)
+                    regime_name, regime_conf = self.regime_detector.detect(df, symbol_news_impact)
                     
                     # Build feature vector
                     vector = await self.feature_builder.build(
@@ -296,7 +322,7 @@ class NNTradingAgent:
                         sr_levels=sr_levels,
                         regime=regime_name,
                         regime_confidence=regime_conf,
-                        news_impact=self.current_news_impact
+                        news_impact=symbol_news_impact
                     )
                     
                     self.feature_sequences[symbol].append(vector)
@@ -320,7 +346,7 @@ class NNTradingAgent:
                         nn_confidence=nn_confidence,
                         nn_probs=probs,
                         regime=regime_name,
-                        active_news=self.current_news_impact,
+                        active_news=symbol_news_impact,
                         timestamp=datetime.utcnow()
                     )
                     
@@ -351,10 +377,22 @@ class NNTradingAgent:
                             decision.direction = "hold"
                     
                     approved, reason = self.risk_manager.approve(decision, portfolio_state)
+                    self.training_backbone.record_decision(
+                        symbol=symbol,
+                        sequence=sequence,
+                        decision=decision_str,
+                        size_pct=size_pct,
+                        probs=probs,
+                        regime=regime_name,
+                        approved=approved,
+                        reason=reason,
+                        news_impact=symbol_news_impact,
+                    )
                     if approved:
                         trade = await self.execution_engine.execute(decision, portfolio_state)
                         if trade:
                             self.open_trades[symbol] = trade
+                            self.open_trade_context[symbol] = sequence.copy()
                             logger.info("trade_executed", symbol=symbol, direction=decision_str, size=size_pct)
                     else:
                         if decision_str != "hold":
@@ -384,22 +422,26 @@ class NNTradingAgent:
         
     async def _on_trade_closed(self, trade: Trade, pnl_pct: float) -> None:
         logger.info("trade_closed", trade_id=str(trade.id), pnl_pct=pnl_pct)
-        # Using zero array for dummy sequence to satisfy model learning signature constraints cleanly
-        dummy_seq = np.zeros((self.model.SEQUENCE_LENGTH, 62), dtype=np.float32)
+        seq = self.open_trade_context.get(trade.symbol)
+        if seq is None:
+            seq = np.zeros((self.model.SEQUENCE_LENGTH, 62), dtype=np.float32)
         
         direction_map = {"long": 0, "short": 1, "hold": 2}
         dir_taken = direction_map.get(trade.direction.value if trade.direction else "hold", 2)
         
         experience = TradeExperience(
-            features_sequence=dummy_seq,
+            features_sequence=seq,
             direction_taken=dir_taken,
             actual_pnl_pct=pnl_pct
         )
         
         self.model.online_update(experience)
+        self.training_backbone.record_outcome(symbol=trade.symbol, pnl_pct=pnl_pct, trade_id=str(getattr(trade, "id", "")))
         
         if self.model.check_and_rollback(recent_pnl_pct=pnl_pct):
             logger.warning("rollback_triggered_by_recent_pnl")
         
         if trade.symbol in self.open_trades:
             del self.open_trades[trade.symbol]
+        if trade.symbol in self.open_trade_context:
+            del self.open_trade_context[trade.symbol]

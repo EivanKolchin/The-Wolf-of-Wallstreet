@@ -275,6 +275,21 @@ class DefiExecutionEngine:
         self.redis_client = getattr(portfolio, "redis_client", None)
         self.risk_manager = risk_manager
 
+    async def _get_live_state(self) -> Dict[str, Any]:
+        if not self.redis_client:
+            return {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
+        raw = await self.redis_client.get("portfolio:live_state")
+        if not raw:
+            return {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
+
+    async def _set_live_state(self, state: Dict[str, Any]) -> None:
+        if self.redis_client:
+            await self.redis_client.set("portfolio:live_state", json.dumps(state))
+
     async def execute(self, decision: Any, portfolio_state: Dict[str, Any]) -> Any:
         try:
             if getattr(decision, "direction", "hold") == "hold":
@@ -308,8 +323,26 @@ class DefiExecutionEngine:
             if self.paper_mode:
                 logger.info("PAPER TRADE", symbol=symbol, direction=direction, size_usd=size_usd)
                 if self.redis_client and direction == "long":
-                    self.redis_client.set(f"entry_price:{symbol}", str(current_price))
-                    
+                     await self.redis_client.set(f"entry_price:{symbol}", str(current_price))
+
+                # Surface paper positions in dashboard (visible only in paper mode API response)
+                live_state = await self._get_live_state()
+                positions = [p for p in live_state.get("positions", []) if p.get("symbol") != symbol]
+                asset_size = (size_usd / current_price) if current_price > 0 else 0.0
+                positions.append({
+                    "symbol": symbol,
+                    "direction": direction,
+                    "size_usd": size_usd,
+                    "asset_size": asset_size,
+                    "entry_price": current_price,
+                    "current_price": current_price,
+                    "unrealized": 0.0,
+                })
+                live_state["positions"] = positions
+                live_state["total_value_locked"] = float(sum(float(p.get("size_usd", 0.0)) for p in positions))
+                live_state["unrealized_pnl"] = float(sum(float(p.get("unrealized", 0.0)) for p in positions))
+                await self._set_live_state(live_state)
+
                 # Create a mock Trade object (assume Trade class exists in your models)
                 class MockTrade:
                     id = 1
@@ -345,7 +378,7 @@ class DefiExecutionEngine:
                 return None
 
             if self.redis_client and direction == "long":
-                self.redis_client.set(f"entry_price:{symbol}", str(current_price))
+                await self.redis_client.set(f"entry_price:{symbol}", str(current_price))
 
             class MockTrade:
                 id = 1
@@ -385,6 +418,12 @@ class DefiExecutionEngine:
 
         if self.paper_mode:
             logger.info("PAPER CLOSE", symbol=symbol, reason=reason)
+            live_state = await self._get_live_state()
+            positions = [p for p in live_state.get("positions", []) if p.get("symbol") != symbol]
+            live_state["positions"] = positions
+            live_state["total_value_locked"] = float(sum(float(p.get("size_usd", 0.0)) for p in positions))
+            live_state["unrealized_pnl"] = float(sum(float(p.get("unrealized", 0.0)) for p in positions))
+            await self._set_live_state(live_state)
             return True
 
         result = await self.uniswap.swap(tokens["base"], USDC_ADDRESS, size_usd, "short")

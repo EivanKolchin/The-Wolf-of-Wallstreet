@@ -186,12 +186,14 @@ export default function TradingChart({ symbol = "BTCUSDT", currencyRate = 1, cur
     useEffect(() => {
         const liveWs = subscribeToLiveWs((topic, data) => {
             if (topic === "prediction_update") {
-                 setLastPredictionData(data);
+                 if (data?.symbol === symbol) {
+                    setLastPredictionData(data);
+                 }
             }
         });
         
         return () => liveWs.close();
-    }, []);
+    }, [symbol]);
 
     useEffect(() => {
         if (!lastPredictionData || !predictionSeriesRef.current) return;

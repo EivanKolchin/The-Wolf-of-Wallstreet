@@ -26,6 +26,23 @@ interface PortfolioResponse {
   }>;
 }
 
+const USD_NUMBER_PATTERN = /\$([0-9,]+(?:\.[0-9]+)?)/g;
+
+function convertThoughtCurrency(thought: string | undefined, currency: string, currencySymbol: string, rate: number) {
+  if (!thought) return "Evaluating market conditions and preparing neural nets...";
+  if (currency === "USD") return thought;
+
+  return thought.replace(USD_NUMBER_PATTERN, (_match, value: string) => {
+    const parsed = Number(value.replace(/,/g, ""));
+    if (!Number.isFinite(parsed)) return `${currencySymbol}${value}`;
+    return `${currencySymbol}${(parsed * rate).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  });
+}
+
+
 export function VirtualWalletCard() {
   const { currency, exchangeRates } = useAppState();
   const [data, setData] = useState<PortfolioResponse | null>(null);
@@ -34,6 +51,7 @@ export function VirtualWalletCard() {
 
   const rate = exchangeRates[currency] || 1;
   const currencySymbol = currency === 'GBP' ? '£' : currency === 'EUR' ? '€' : currency === 'JPY' ? '¥' : '$';
+
 
   useEffect(() => {
     async function fetchPortfolio() {
@@ -164,7 +182,7 @@ export function VirtualWalletCard() {
         <div className="mt-6 p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 flex flex-col gap-1">
            <span className="text-[12px] tracking-wide text-blue-400">Agent's Current Thought</span>
            <p className="text-sm text-zinc-300 tracking-tight leading-relaxed">
-             {data.agent_thought || "Evaluating market conditions and preparing neural nets..."}
+             {convertThoughtCurrency(data.agent_thought, currency, currencySymbol, rate)}
            </p>
         </div>
 
