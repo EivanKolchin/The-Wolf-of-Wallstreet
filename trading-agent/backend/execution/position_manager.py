@@ -11,7 +11,9 @@ class PositionManager:
     def __init__(
         self,
         open_trades: Dict[str, Any],
-        execution_engine: Any,
+        cex_execution_engine: Any,
+        defi_execution_engine: Any = None,
+        db_session_factory: Any = None,
         trailing_pct: float = 0.05,
         macd_drop_threshold: float = 0.5,
         volume_spike_multiple: float = 2.0,
@@ -22,7 +24,9 @@ class PositionManager:
         and executing closure logic when stops or reversals trigger.
         """
         self.open_trades = open_trades
-        self.execution_engine = execution_engine
+        self.cex_execution_engine = cex_execution_engine
+        self.defi_execution_engine = defi_execution_engine
+        self.db_session_factory = db_session_factory
         self.trailing_pct = trailing_pct
         self.macd_drop_threshold = macd_drop_threshold
         self.volume_spike_multiple = volume_spike_multiple
@@ -54,10 +58,10 @@ class PositionManager:
                 redis_client = await get_redis()
                 portfolio_live_state = {"unrealized_pnl": 0.0, "total_value_locked": 0.0, "positions": []}
                 for symbol, trade in list(self.open_trades.items()):
-                    # Assume execution_engine has a method to get the current price for a symbol
-                    current_price = await self.execution_engine.get_current_price(symbol)
+                    # Use CEX engine for price feed (common)
+                    current_price = await self.cex_execution_engine.get_current_price(symbol)
 
-                    if current_price is None:
+                    if current_price is None or current_price == 0:
                         continue
 
                     # Update highest price seen natively dynamically
@@ -66,6 +70,14 @@ class PositionManager:
 
                     if current_price > trade.highest_price_seen:
                         trade.highest_price_seen = current_price
+                        # Persist to DB
+                        if self.db_session_factory:
+                            from backend.memory.database import Trade
+                            async with self.db_session_factory() as session:
+                                t = await session.get(Trade, trade.id)
+                                if t:
+                                    t.highest_price_seen = current_price
+                                    await session.commit()
 
                     # Calculate the dynamic trailing stop limit
                     trailing_stop_limit = trade.highest_price_seen * (1.0 - self.trailing_pct)
@@ -73,7 +85,7 @@ class PositionManager:
 
                     # Add to live state
                     size_usd = getattr(trade, 'size_usd', 0.0)
-                    direction_mult = 1.0 if trade.direction == "long" else -1.0
+                    direction_mult = 1.0 if (hasattr(trade.direction, 'value') and trade.direction.value == "long") or trade.direction == "long" else -1.0
                     unrealized = ((current_price - trade.entry_price) / trade.entry_price) * size_usd * direction_mult
                     portfolio_live_state["unrealized_pnl"] += unrealized
                     portfolio_live_state["total_value_locked"] += size_usd
@@ -93,17 +105,22 @@ class PositionManager:
                     # Trigger closure if price dumps below our dynamic trailing stop limit
                     if current_price <= trailing_stop_limit:
                         logger.info(f"[{symbol}] Trailing stop triggered. Current: {current_price}, Stop: {trailing_stop_limit}")
-                        await self.execution_engine.close_position(trade.symbol)
-                        # Optionally remove the trade if your engine doesn't automatically drop it from open_trades
-                        # self.open_trades.pop(symbol, None)
+
+                        # Route closure to the correct engine
+                        is_defi = getattr(trade, "is_defi", False)
+                        if is_defi and self.defi_execution_engine:
+                            await self.defi_execution_engine.close_position(trade.asset)
+                        else:
+                            await self.cex_execution_engine.close_position(trade.asset)
+
+                        # Remove from open_trades as it's being closed
+                        self.open_trades.pop(symbol, None)
 
                 if redis_client:
                     await redis_client.set("portfolio:live_state", json.dumps(portfolio_live_state))
                     
-                await asyncio.sleep(self.poll_interval)
-                break
             except Exception as e:
-                logger.error(f"Error in PositionManager monitoring loop: {e}")
+                logger.error(f"Error in PositionManager monitoring loop: {e}", exc_info=True)
 
             await asyncio.sleep(self.poll_interval)
 

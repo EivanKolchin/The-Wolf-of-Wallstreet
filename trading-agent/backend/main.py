@@ -93,9 +93,23 @@ def run_nn_agent(severe_flag):
             redis_client=redis_session
         )
         
-        exec_engine = DefiExecutionEngine(
+        defi_exec_engine = DefiExecutionEngine(
             uniswap=uniswap,
             portfolio=portfolio,
+            kite_chain=kite_chain,
+            db_session_factory=AsyncSessionLocal,
+            paper_mode=False if os.environ.get("PAPER_MODE", "true").lower() == "false" else True
+        )
+
+        cex_exchange = ccxt.binance({
+            'apiKey': settings.BINANCE_API_KEY,
+            'secret': settings.BINANCE_API_SECRET,
+            'enableRateLimit': True,
+            'options': {'defaultType': 'spot'}
+        })
+
+        cex_exec_engine = ExecutionEngine(
+            exchange=cex_exchange,
             kite_chain=kite_chain,
             db_session_factory=AsyncSessionLocal,
             paper_mode=False if os.environ.get("PAPER_MODE", "true").lower() == "false" else True
@@ -109,10 +123,12 @@ def run_nn_agent(severe_flag):
             regime_detector=regime_detector,
             model=_model_instance,
             risk_manager=risk_manager,
-            execution_engine=exec_engine,
+            execution_engine=cex_exec_engine,
+            defi_execution_engine=defi_exec_engine,
             news_queue=news_queue,
             severe_flag=severe_flag,
-            symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
+            symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"],
+            db_session_factory=AsyncSessionLocal
         )
         await agent.run()
 
@@ -137,6 +153,13 @@ def run_news_agent(severe_flag):
             ollama_model=settings.OLLAMA_MODEL
         )
         
+        kite_chain = KiteChainClient(
+            rpc_url=settings.KITE_CHAIN_RPC_URL,
+            private_key=settings.KITE_CHAIN_PRIVATE_KEY,
+            agent_address=settings.KITE_AGENT_ADDRESS,
+            db_session_factory=AsyncSessionLocal
+        )
+
         credibility_engine = CredibilityEngine(db_session_factory=AsyncSessionLocal, llm_service=llm_service)
 
         agent = LLMNewsAgent(
@@ -144,7 +167,8 @@ def run_news_agent(severe_flag):
             credibility_engine=credibility_engine,
             news_queue=news_queue,
             llm_service=llm_service,
-            db_session_factory=AsyncSessionLocal
+            db_session_factory=AsyncSessionLocal,
+            kite_chain=kite_chain
         )
         await agent.run()
         

@@ -9,7 +9,7 @@ from web3 import Web3
 from web3.exceptions import ContractLogicError
 from typing import Optional, Dict, Any
 import aiohttp
-from backend.memory.database import AgentEvent
+from backend.memory.database import AgentEvent, Trade, TradeDirection, TradeStatus, OrderType
 
 logger = structlog.get_logger(__name__)
 
@@ -305,20 +305,35 @@ class DefiExecutionEngine:
                     data = await resp.json()
                     current_price = float(data["price"])
 
+            trade = Trade(
+                asset=symbol,
+                direction=TradeDirection.long if direction == "long" else TradeDirection.short,
+                size_usd=size_usd,
+                entry_price=current_price,
+                status=TradeStatus.open,
+                order_type=OrderType.market,
+                nn_confidence=getattr(decision, "nn_confidence", 0.0),
+                nn_direction_probs=getattr(decision, "nn_probs", {}),
+                active_news_impact=None,
+                regime_at_entry=getattr(decision, "regime", "unknown"),
+                stop_loss=current_price * 0.95 if direction == "long" else current_price * 1.05,
+                take_profit=current_price * 1.10 if direction == "long" else current_price * 0.90,
+                opened_at=datetime.utcnow(),
+                is_defi=True
+            )
+
             if self.paper_mode:
-                logger.info("PAPER TRADE", symbol=symbol, direction=direction, size_usd=size_usd)
+                logger.info("PAPER TRADE (DeFi)", symbol=symbol, direction=direction, size_usd=size_usd)
                 if self.redis_client and direction == "long":
                     self.redis_client.set(f"entry_price:{symbol}", str(current_price))
                     
-                # Create a mock Trade object (assume Trade class exists in your models)
-                class MockTrade:
-                    id = 1
-                    symbol = decision.symbol
-                    paper = True
-                    tx_hash = "mock_tx"
-                trade = MockTrade()
-                
-                # Mock async process
+                # Save to DB
+                if self.db_session_factory:
+                    async with self.db_session_factory() as session:
+                        session.add(trade)
+                        await session.commit()
+                        await session.refresh(trade)
+
                 if self.kite_chain:
                     asyncio.create_task(self.kite_chain.log_trade_decision(trade, decision))
                 return trade
@@ -347,12 +362,13 @@ class DefiExecutionEngine:
             if self.redis_client and direction == "long":
                 self.redis_client.set(f"entry_price:{symbol}", str(current_price))
 
-            class MockTrade:
-                id = 1
-                symbol = decision.symbol
-                paper = False
-                tx_hash = result.tx_hash
-            trade = MockTrade()
+            trade.kite_tx_hash = result.tx_hash
+
+            if self.db_session_factory:
+                async with self.db_session_factory() as session:
+                    session.add(trade)
+                    await session.commit()
+                    await session.refresh(trade)
             
             if self.kite_chain:
                 asyncio.create_task(self.kite_chain.log_trade_decision(trade, decision))
@@ -408,8 +424,9 @@ class DefiExecutionEngine:
              
         # Mock Trade closed
         class MockClosedTrade:
-            symbol = symbol
+            pass
         trade = MockClosedTrade()
+        trade.symbol = symbol
         
         if self.kite_chain:
              asyncio.create_task(self.kite_chain.log_trade_decision(trade, {"action": "close", "reason": reason}))
