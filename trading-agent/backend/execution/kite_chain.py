@@ -3,13 +3,16 @@ import asyncio
 import structlog
 from web3 import Web3, AsyncWeb3
 from eth_account import Account
+from sqlalchemy import select, func
 
-from backend.memory.database import Trade
+from backend.memory.database import Trade, TradeStatus
 from backend.agents.nn_agent import TradeDecision # Explicit dependency needed per spec typing
 
 logger = structlog.get_logger(__name__)
 
 class KiteChainClient:
+    MAX_GAS_PRICE_GWEI = 500
+
     def __init__(self, rpc_url: str, private_key: str, agent_address: str, db_session_factory=None):
         self.rpc_url = rpc_url
         self.private_key = private_key
@@ -51,6 +54,12 @@ class KiteChainClient:
             
             # Gas estimation
             gas_price = await self.w3.eth.gas_price
+            gas_price_gwei = self.w3.from_wei(gas_price, 'gwei')
+
+            if gas_price_gwei > self.MAX_GAS_PRICE_GWEI:
+                logger.error("kite_chain_gas_price_too_high", gas_price_gwei=gas_price_gwei, limit=self.MAX_GAS_PRICE_GWEI)
+                return None
+
             adjusted_gas_price = int(gas_price * 1.1)
             
             tx = {
@@ -95,6 +104,12 @@ class KiteChainClient:
             
             nonce = await self.w3.eth.get_transaction_count(self.account.address)
             gas_price = await self.w3.eth.gas_price
+            gas_price_gwei = self.w3.from_wei(gas_price, 'gwei')
+
+            if gas_price_gwei > self.MAX_GAS_PRICE_GWEI:
+                logger.error("kite_chain_gas_price_too_high", gas_price_gwei=gas_price_gwei, limit=self.MAX_GAS_PRICE_GWEI)
+                return None
+
             adjusted_gas_price = int(gas_price * 1.1)
             
             tx = {
@@ -118,12 +133,99 @@ class KiteChainClient:
             logger.error("prediction_logging_failed", error=str(e), prediction_id=prediction_id)
             return None
 
+    async def transfer_usdc(self, to: str, amount: float) -> str | None:
+        if not self.account:
+            return None
+
+        try:
+            # Simplified mock for hackathon: Log a payment transaction on-chain
+            summary = {
+                "type": "agent_to_agent_payment",
+                "to": to,
+                "amount_usdc": amount,
+                "asset": "USDC",
+                "purpose": "data_payment_x402"
+            }
+            payload_json = json.dumps(summary)
+            data_hex = self.w3.to_hex(text=payload_json)
+
+            nonce = await self.w3.eth.get_transaction_count(self.account.address)
+            gas_price = await self.w3.eth.gas_price
+            gas_price_gwei = self.w3.from_wei(gas_price, 'gwei')
+
+            if gas_price_gwei > self.MAX_GAS_PRICE_GWEI:
+                logger.error("kite_chain_gas_price_too_high", gas_price_gwei=gas_price_gwei, limit=self.MAX_GAS_PRICE_GWEI)
+                return None
+
+            adjusted_gas_price = int(gas_price * 1.1)
+
+            tx = {
+                "nonce": nonce,
+                "to": to, # Real USDC transfer would call transfer() on USDC contract
+                "value": 0,
+                "gas": 100_000,
+                "gasPrice": adjusted_gas_price,
+                "data": data_hex,
+                "chainId": await self.w3.eth.chain_id
+            }
+
+            signed_tx = self.w3.eth.account.sign_transaction(tx, self.private_key)
+            tx_hash = await self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+
+            hex_hash = self.w3.to_hex(tx_hash)
+            logger.info("x402_payment_logged_on_chain", tx_hash=hex_hash, amount=amount, to=to)
+            return hex_hash
+
+        except Exception as e:
+            logger.error("x402_payment_failed", error=str(e), to=to, amount=amount)
+            return None
+
     async def get_agent_reputation(self) -> dict:
-        # Placeholder for real DB fetching. 
-        # For full implementation, requires complex group_by queries on Trade / NewsPrediction tables
-        return {
-            "trade_count": 0,
-            "win_rate": 0.0,
-            "avg_prediction_score": 0.0,
-            "total_pnl_usd": 0.0
-        }
+        if not self.db_session_factory:
+            return {
+                "trade_count": 0,
+                "win_rate": 0.0,
+                "avg_prediction_score": 0.0,
+                "total_pnl_usd": 0.0
+            }
+
+        try:
+            async with self.db_session_factory() as session:
+                # Count total closed trades
+                count_stmt = select(func.count(Trade.id)).where(Trade.status == TradeStatus.closed)
+                count_result = await session.execute(count_stmt)
+                trade_count = count_result.scalar() or 0
+
+                if trade_count == 0:
+                    return {
+                        "trade_count": 0,
+                        "win_rate": 0.0,
+                        "avg_prediction_score": 0.0,
+                        "total_pnl_usd": 0.0
+                    }
+
+                # Win rate
+                win_stmt = select(func.count(Trade.id)).where(Trade.status == TradeStatus.closed, Trade.pnl_usd > 0)
+                win_result = await session.execute(win_stmt)
+                wins = win_result.scalar() or 0
+                win_rate = (wins / trade_count) * 100
+
+                # Total PnL
+                pnl_stmt = select(func.sum(Trade.pnl_usd)).where(Trade.status == TradeStatus.closed)
+                pnl_result = await session.execute(pnl_stmt)
+                total_pnl = pnl_result.scalar() or 0.0
+
+                return {
+                    "trade_count": trade_count,
+                    "win_rate": win_rate,
+                    "avg_prediction_score": 0.0, # Prediction score requires NewsPrediction table joining
+                    "total_pnl_usd": float(total_pnl)
+                }
+        except Exception as e:
+            logger.error("failed_to_fetch_agent_reputation", error=str(e))
+            return {
+                "trade_count": 0,
+                "win_rate": 0.0,
+                "avg_prediction_score": 0.0,
+                "total_pnl_usd": 0.0
+            }

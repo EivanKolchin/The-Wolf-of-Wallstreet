@@ -59,6 +59,7 @@ class LLMNewsAgent:
         news_queue: PriorityNewsQueue,
         llm_service,
         db_session_factory: async_sessionmaker,
+        kite_chain = None,
         market_feed=None,
         min_trust_to_analyse: float = 0.40
     ):
@@ -67,6 +68,7 @@ class LLMNewsAgent:
         self.news_queue = news_queue
         self.llm_service = llm_service
         self.db_session_factory = db_session_factory
+        self.kite_chain = kite_chain
         self.market_feed = market_feed
         self.min_trust_to_analyse = min_trust_to_analyse
         self.heartbeat_client = HeartbeatClient(news_queue.redis)
@@ -183,6 +185,11 @@ class LLMNewsAgent:
                 if trust_score < self.min_trust_to_analyse:
                     continue
                 
+                # x402 Agent-to-Agent Payment before inference
+                if self.kite_chain:
+                    # Mock payment to data provider
+                    await self.kite_chain.transfer_usdc(to="0x742d35Cc6634C0532925a3b844Bc454e4438f44e", amount=0.01)
+
                 impact = await self.analyse_article(article, trust_score)
                 if impact is not None:
                     await self.news_queue.put(impact)

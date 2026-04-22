@@ -4,6 +4,7 @@ import structlog
 from datetime import datetime
 
 import ccxt
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.agents.nn_agent import TradeDecision 
@@ -130,6 +131,30 @@ class ExecutionEngine:
             raise ValueError(f"Below min notional: {qty * price} < {min_notional}")
             
         return qty, price
+
+    async def close_position(self, symbol: str) -> bool:
+        # Simplified for mock/paper: Update DB status to closed
+        try:
+            async with self.db_session_factory() as session:
+                stmt = select(Trade).where(Trade.asset == symbol, Trade.status == TradeStatus.open)
+                result = await session.execute(stmt)
+                trade = result.scalar()
+                if trade:
+                    trade.status = TradeStatus.closed
+                    trade.closed_at = datetime.utcnow()
+                    # In real life, fetch exit price from exchange
+                    ticker = self.exchange.fetch_ticker(symbol)
+                    trade.exit_price = float(ticker["last"])
+                    trade.pnl_usd = (trade.exit_price - trade.entry_price) * (trade.size_usd / trade.entry_price)
+                    if trade.direction == TradeDirection.short:
+                        trade.pnl_usd *= -1
+                    trade.pnl_pct = (trade.pnl_usd / trade.size_usd) * 100
+                    await session.commit()
+                    logger.info("cex_position_closed", symbol=symbol, pnl_usd=trade.pnl_usd)
+                    return True
+        except Exception as e:
+            logger.error("failed_to_close_cex_position", symbol=symbol, error=str(e))
+        return False
 
     def select_order_type(self, decision: TradeDecision) -> str:
         if decision.active_news and decision.active_news.confidence > 0.75:

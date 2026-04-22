@@ -16,6 +16,7 @@ from backend.signals.regime import RegimeDetector
 from backend.agents.nn_model import PersistentTradingModel, TradeExperience
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
 from backend.memory.database import Trade, TradeStatus, get_session
+from backend.execution.position_manager import PositionManager
 from sqlalchemy import select, func
 from backend.core.config import settings
 
@@ -41,9 +42,11 @@ class NNTradingAgent:
         model: PersistentTradingModel,
         risk_manager,
         execution_engine,
+        defi_execution_engine = None,
         news_queue: PriorityNewsQueue,
         severe_flag: multiprocessing.Value,
         symbols: list[str],
+        db_session_factory: any = None,
         cycle_interval_seconds: float = 5.0
     ):
         self.market_feed = market_feed
@@ -52,10 +55,12 @@ class NNTradingAgent:
         self.model = model
         self.risk_manager = risk_manager
         self.execution_engine = execution_engine
+        self.defi_execution_engine = defi_execution_engine
         self.news_queue = news_queue
         self.severe_flag = severe_flag
         self.cycle_interval_seconds = cycle_interval_seconds
         self.symbols = symbols
+        self.db_session_factory = db_session_factory
         
         self.heartbeat_client = HeartbeatClient(news_queue.redis)
 
@@ -64,9 +69,15 @@ class NNTradingAgent:
         }
         self.open_trades: dict[str, Trade] = {}
         
+        self.position_manager = PositionManager(
+            open_trades=self.open_trades,
+            cex_execution_engine=self.execution_engine,
+            defi_execution_engine=self.defi_execution_engine,
+            db_session_factory=self.db_session_factory
+        )
+
         self.current_news_impact: NewsImpact | None = None
         self.news_impact_expires_at: datetime | None = None
-        self.db_session_factory = None
 
     async def _background_predictions_loop(self) -> None:
         """Asynchronous background task to broadcast CNN prediction visualization for the UI, decoupled from trading loop"""
@@ -169,6 +180,21 @@ class NNTradingAgent:
         logger.info("nn_trading_agent_started", symbols=self.symbols)
         self.started_at = time.time()
         
+        # Recover open trades from DB
+        if self.db_session_factory:
+            try:
+                async with self.db_session_factory() as session:
+                    stmt = select(Trade).where(Trade.status == TradeStatus.open)
+                    result = await session.execute(stmt)
+                    recovered_trades = result.scalars().all()
+                    for t in recovered_trades:
+                        self.open_trades[t.asset] = t
+                    logger.info("recovered_open_trades", count=len(recovered_trades))
+            except Exception as e:
+                logger.error("failed_to_recover_trades", error=str(e))
+
+        self.position_manager.start_monitoring()
+
         # Pre-fill historical sequences
         for symbol in self.symbols:
             logger.info("prefilling_historical_features", symbol=symbol)
@@ -352,7 +378,13 @@ class NNTradingAgent:
                     
                     approved, reason = self.risk_manager.approve(decision, portfolio_state)
                     if approved:
-                        trade = await self.execution_engine.execute(decision, portfolio_state)
+                        # Routing logic: DeFi if ETH and high confidence
+                        if self.defi_execution_engine and symbol == "ETHUSDT" and nn_confidence > 0.85:
+                            logger.info("routing_to_defi", symbol=symbol, confidence=nn_confidence)
+                            trade = await self.defi_execution_engine.execute(decision, portfolio_state)
+                        else:
+                            trade = await self.execution_engine.execute(decision, portfolio_state)
+
                         if trade:
                             self.open_trades[symbol] = trade
                             logger.info("trade_executed", symbol=symbol, direction=decision_str, size=size_pct)
