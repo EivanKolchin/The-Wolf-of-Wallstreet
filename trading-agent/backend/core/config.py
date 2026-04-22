@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     AI_PROVIDER: str = "anthropic" 
     OLLAMA_MODEL: str = "llama3"
+    OLLAMA_FALLBACK_MODEL: str = ""
+    AUTO_PULL_OLLAMA_MODELS: bool = True
 
     ARBITRUM_RPC_URL: str = ""
     AGENT_WALLET_ADDRESS: str = ""

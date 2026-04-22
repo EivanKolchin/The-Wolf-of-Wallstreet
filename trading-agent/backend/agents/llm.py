@@ -3,6 +3,7 @@ import json
 import urllib.request
 import urllib.error
 import logging
+from backend.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +12,9 @@ class LLMService:
         self.provider = (provider or "ollama").lower()
         self.primary_ollama_model = ollama_model
         self.current_ollama_model = ollama_model
-        self.fallback_ollama_model = "llama3.2:1b"
+        self.fallback_ollama_model = settings.OLLAMA_FALLBACK_MODEL.strip()
         self.downgrade_time = 0
+        self._pull_attempted_models: set[str] = set()
 
         self.anthropic_client = None
         self.gemini_model_haiku = None
@@ -112,6 +114,35 @@ class LLMService:
             return urllib.request.Request(url, data=json.dumps(data).encode('utf-8'),
                                         headers={'Content-Type': 'application/json'})
 
+        def _model_name_matches(installed: str, target: str) -> bool:
+            i = (installed or "").strip().lower()
+            t = (target or "").strip().lower()
+            if not i or not t:
+                return False
+            if i == t:
+                return True
+            if ":" not in t and i == f"{t}:latest":
+                return True
+            if t.endswith(":latest") and i == t[:-7]:
+                return True
+            # Covers richer variant tags such as llama3.2:1b-instruct-* for target llama3.2:1b
+            if i.startswith(f"{t}-") or i.startswith(f"{t}:"):
+                return True
+            return False
+
+        def _is_model_installed(target_model: str) -> bool:
+            try:
+                tags_req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+                with urllib.request.urlopen(tags_req, timeout=5) as tags_response:
+                    tags_data = json.loads(tags_response.read().decode("utf-8"))
+                for model_obj in tags_data.get("models", []):
+                    if _model_name_matches(model_obj.get("name", ""), target_model):
+                        return True
+            except Exception:
+                return False
+            return False
+
+
         def fetch(retry_on_404=True):
             req = build_request()
             try:
@@ -122,17 +153,35 @@ class LLMService:
                 
                 # Check for OOM/Hardware overload triggers
                 if e.code == 500 and ("terminated" in error_body or "memory" in error_body.lower() or "oom" in error_body.lower() or "failed to allocate" in error_body.lower()):
-                    if self.current_ollama_model == self.primary_ollama_model:
+                    if self.current_ollama_model == self.primary_ollama_model and self.fallback_ollama_model:
                         print(f"[Ollama Critical] VRAM overload on {self.primary_ollama_model}! Fallback to {self.fallback_ollama_model} triggered.")
                         self.current_ollama_model = self.fallback_ollama_model
                         self.downgrade_time = time.time()
                         self._sync_llm_state()
                         self._push_system_alert(f"Critical memory overload. The primary engine ({self.primary_ollama_model}) crashed the LLM handler. Auto-downgrading to lightweight {self.fallback_ollama_model} parameters to keep data flowing. Will re-attempt the {self.primary_ollama_model} engine in 2 minutes.")
                         return fetch(retry_on_404=True) # Retry immediately with fallback model
-                        
+                    print("[Ollama Critical] Memory overload detected and no fallback model configured.")
+                    return ""
+
                 if e.code == 404 and retry_on_404:
+                    normalized_model = self.current_ollama_model.strip().lower()
+                    if _is_model_installed(normalized_model):
+                        print(f"[Ollama Info] Model '{self.current_ollama_model}' appears installed via tags, skipping pull and retrying once.")
+                        return fetch(retry_on_404=False)
+
+                    if not settings.AUTO_PULL_OLLAMA_MODELS:
+                        print(
+                            f"[Ollama Info] Model '{self.current_ollama_model}' is missing. "
+                            "Auto-pull disabled (AUTO_PULL_OLLAMA_MODELS=false). "
+                            f"Run: ollama pull {self.current_ollama_model}"
+                        )
+                        return ""
+                    if normalized_model in self._pull_attempted_models:
+                        print(f"[Ollama Info] Pull for '{self.current_ollama_model}' already attempted in this session. Skipping repeated pull.")
+                        return ""
                     print(f"[Ollama Info] Model '{self.current_ollama_model}' not found locally. Auto-downloading...")
                     try:
+                        self._pull_attempted_models.add(normalized_model)
                         pull_req = urllib.request.Request("http://localhost:11434/api/pull",
                             data=json.dumps({"name": self.current_ollama_model, "stream": False}).encode('utf-8'),
                             headers={'Content-Type': 'application/json'})

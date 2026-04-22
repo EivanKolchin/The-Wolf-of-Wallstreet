@@ -34,6 +34,22 @@ pull_state = {
     "ollama_status": ""
 }
 
+def _ollama_model_name_matches(installed: str, target: str) -> bool:
+    i = (installed or "").strip().lower()
+    t = (target or "").strip().lower()
+    if not i or not t:
+        return False
+    if i == t:
+        return True
+    if ":" not in t and i == f"{t}:latest":
+        return True
+    if t.endswith(":latest") and i == t[:-7]:
+        return True
+    # Handles richer variants such as llama3.2:1b-instruct-* for target llama3.2:1b
+    if i.startswith(f"{t}-") or i.startswith(f"{t}:"):
+        return True
+    return False
+
 def ollama_background_task(target_ollama_model, install_ollama=False):
     import urllib.request
     import shutil
@@ -511,23 +527,28 @@ async def save_setup(req: Dict[str, Any] = Body(...)):
                 # Check directly via the local API instead of CLI to prevent the Windows GUI tray app from triggering
                 req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
                 model_exists = False
-                
+
+                tags_reachable = False
+            
                 try:
                     with urllib.request.urlopen(req, timeout=5) as response:
+                        tags_reachable = True
                         tags_data = json.loads(response.read().decode('utf-8'))
                         for model_obj in tags_data.get("models", []):
                             model_name = model_obj.get("name", "")
-                            if model_name == target_ollama_model or model_name.startswith(f"{target_ollama_model}:"):
+                            if _ollama_model_name_matches(model_name, target_ollama_model):
                                 model_exists = True
                                 break
                 except Exception:
-                    # If the API doesn't answer, the server is down so the model "doesn't exist" in memory state
+                    # If API is unreachable, don't assume model missing to avoid accidental re-download.
                     pass
 
-                if not model_exists:
+                if tags_reachable and not model_exists:
                     installing_model = True
                     msg = f"Applying config. Downloading {target_ollama_model} in the background..."
                     threading.Thread(target=ollama_background_task, args=(target_ollama_model, False)).start()
+                elif not tags_reachable:
+                    logger.warning("Ollama tags endpoint unreachable during setup save; skipping eager model pull check.")
                 else:
                     logger.info(f"Ollama model {target_ollama_model} is already installed locally. Skipping download.")
             except Exception as e:
