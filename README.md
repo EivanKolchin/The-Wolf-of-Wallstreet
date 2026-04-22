@@ -1,47 +1,192 @@
-# The Wolf of Wallstreet
-Smart Trading Agent
+# The Wolf of Wallstreet (WoW)
+The Wolf of Wallstreet is an AI assisted trading platform that combines a Python backend trading engine with a Next.js dashboard. It is designed for local development and experimentation with systematic trading, news aware risk controls, and live agentic execution infrastructure.
 
-## Overview
-This is a fully autonomous AI trading system that operates with a dual intelligence architecture. It combines the speed of a neural network with the semantic analysis capabilities of a Large Language Model. The system executes trades onchain and logs events using Kite AI.
+## Table of contents
+- [What this program does](#what-this-program-does)
+- [Who this project is for](#who-this-project-is-for)
+- [System architecture at a glance](#system-architecture-at-a-glance)
+- [Getting started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Fast start with startup scripts](#fast-start-with-startup-scripts)
+  - [What `start.sh` vs `start.bat` should be used for](#what-startsh-vs-startbat-should-be-used-for)
+  - [Manual startup option](#manual-startup-option)
+- [How the system works in simple terms](#how-the-system-works-in-simple-terms)
+- [Technical deep dive](#technical-deep-dive)
+  - [Backend process model](#backend-process-model)
+  - [Neural trading loop](#neural-trading-loop)
+  - [News ingestion and AI interpretation](#news-ingestion-and-ai-interpretation)
+  - [Risk controls and execution](#risk-controls-and-execution)
+  - [API and frontend integration](#api-and-frontend-integration)
+- [Configuration notes](#configuration-notes)
+- [Paper mode and live mode](#paper-mode-and-live-mode)
+- [Troubleshooting](#troubleshooting)
 
-The core idea is that the neural network (built with PyTorch LSTMs) acts as the trading brain, running continuous loops to make sub 100ms decisions based on technical analysis and market signals. At the same time, the LLM runs in an isolated background process, scanning financial news via RSS feeds and APIs. When the LLM detects a financially significant event, it signals the neural network via a priority queue to adjust risk limits or halt trading immediately without blocking the normal tick cycle.
+## What this program does
+At a high level, the platform continuously watches market data, generates model driven trade decisions, checks those decisions against risk limits, and then executes trades in either paper mode or live mode.
 
-## Project Structure
-The repository is split into two main sections:
-* backend: A Python 3.11 environment running the algorithmic agent, FastAPI, PyTorch, CCXT for market feeds, and Web3.py for blockchain interactions.
-* frontend: A Next.js 14 application providing the user dashboard, built with TypeScript, TailwindCSS, lightweight charts, and wagmi for wallet connections.
-* infrastructure: Postgres 16 and Redis 7, handled inside a Docker Compose setup.
+In parallel, a separate news LLM based intelligence process monitors financial RSS sources, classifies incoming headlines with the LLM pipeline, and can raise urgent signals that alter risk behavior or halt trading activity when needed.
 
-## Core Features
-* Parallel Processing: The NN and LLM run on separate cores using Python multiprocessing. They communicate through a shared priority queue via Redis so the trading loop never hangs waiting for an API response.
-* Dynamic News Interruption: The continuous news feed uses local models via Ollama (e.g., Llama 3) or external APIs (e.g., Google Gemini/Anthropic Claude) to categorize headlines into severity tiers (Neutral, Significant, or Severe), adjusting or stopping the trading engine dynamically.
-* Autonomous Execution: Capable of executing swaps automatically on Arbitrum using USDC.
-* Setup Automation: Cross-platform bootloaders (`start.bat` & `start.sh`) automatically download and install Ollama, Python, and Node dependencies directly from the web, ensuring no massive installers are tracked in the repository.
-* Risk Management: Dedicated synchronous gates check hard limits on drawdowns, position sizing, correlation, and trade frequency before any order is submitted.
-* Verifiability: Features an on chain agent identity and logs trade predictions and executions on the Kite AI blockchain.
+The frontend provides a clean browser based control and monitoring surface for setup, status, positions, and related system information.
 
-## Getting Started
-To get the system running locally, you need Docker, Docker Compose, and Git installed.
+## Who this project is for
+This project is most useful for:
+- Developers who want a full stack reference for an autonomous trading workflow.
+- Quant and ML practitioners testing model driven execution logic with an interactive UI.
 
-1. Clone the repository to your local machine.
-2. For an easy automatic setup, run the provided start scripts depending on your OS:
-   * Windows: Double click `start.bat` or run it in your terminal.
-   * macOS/Linux: Run `./start.sh` in your terminal.
-   These scripts will pull the code, build the Docker containers, and start the system.
-3. Alternatively, to run manually:
-   * Copy the `.env.example` file to `.env`.
-   * Start the containers: `docker-compose up --build`
-4. Once the application is running, visit http://localhost:3000 in your browser to access the dashboard.
-5. A setup modal will appear where you can directly enter your API keys and configuration data.
-6. To pretrain the LSTM model (optional but recommended), open a second terminal and run:
-   `docker-compose exec backend python scripts/pretrain.py`
-7. Connect your web3 wallet to the local setup using the Kite AI chain parameters.
+This project is not a beginner financial product and should be treated as an engineering system that requires careful setup and validation.
 
-## Paper vs Live Trading
-By default, the agent runs in paper mode. In this mode, trades are simulated and portfolio values are tracked only in the local database. No real capital is exposed.
+## System architecture at a glance
+The repository includes three major layers:
 
-To run in live mode, you must set PAPER_MODE=false in your .env file and fund your Arbitrum wallet with USDC. It is highly recommended to start with a very small amount for the first 24 hours to monitor live execution safely.
+1. **Backend (`trading-agent/backend`)**  
+   FastAPI service plus multiprocessing trading agents, market and news ingestion, risk management, and execution logic.
 
-## Deployment Notes
-* Frontend: Can be easily deployed on Vercel as a standard Next.js application. Keep in mind to set all NEXT_PUBLIC environment variables in the dashboard.
-* Backend: Must be deployed on a persistent server like an AWS EC2 instance or a DigitalOcean droplet. Serverless environments are not compatible with the Python multiprocessing requirements of the agent. You can use the provided docker-compose.prod.yml file for a production ready setup with resource limits.
+2. **Frontend (`trading-agent/frontend`)**  
+   Next.js 14 TypeScript dashboard that reads API and Redis backed runtime status.
+
+3. **Startup scripts (repository root)**  
+   Cross platform launch scripts (`start.sh`, `start.bat`) that help initialize and run frontend and backend services quickly with ease.
+
+## Getting started
+
+### Prerequisites
+Install the following before launch if not already installed:
+- Node.js 18 or newer (Node.js 20 recommended)
+- Python 3.10 or newer
+- Git
+
+You should also have a terminal where you can keep service windows open to view logs.
+
+### Fast start with startup scripts
+If you want the easiest path, use one of the startup scripts from the repository root.
+
+1. Clone the repository and open a terminal in the repository root.
+2. Run exactly one script based on your operating system:
+   - **Windows:** `start.bat`
+   - **macOS or Linux:** `./start.sh`
+   [or alternatively: navigate within folder to your appropiate start script and click to execute]
+3. The script launches:
+   - The frontend development server
+   - The backend service loop in a separate terminal window when available
+4. On your browser open: `http://localhost:3000`.
+
+### What `start.sh` vs `start.bat` should be used for
+Use this rule:
+
+- **Use `start.bat` if you are on Windows**  
+  It handles Windows command semantics, `cmd` process spawning, and virtual environment paths under `.venv\Scripts`.
+
+- **Use `start.sh` if you are on macOS or Linux**  
+  It uses Bash, Unix process management, and `.venv/bin` paths.
+
+Do not mix them. Running the wrong script on the wrong operating system will fail because shell syntax and path conventions are different.
+
+### Manual startup option
+If you prefer manual control:
+
+1. Move into `trading-agent`.
+2. Frontend:
+   - `cd frontend`
+   - `npm install --legacy-peer-deps`
+   - `npm run dev`
+3. Backend in a second terminal:
+   - `cd trading-agent/backend`
+   - `python -m venv .venv` (or `python3 -m venv .venv`)
+   - Install dependencies from `../requirements.txt`
+   - Start service with `python main.py` (or `.venv` interpreter equivalent)
+4. Open `http://localhost:3000`.
+
+## How the system works in simple terms
+Think of the system as two coordinated AI workers plus a dashboard:
+
+- **Worker 1: Trading brain**  
+  Reads market data and decides whether to go long, short, or hold [based on past data and mathematical models for decision making].
+
+- **Worker 2: News brain**  
+  Watches financial news from trusted sources and flags important events, rating each on different things.
+
+- **Risk layer in the middle**  
+  Blocks unsafe decisions before execution.
+
+- **Execution layer**  
+  Places paper trades (using fake money for testing) or live trades depending on configuration.
+
+- **Dashboard**  
+  Shows system state and lets you monitor behavior in real time with a modern interface.
+
+## Technical deep dive
+
+### Backend process model
+The backend entrypoint initializes FastAPI, database setup, websocket updater tasks, and then spawns two multiprocessing workers:
+- `NNTradingAgent` process for model driven trading decisions.
+- `LLMNewsAgent` process for news analysis and event severity signaling.
+
+A shared severe event flag coordinates emergency behavior across processes.
+
+### Neural trading loop
+The neural process performs repeated cycles that include:
+1. Building feature vectors from market candles, order flow context, and regime information.
+2. Maintaining rolling sequences for model inference.
+3. Running inference with the persistent trading model to get direction probabilities.
+4. Producing a `TradeDecision` object containing direction, size, confidence, and contextual metadata.
+5. Sending decision output through risk approval gates before execution.
+
+The agent also pushes visualization oriented prediction payloads to Redis for frontend consumption.
+
+### News ingestion and AI interpretation
+News ingestion polls a configured RSS list, deduplicates articles with hash based tracking, filters by finance and macro keywords, and forwards relevant items into downstream analysis.
+
+The LLM based news agent and credibility pipeline classify impact severity. Significant events can bias risk behavior, and severe events can trigger emergency safeguards.
+
+### Risk controls and execution
+The risk manager enforces hard constraints including:
+- Maximum portfolio drawdown
+- Maximum daily loss
+- Position size limits
+- Trade frequency limits
+- Minimum notional filters
+
+Only approved decisions continue to execution.
+
+Execution supports paper or live behavior. For each approved trade, the engine:
+1. Normalizes quantity with exchange precision and min notional checks.
+2. Selects order type logic based on context.
+3. Records trade metadata in the database.
+4. Emits audit style trade logging through Kite chain integration.
+
+### API and frontend integration
+FastAPI routes provide health, setup, risk, and operational endpoints, while websocket tasks stream live updates used by the Next.js UI.
+
+The frontend is implemented with modern React and TypeScript patterns and is organized into dashboard pages, widgets, and shared libraries for API and state handling.
+
+## Configuration notes
+- Startup scripts attempt to create `.env` from `.env.example` when available.
+- Backend settings are loaded through the project configuration module.
+- External providers may require keys and endpoint configuration before full functionality is available.
+- Optional local LLM flows may depend on Ollama availability.
+
+## Paper mode and live mode
+- **Paper mode** is the safe default path for simulation and validation. By default $1000 awarded in digital fake money for monitoring and test the model.
+- **Live mode** should only be used after extensive testing, strict limit review, and controlled capital exposure.
+
+If you enable live execution, treat this as production trading infrastructure and implement your own operational safeguards.
+
+**We are NOT liable for ANY financial losses due to our program, this program is intended for experimental and educational purposes not profit making**
+
+## Troubleshooting
+
+### Frontend dependency issues
+If `npm run dev` fails, try reinstalling dependencies:
+- `npm install --legacy-peer-deps`
+
+### Backend restarts repeatedly
+Review backend logs for missing dependency, provider credential, database, or Redis connectivity errors.
+
+### No secondary terminal opens on Linux
+`start.sh` attempts `gnome-terminal`, `xterm`, or `konsole`, then falls back to inline execution.
+
+### Issues with the trading execution / LLM news agent 
+Ensure on start you have completed the setup as asked for on start. if you close this you can complete it in settings and then click save. If there are issues saving this data you can manually enter the required data in the .env file (\trading-agent\.env)
+
+## License
+This repository is distributed under the terms of the included `LICENSE` file.
