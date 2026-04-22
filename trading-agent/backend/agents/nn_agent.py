@@ -304,6 +304,10 @@ class NNTradingAgent:
                     if len(self.feature_sequences[symbol]) < self.model.SEQUENCE_LENGTH:
                         continue
                         
+                    if time.time() - self.started_at < 300:
+                        logger.debug("agent_warming_up", symbol=symbol, remaining_seconds=300 - (time.time() - self.started_at))
+                        continue
+                        
                     sequence = np.stack(self.feature_sequences[symbol])
                     
                     decision_str, size_pct, probs = self.model.infer(sequence)

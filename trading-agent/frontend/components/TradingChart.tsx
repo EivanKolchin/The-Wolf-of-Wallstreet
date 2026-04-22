@@ -491,7 +491,7 @@ if (config.ema9.show) {
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
-        }, [symbol, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth, isVibrantColors]);
+        }, [symbol, config.ema9.show, config.ema9.color, config.ema9.lineWidth, config.ema21.show, config.ema21.color, config.ema21.lineWidth, isVibrantColors, currencyPrefix]);
 
     useEffect(() => {
         if (chartData.length > 0 && seriesRef.current) {

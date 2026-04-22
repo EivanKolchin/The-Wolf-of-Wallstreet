@@ -67,12 +67,12 @@ export function AgentStatusBanner() {
 
   if (!status) return null;
 
-  const isWarmingUp = status.buffer_current < status.buffer_required && !status.is_halted;
+  const isWarmingUp = ((now - (status.started_at * 1000) < 300000) || status.buffer_current < status.buffer_required) && !status.is_halted;
   
   // Real-time calculation mechanics
   let remainingSeconds = 0;
   if (isWarmingUp) {
-     const elapsedSinceStart = now - (localStart || now);
+     const elapsedSinceStart = (now - (status.started_at * 1000)) / 1000;
      
      // Start from 5 minutes (300 seconds) since that's what the UI usually requires to buffer
      let calculatedRemaining = Math.max(0, 300 - elapsedSinceStart);
@@ -80,11 +80,10 @@ export function AgentStatusBanner() {
      if (!status.has_market_data || status.buffer_current === 0) {
         // Still waiting for first kline. Keep ticking down but pause at 0 if no data
         if (calculatedRemaining < 0) calculatedRemaining = 0;
-     } else {
+     } else if (status.buffer_current < status.buffer_required) {
         // Market data established!
         const bufferTimeRemaining = (status.buffer_required - status.buffer_current) * status.cycle_interval;
-        
-        calculatedRemaining = bufferTimeRemaining;
+        calculatedRemaining = Math.max(calculatedRemaining, bufferTimeRemaining);
      }
 
      remainingSeconds = calculatedRemaining;
@@ -94,7 +93,13 @@ export function AgentStatusBanner() {
   const secs = Math.floor(remainingSeconds % 60);
 
   // Compute bar width safely
-  const progressPct = Math.min(100, Math.max(0, (status.buffer_current / status.buffer_required) * 100));
+  let progressPct = 100;
+  if (status.buffer_current < status.buffer_required) {
+      progressPct = Math.max(0, (status.buffer_current / status.buffer_required) * 100);
+  } else if (isWarmingUp) {
+      const elapsed = (now - (status.started_at * 1000)) / 1000;
+      progressPct = Math.max(0, Math.min(100, (elapsed / 300) * 100));
+  }
 
   return (
     <Card className="col-span-2 border-zinc-800/50 bg-[#0A0A0A] overflow-hidden rounded-xl shadow-lg">
