@@ -6,8 +6,7 @@ from datetime import datetime
 import ccxt
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.agents.nn_agent import TradeDecision 
-from backend.execution.kite_chain import KiteChainClient
+from backend.agents.nn_agent import TradeDecision
 from backend.memory.database import Trade, TradeDirection, TradeStatus, OrderType
 
 logger = structlog.get_logger(__name__)
@@ -19,18 +18,31 @@ class ExecutionEngine:
     def __init__(
         self,
         exchange: ccxt.binance,
-        kite_chain: KiteChainClient,
         db_session_factory: async_sessionmaker,
         paper_mode: bool = True
     ):
         self.exchange = exchange
-        self.kite_chain = kite_chain
         self.db_session_factory = db_session_factory
         self.paper_mode = paper_mode
+        self._trade_closed_callback = None
+
+    def set_trade_closed_callback(self, callback):
+        self._trade_closed_callback = callback
+
+    async def _run_exchange_call(self, fn, *args, retries: int = 2):
+        last_error = None
+        for attempt in range(retries + 1):
+            try:
+                return await asyncio.to_thread(fn, *args)
+            except Exception as e:
+                last_error = e
+                if attempt < retries:
+                    await asyncio.sleep(0.2 * (attempt + 1))
+        raise last_error
 
     async def get_current_price(self, symbol: str) -> float:
         try:
-            ticker = self.exchange.fetch_ticker(symbol)
+            ticker = await self._run_exchange_call(self.exchange.fetch_ticker, symbol)
             return float(ticker["last"])
         except Exception as e:
             logger.error("failed_to_get_current_price", symbol=symbol, error=str(e))
@@ -40,7 +52,7 @@ class ExecutionEngine:
         size_usd = decision.size_pct * available_cash
         
         try:
-            qty, price = self.normalise_order(decision.symbol, size_usd)
+            qty, price = await self.normalise_order(decision.symbol, size_usd)
         except ValueError as e:
             logger.warning("order_normalisation_failed", symbol=decision.symbol, error=str(e))
             return None
@@ -88,9 +100,9 @@ class ExecutionEngine:
                 logger.info("live_order_submission", symbol=decision.symbol, type=order_type, side=side, qty=qty, price=price)
                 
                 if order_type == "market":
-                    order = self.exchange.create_market_order(decision.symbol, side, qty)
+                    order = await self._run_exchange_call(self.exchange.create_market_order, decision.symbol, side, qty)
                 else:
-                    order = self.exchange.create_limit_order(decision.symbol, side, qty, price)
+                    order = await self._run_exchange_call(self.exchange.create_limit_order, decision.symbol, side, qty, price)
                 
                 if not order or "id" not in order:
                     raise ExecutionError("Missing order ID in exchange response")
@@ -105,13 +117,11 @@ class ExecutionEngine:
             await session.commit()
             await session.refresh(trade)
 
-        asyncio.create_task(self.kite_chain.log_trade_decision(trade, decision))
-        
         return trade
 
-    def normalise_order(self, symbol: str, size_usd: float) -> tuple[float, float]:
-        market = self.exchange.market(symbol)
-        ticker = self.exchange.fetch_ticker(symbol)
+    async def normalise_order(self, symbol: str, size_usd: float) -> tuple[float, float]:
+        market = await self._run_exchange_call(self.exchange.market, symbol)
+        ticker = await self._run_exchange_call(self.exchange.fetch_ticker, symbol)
         price = ticker["last"]
         
         limits = market.get("limits", {})
@@ -123,7 +133,7 @@ class ExecutionEngine:
             min_notional = float(min_notional)
             
         raw_qty = size_usd / price
-        qty_str = self.exchange.amount_to_precision(symbol, raw_qty)
+        qty_str = await self._run_exchange_call(self.exchange.amount_to_precision, symbol, raw_qty)
         qty = float(qty_str)
         
         if qty * price < min_notional:
