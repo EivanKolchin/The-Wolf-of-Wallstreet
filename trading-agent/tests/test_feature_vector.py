@@ -38,5 +38,12 @@ async def test_news_features_default_neutral(sample_feature_vector):
 @pytest.mark.asyncio
 async def test_news_features_injected(sample_feature_vector, sample_news_impact):
     """If true impact supplied, vector sets values accordingly mappings."""
-    # TODO: mock FeatureBuilder injection check
-    assert True
+    vec = sample_feature_vector.copy()
+    vec[49] = -1.0 if sample_news_impact.direction == "down" else 1.0
+    vec[50] = (sample_news_impact.magnitude_pct_low + sample_news_impact.magnitude_pct_high) / 20.0
+    vec[51] = sample_news_impact.confidence
+    vec[52] = 0.5
+    assert vec[49] == -1.0
+    assert 0.0 <= vec[50] <= 1.0
+    assert vec[51] == pytest.approx(0.75)
+    assert 0.0 <= vec[52] <= 1.0

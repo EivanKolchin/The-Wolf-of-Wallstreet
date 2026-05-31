@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from structlog import get_logger
 
 from backend.agents.nn_model import PersistentTradingModel
+from backend.agents.improved_model import SYMBOL_TO_ID
 
 log = get_logger("scripts.train_from_logs")
 
@@ -45,7 +46,12 @@ def _build_training_set(
     decisions: list[dict[str, Any]],
     outcomes: list[dict[str, Any]],
     min_abs_pnl_pct: float = 0.0,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Match logged decisions to subsequent outcomes; emit (X, y, sym_ids).
+
+    Fix 19.1: ``ImprovedTradingLSTM.forward(x, symbol_ids)`` requires symbol
+    IDs as a second arg. We carry them through here so the loader yields the
+    3-tuple the train loop now expects."""
     # Match each decision to the next outcome of same symbol by timestamp.
     outcomes_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in outcomes:
@@ -59,6 +65,7 @@ def _build_training_set(
     out_idx: dict[str, int] = defaultdict(int)
     X: list[np.ndarray] = []
     y: list[int] = []
+    sym_ids: list[int] = []
 
     decisions_sorted = sorted(decisions, key=lambda r: _parse_ts(r.get("timestamp", "1970-01-01T00:00:00+00:00")))
     for row in decisions_sorted:
@@ -107,10 +114,15 @@ def _build_training_set(
 
         X.append(seq_np)
         y.append(target)
+        sym_ids.append(SYMBOL_TO_ID.get(str(symbol).upper(), 0))
 
     if not X:
-        return np.empty((0, 0, 0), dtype=np.float32), np.empty((0,), dtype=np.int64)
-    return np.stack(X).astype(np.float32), np.asarray(y, dtype=np.int64)
+        return (np.empty((0, 0, 0), dtype=np.float32),
+                np.empty((0,), dtype=np.int64),
+                np.empty((0,), dtype=np.int64))
+    return (np.stack(X).astype(np.float32),
+            np.asarray(y, dtype=np.int64),
+            np.asarray(sym_ids, dtype=np.int64))
 
 
 def train_from_logs(
@@ -131,14 +143,14 @@ def train_from_logs(
         log.error("no_outcome_logs_found", path=str(data_path / "outcome_log.jsonl"))
         return
 
-    X, y = _build_training_set(decisions, outcomes, min_abs_pnl_pct=min_abs_pnl_pct)
+    X, y, sym_ids = _build_training_set(decisions, outcomes, min_abs_pnl_pct=min_abs_pnl_pct)
     if X.size == 0:
         log.error("no_aligned_training_rows", decisions=len(decisions), outcomes=len(outcomes))
         return
 
     model = PersistentTradingModel()
     model.optimizer = torch.optim.Adam(model.model.parameters(), lr=lr, weight_decay=1e-5)
-    dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y))
+    dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(sym_ids))
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     log.info("offline_train_start", rows=len(dataset), epochs=epochs, batch_size=batch_size)
@@ -147,16 +159,21 @@ def train_from_logs(
         epoch_loss = 0.0
         total = 0
         correct = 0
-        for bx, by in loader:
+        for bx, by, bs in loader:
             model.optimizer.zero_grad()
-            probs, _ = model.model(bx)
-            loss = F.nll_loss(torch.log(probs + 1e-8), by)
+            # ImprovedTradingLSTM returns a 5-tuple
+            # (logits_list, probs_list, size, exits, attn_w). Train on the
+            # primary-horizon logits via NLL on log-softmax.
+            logits_list, probs_list, _size, _exits, _attn = model.model(bx, bs)
+            primary_logits = logits_list[0]
+            primary_probs = probs_list[0]
+            loss = F.nll_loss(F.log_softmax(primary_logits, dim=-1), by)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.model.parameters(), 1.0)
             model.optimizer.step()
 
             epoch_loss += loss.item() * bx.size(0)
-            pred = probs.argmax(dim=1)
+            pred = primary_probs.argmax(dim=1)
             correct += (pred == by).sum().item()
             total += bx.size(0)
 

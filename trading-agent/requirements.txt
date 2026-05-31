@@ -1,4 +1,4 @@
-﻿fastapi
+fastapi
 uvicorn
 pydantic
 pydantic-settings
@@ -12,16 +12,22 @@ numpy
 # Note: talib usually requires system-level libraries to install. 
 # In a Dockerfile you'd typically need `apt-get install -y build-essential wget` and install ta-lib via source.
 TA-Lib
+pandas_ta            # used by scripts/pretrain.py for the feature matrix
 feedparser
 anthropic
 google-generativeai
 torch
 ccxt
 web3
-# add others like web3, etc.
-aiosqlite
-
 aiosqlite
 fakeredis
-
-
+requests             # used by scripts/pretrain.py Alpaca historical fetch (Phase 7b) + news API (Phase 3)
+python-dotenv        # tiny .env loader, fallback for pretrain.py
+psutil               # Workstream B: hardware-aware thread budget (cores/RAM detection)
+# Phase 3 news embeddings: OPTIONAL semantic backend. Without it the embedder
+# falls back to a deterministic hashing embedding (no download, no heavy deps).
+# Install to enable NN_NEWS_EMBED_BACKEND=transformer (all-MiniLM-L6-v2, ~90MB).
+# sentence-transformers
+# Phase 4 extended-hours DATA add-on: OPTIONAL free pre/after-hours quotes.
+# Without it the feed falls back to Finnhub (FINNHUB_API_KEY) or returns None.
+# yfinance

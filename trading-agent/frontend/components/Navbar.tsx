@@ -2,19 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useAccount, useDisconnect } from "wagmi";
 import { useAppState } from "../lib/context";
 import { Settings, AlertCircle, Cpu, DollarSign, PoundSterling, Euro, ChevronDown } from "lucide-react";
 import { ClockPanel } from "./ClockPanel";
+import { WalletConnectModal } from "./WalletConnectModal";
 import { useEffect, useState, useRef } from "react";
-import { API_BASE } from "../api";
 
 export default function Navbar() {
   const { status, currency, setCurrency } = useAppState();
   const { address, isConnected } = useAccount();
-  const { connectors, connect } = useConnect();
   const { disconnect } = useDisconnect();
   const pathname = usePathname();
+  const [showWalletModal, setShowWalletModal] = useState(false);
 
   const [missingKeys, setMissingKeys] = useState(false);
   const [missingList, setMissingList] = useState<any[]>([]);
@@ -69,7 +69,9 @@ export default function Navbar() {
 
   const navItems = [
     { name: "Overview", path: "/dashboard" },
+    { name: "All Assets", path: "/assets" },
     { name: "Positions", path: "/positions" },
+    { name: "Performance", path: "/performance" },
     { name: "Intelligence", path: "/news" },
     { name: "Audit Log", path: "/audit" },
   ];
@@ -83,20 +85,23 @@ export default function Navbar() {
           WoW
         </Link>
 
-        <div className="hidden md:flex space-x-6">
-          {navItems.map((item) => (
-            <Link
-              key={item.name} 
-              href={item.path}
-              className={`text-[13px] tracking-wide transition-colors ${        
-                pathname === item.path
-                  ? "text-zinc-100 font-medium"
-                  : "text-zinc-400 hover:text-zinc-100"
-              }`}
-            >
-              {item.name}
-            </Link>
-          ))}
+        <div className="hidden md:flex items-center gap-1 rounded-full border border-zinc-800/60 bg-[#0A0A0A]/60 p-1">
+          {navItems.map((item) => {
+            const active = pathname === item.path;
+            return (
+              <Link
+                key={item.name}
+                href={item.path}
+                className={`px-3.5 py-1.5 rounded-full text-[13px] tracking-wide transition-all ${
+                  active
+                    ? "bg-zinc-800/80 text-zinc-100 font-medium shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/30"
+                }`}
+              >
+                {item.name}
+              </Link>
+            );
+          })}
         </div>
       </div>
 
@@ -250,8 +255,8 @@ export default function Navbar() {
             </div>
           ) : (
             <button
-              onClick={() => connect({ connector: connectors[0] })}
-              className="text-[13px] font-medium tracking-wide text-zinc-300 bg-transparent hover:text-white border border-[#27272A] hover:border-[#3F3F46] hover:bg-[#18181B] px-8 py-2 rounded-md transition-all"   
+              onClick={() => setShowWalletModal(true)}
+              className="text-[13px] font-medium tracking-wide text-zinc-300 bg-transparent hover:text-white border border-[#27272A] hover:border-[#3F3F46] hover:bg-[#18181B] px-8 py-2 rounded-md transition-all"
             >
               Connect
             </button>
@@ -267,6 +272,8 @@ export default function Navbar() {
           <Settings size={18} strokeWidth={1.5} />
         </Link>
       </div>
+
+      {showWalletModal && <WalletConnectModal onClose={() => setShowWalletModal(false)} />}
     </nav>
   );
 }

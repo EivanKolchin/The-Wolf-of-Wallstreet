@@ -34,3 +34,19 @@ body {
 /* Hide lightweight-charts open-source logo */
 a[href*='tradingview.com'] { display: none !important; }
 table tr:last-child td a { display: none !important; }
+
+/* Cycle 22.2: smooth dropdown entrance for the chart's symbol picker. */
+@keyframes chartDropdownIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Cycle 22.3: skeleton pulse for the chart loading state. */
+@keyframes chartSkeletonPulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.55; }
+}
+.chart-skeleton-bar {
+  animation: chartSkeletonPulse 1.2s ease-in-out infinite;
+  background: linear-gradient(180deg, rgba(167,139,250,0.18) 0%, rgba(167,139,250,0.05) 100%);
+}

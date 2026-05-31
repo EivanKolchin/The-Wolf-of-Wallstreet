@@ -1,6 +1,6 @@
 # AI Trading Agent
 
-A full-stack algorithmic AI trading platform built around autonomous trade execution using PyTorch LSTMs, Large Language Models for news analysis, and a Next.js UI frontend bridged via Kite AI Chain for auditing.
+A full-stack algorithmic AI trading platform built around autonomous trade execution using PyTorch LSTMs, Large Language Models for news analysis, and a Next.js UI frontend. Realized trades are audited via transaction statements written to the `/statements` folder.
 
 ## Structure
 - `/backend`: Python 3.11 core algorithmic agent using FastAPI, PyTorch, CCXT, Web3.py.
@@ -22,7 +22,7 @@ We have removed Docker entirely to prevent architecture mismatches between Windo
    - **Windows:** Double-click `start.bat`
    - **Mac/Linux:** Run `bash start.sh`
 6. Visit [http://localhost:3000](http://localhost:3000)
-7. Connect MetaMask to Kite AI chain (include chain params)
+7. Connect MetaMask to Arbitrum One (only needed for live on-chain mode)
 8. Expected state after setup: paper mode active, NN loading pretrained weights,
    news feed connecting, dashboard showing live data within 2 minutes.
 

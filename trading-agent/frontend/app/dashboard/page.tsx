@@ -15,11 +15,72 @@ import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
 const TradingChart = dynamic(() => import('@/components/TradingChart'), { ssr: false });
 
 const availableCoins = ["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"];
+// Restricted stock universe (mirrors backend/core/universe.py STOCK_UNDERLYINGS)
+const availableStocks = ["SNDK", "AMD", "MU", "AXTI", "BE"];
 
 export default function Dashboard() {
   const [symbol, setSymbol] = React.useState("ALL");
-  // Main data hook for the active chart symbol (defaults to BTCUSDT if ALL is selected)
-  const activeChartSymbol = symbol === "ALL" ? "BTCUSDT" : symbol;
+  // Asset-class mode: crypto / stocks / both
+  const [assetClass, setAssetClass] = React.useState<"crypto" | "stocks" | "both">("crypto");
+  // Phase 12: per-symbol attention state (HIGH/LOW) + manual overrides (from /api/attention)
+  const [attentionState, setAttentionState] = React.useState<Record<string, "high" | "low">>({});
+  const [attentionOverrides, setAttentionOverrides] = React.useState<Record<string, "high" | "low">>({});
+  const displayedSymbols = assetClass === "crypto" ? availableCoins
+    : assetClass === "stocks" ? availableStocks
+    : [...availableCoins, ...availableStocks];
+  const isStock = (s: string) => availableStocks.includes(s);
+  // Reset to ALL when switching asset class — but only if the current symbol
+  // isn't already valid for the new class (e.g. the user picked AMD from the
+  // chart's dropdown which also flips the class; we don't want to clobber that).
+  React.useEffect(() => {
+    setSymbol(prev => {
+      if (prev === "ALL") return prev;
+      const validHere = (assetClass === "stocks" && availableStocks.includes(prev))
+                     || (assetClass === "crypto" && availableCoins.includes(prev))
+                     || (assetClass === "both");
+      return validHere ? prev : "ALL";
+    });
+  }, [assetClass]);
+  // Main data hook for the active chart symbol (defaults to the first symbol of the class)
+  const activeChartSymbol = symbol === "ALL" ? (assetClass === "stocks" ? availableStocks[0] : "BTCUSDT") : symbol;
+
+  // Phase 12: poll /api/attention every 5s so the badges reflect live agent state.
+  React.useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/attention");
+        const data = await res.json();
+        if (cancelled) return;
+        setAttentionState(data.state || {});
+        setAttentionOverrides(data.overrides || {});
+      } catch { /* keep last good values */ }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // Cycle override: auto -> HIGH -> LOW -> auto (null = clear)
+  const cycleAttention = async (coin: string) => {
+    const cur = attentionOverrides[coin];
+    const next: "high" | "low" | null = cur === undefined
+      ? "high"
+      : cur === "high" ? "low" : null;
+    try {
+      await fetch("http://127.0.0.1:8000/api/attention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: coin, attention: next }),
+      });
+      // optimistic update — server is authoritative; next poll will reconcile
+      setAttentionOverrides((prev) => {
+        const cp = { ...prev };
+        if (next === null) delete cp[coin]; else cp[coin] = next;
+        return cp;
+      });
+    } catch { /* swallow; next poll reconciles */ }
+  };
   const { klines, orderbook, tradeHistory } = useMarketData(activeChartSymbol);
   const { rawNews, predictions } = useNewsData();
   const { status, signals, currency, exchangeRates } = useAppState();
@@ -31,7 +92,7 @@ export default function Dashboard() {
   const [allPrices, setAllPrices] = React.useState<Record<string, { current: number, diff: number, pct: number }>>({});
   
   React.useEffect(() => {
-    if (symbol !== "ALL") return;
+    if (symbol !== "ALL" || assetClass === "stocks") return;
     
     // Initial fetch for 24h stats to calculate diffs
     const fetchStats = async () => {
@@ -76,7 +137,7 @@ export default function Dashboard() {
     };
 
     return () => ws.close();
-  }, [symbol]);
+  }, [symbol, assetClass]);
 
   // Single active coin info
   const lastKline = klines.length > 0 ? klines[klines.length - 1] : null;
@@ -93,19 +154,43 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto pt-4 font-sans fadeIn">
-      <div className="flex flex-wrap gap-2 mb-4">
-        {["ALL", ...availableCoins].map(coin => (
-          <button
-            key={coin}
-            onClick={() => setSymbol(coin)}
-            className={`px-3 py-1 rounded text-sm font-medium transition-colors ${symbol === coin ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}
-          >
-            {coin.replace('USDT', '')}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {/* Asset-class mode: Crypto / Stocks / Both */}
+        <div className="flex gap-1 mr-2 p-0.5 bg-zinc-900 rounded-lg border border-zinc-800">
+          {(["crypto", "stocks", "both"] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setAssetClass(m)}
+              className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition-colors ${assetClass === m ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        {["ALL", ...displayedSymbols].map(coin => {
+          const att = attentionState[coin];
+          const ov = attentionOverrides[coin];
+          return (
+            <div key={coin} className="flex items-center gap-0.5">
+              <button
+                onClick={() => setSymbol(coin)}
+                className={`px-3 py-1 rounded text-sm font-medium transition-colors ${symbol === coin ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200'}`}
+              >
+                {coin.replace('USDT', '')}
+              </button>
+              {coin !== "ALL" && (
+                <button
+                  onClick={() => cycleAttention(coin)}
+                  title={`Attention: ${att || 'low'}${ov ? ` (override: ${ov})` : ''} — click to cycle auto → HIGH → LOW`}
+                  className={`w-2 h-2 rounded-full transition-all ${att === 'high' ? 'bg-red-500' : 'bg-emerald-500/70'} ${ov ? 'ring-2 ring-amber-400/70 ring-offset-1 ring-offset-zinc-950' : 'hover:scale-125'}`}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      <div className={`grid gap-6 ${symbol === "ALL" ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+      <div className="grid gap-6 md:grid-cols-2">
 
         {symbol === "ALL" ? (
           <Card className="col-span-1 md:col-span-2">
@@ -115,7 +200,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-2">
-                {availableCoins.map(coin => {
+                {displayedSymbols.map(coin => {
                   const data = allPrices[coin] || { current: 0, diff: 0, pct: 0 };
                   return (
                     <div key={coin} className="p-3 bg-[#121214] border border-zinc-800/50 rounded-xl">
@@ -163,22 +248,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle>LLM Analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-lg tracking-tight font-semibold text-[#D1D4DC] flex items-center">
-              Neuromorphic Engine
-            </div>
-            <p className="text-[12px] tracking-wide text-zinc-400 mt-1 capitalize">Mode: Standing By</p>
-          </CardContent>
-        </Card>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="col-span-1 md:col-span-2 grid gap-6 md:grid-cols-2">
-           <VirtualWalletCard />
+           <VirtualWalletCard viewedSymbol={activeChartSymbol} />
         </div>
         <div className="col-span-1 md:col-span-2">
            <AgentStatusBanner />
@@ -191,7 +265,18 @@ export default function Dashboard() {
             <CardTitle>Market Trajectory</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 p-0 m-0">
-            <TradingChart symbol={activeChartSymbol} currencyRate={rate} currencyPrefix={currencySymbol} />
+            <TradingChart
+                symbol={activeChartSymbol}
+                currencyRate={rate}
+                currencyPrefix={currencySymbol}
+                onSymbolChange={(next) => {
+                    // Promote the chosen symbol to the dashboard's active selection.
+                    // If the picked symbol belongs to the other asset class, also flip the class.
+                    if (availableStocks.includes(next) && assetClass !== "stocks") setAssetClass("stocks");
+                    else if (availableCoins.includes(next) && assetClass !== "crypto") setAssetClass("crypto");
+                    setSymbol(next);
+                }}
+            />
           </CardContent>
         </Card>
 
@@ -200,6 +285,11 @@ export default function Dashboard() {
             <CardTitle>Orderbook Alpha</CardTitle>
           </CardHeader>
           <CardContent className="font-mono text-[11px] text-zinc-400 space-y-4 pt-4">
+            {isStock(activeChartSymbol) && (
+              <div className="text-[10px] text-amber-500/80 -mt-1">
+                Live {activeChartSymbol} order book activates once a stock broker is connected (Phase 7b).
+              </div>
+            )}
             <div>
               <div className="flex justify-between mb-2 text-zinc-400">
                 <span>Price ({currency})</span>

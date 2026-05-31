@@ -43,7 +43,10 @@ function convertThoughtCurrency(thought: string | undefined, currency: string, c
 }
 
 
-export function VirtualWalletCard() {
+export function VirtualWalletCard({ viewedSymbol }: { viewedSymbol?: string } = {}) {
+  // Phase 1 bug fix: thread the dashboard's currently-viewed symbol through
+  // to /api/portfolio?symbol=... so the "Agent's Current Thought" reflects
+  // the asset on screen, not always BTCUSDT.
   const { currency, exchangeRates } = useAppState();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,8 @@ export function VirtualWalletCard() {
   useEffect(() => {
     async function fetchPortfolio() {
       try {
-        const res = await fetch("http://localhost:8000/api/portfolio");
+        const qs = viewedSymbol ? `?symbol=${encodeURIComponent(viewedSymbol)}` : "";
+        const res = await fetch(`http://localhost:8000/api/portfolio${qs}`);
         if (!res.ok) throw new Error("Failed to fetch");
         const json = await res.json();
         setData(json);
@@ -71,7 +75,7 @@ export function VirtualWalletCard() {
     fetchPortfolio();
     const interval = setInterval(fetchPortfolio, 3000); // 3 second live polling
     return () => clearInterval(interval);
-  }, []);
+  }, [viewedSymbol]);
 
   if (loading && !data) {
     return (
@@ -96,14 +100,8 @@ export function VirtualWalletCard() {
 
   return (
     <Card className="col-span-2">
-      <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-zinc-800/50">
+      <CardHeader className="pb-4 border-b border-zinc-800/50">
         <CardTitle>Virtual Ledger</CardTitle>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span className="text-[10px] font-medium text-emerald-500 uppercase tracking-widest">Live Sync</span>
-          </div>
-        </div>
       </CardHeader>
 
       <CardContent className="pt-6">

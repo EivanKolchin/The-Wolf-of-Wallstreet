@@ -8,6 +8,7 @@ from threading import Lock
 from typing import Any
 
 import numpy as np
+from backend.core.config import settings
 
 # Keyword bank backbone (editable by user for tuning)
 CRYPTO_KEYWORD_BANK: dict[str, list[str]] = {
@@ -59,7 +60,14 @@ def map_asset_to_symbol(asset: str | None) -> str | None:
     return aliases.get(normalized)
 
 
-def extract_symbol_relevance(text: str, keyword_bank: dict[str, list[str]] | None = None) -> tuple[dict[str, float], dict[str, list[str]]]:
+def extract_symbol_relevance(
+    text: str,
+    keyword_bank: dict[str, list[str]] | None = None,
+    weights: dict | None = None,
+) -> tuple[dict[str, float], dict[str, list[str]]]:
+    """Per-symbol relevance from keyword hits. If `weights` (a {(symbol, keyword_lower):
+    weight} map from the learnable KeywordWeight table) is provided, hits are weighted so
+    the bank adapts over time; otherwise falls back to a flat hit count."""
     bank = keyword_bank or CRYPTO_KEYWORD_BANK
     lowered = text.lower()
     scores: dict[str, float] = {}
@@ -69,8 +77,12 @@ def extract_symbol_relevance(text: str, keyword_bank: dict[str, list[str]] | Non
         hit_terms = [kw for kw in keywords if kw.lower() in lowered]
         if not hit_terms:
             continue
-        # simple normalized hit score; clipped to 1.0
-        score = min(1.0, len(hit_terms) / max(4, len(keywords)))
+        denom = max(4.0, float(len(keywords)))
+        if weights:
+            wsum = sum(float(weights.get((symbol, kw.lower()), 1.0)) for kw in hit_terms)
+            score = min(1.0, wsum / denom)
+        else:
+            score = min(1.0, len(hit_terms) / denom)
         scores[symbol] = float(score)
         matches[symbol] = hit_terms
 
@@ -107,6 +119,7 @@ class TrainingBackbone:
     ) -> None:
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "feature_schema_version": settings.FEATURE_SCHEMA_VERSION,
             "symbol": symbol,
             "decision": decision,
             "size_pct": float(size_pct),

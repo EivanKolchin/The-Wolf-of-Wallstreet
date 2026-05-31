@@ -14,8 +14,8 @@ export default function AuditPage() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col space-y-1">
-                <h1 className="text-2xl font-bold text-white">On-Chain Audit Log</h1>
-                <p className="text-zinc-500 text-sm">Every resolved epoch is committed permanently to Kite AI Chain.</p>
+                <h1 className="text-2xl font-bold text-white">Trade Audit Log</h1>
+                <p className="text-zinc-500 text-sm">Every resolved trade is recorded with a transaction statement (see the /statements folder).</p>
             </div>
             
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -27,7 +27,8 @@ export default function AuditPage() {
                                 <th className="px-6 py-4">Asset</th>
                                 <th className="px-6 py-4">Action</th>
                                 <th className="px-6 py-4">Pred. Score</th>
-                                <th className="px-6 py-4">Kite Chain Tx</th>
+                                <th className="px-6 py-4">P&amp;L (USD)</th>
+                                <th className="px-6 py-4">Rationale</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-800/50">
@@ -44,20 +45,23 @@ export default function AuditPage() {
                                         <td className="px-6 py-4 text-zinc-300">
                                             {t.prediction_score !== undefined ? `${(t.prediction_score * 100).toFixed(1)}%` : "N/A"}
                                         </td>
-                                        <td className="px-6 py-4 text-blue-500 hover:text-blue-400 underline decoration-blue-500/30 underline-offset-4">
-                                            {t.kite_tx_hash ? (
-                                                <a href={`https://testnet.kitescan.ai/tx/${t.kite_tx_hash}`} target="_blank" rel="noreferrer">
-                                                    {t.kite_tx_hash.slice(0, 6)}...{t.kite_tx_hash.slice(-4)}
-                                                </a>
+                                        <td className="px-6 py-4 font-mono">
+                                            {t.pnl_usd !== undefined && t.pnl_usd !== null ? (
+                                                <span className={t.pnl_usd >= 0 ? 'text-green-500' : 'text-red-500'}>
+                                                    {t.pnl_usd >= 0 ? '+' : ''}{t.pnl_usd.toFixed(2)}
+                                                </span>
                                             ) : (
-                                                <span className="text-zinc-600 no-underline">Pending</span>
+                                                <span className="text-zinc-600">Open</span>
                                             )}
+                                        </td>
+                                        <td className="px-6 py-4 text-zinc-400 text-[11px] max-w-md truncate" title={t.rationale?.summary || ""}>
+                                            {t.rationale?.summary || <span className="text-zinc-600">—</span>}
                                         </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">
+                                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
                                         No trades audited yet.
                                     </td>
                                 </tr>

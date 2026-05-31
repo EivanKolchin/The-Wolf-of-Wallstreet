@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowLeft, Save, Eye, EyeOff, Info } from "lucide-react";
 import Link from "next/link";
+import { WalletPanel } from "@/components/WalletPanel";
 
 export default function SettingsPage() {
   const [data, setData] = useState<any>(null);
@@ -10,6 +11,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [adminKey, setAdminKey] = useState("");
 
   const [provider, setProvider] = useState("gemini");
   const [ollamaModel, setOllamaModel] = useState("llama3");
@@ -31,6 +33,11 @@ export default function SettingsPage() {
   const [agentWalletAddress, setAgentWalletAddress] = useState("");
   const [paperMode, setPaperMode] = useState(true);
 
+  // Funding: WalletConnect projectId + Ramp on-ramp key (Workstreams D/E).
+  const [walletConnectProjectId, setWalletConnectProjectId] = useState("");
+  const [rampHostApiKey, setRampHostApiKey] = useState("");
+  const [showRampKey, setShowRampKey] = useState(false);
+
   // Other Brokers / Social Services
   const [alpacaApiKey, setAlpacaApiKey] = useState("");
   const [alpacaSecretKey, setAlpacaSecretKey] = useState("");
@@ -48,9 +55,15 @@ export default function SettingsPage() {
 
   const [telegramApiId, setTelegramApiId] = useState("");
   const [telegramApiHash, setTelegramApiHash] = useState("");
-  
-  const [kiteApiKey, setKiteApiKey] = useState("");
-  const [kiteApiSecret, setKiteApiSecret] = useState("");
+
+  // Advanced risk options
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [riskMaxDrawdown, setRiskMaxDrawdown] = useState("15.0");
+  const [riskMaxDailyLoss, setRiskMaxDailyLoss] = useState("5.0");
+  const [riskMaxPosition, setRiskMaxPosition] = useState("20.0");
+  const [riskMinConfidence, setRiskMinConfidence] = useState("0.0");
+  const [riskCvarLimit, setRiskCvarLimit] = useState("10.0");
+  const [kellyFraction, setKellyFraction] = useState("0.5");
 
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installState, setInstallState] = useState<any>({
@@ -67,7 +80,9 @@ export default function SettingsPage() {
   const startPollingProgress = () => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/setup/ollama-progress?t=${Date.now()}`);
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/ollama-progress?t=${Date.now()}`, {
+          headers: { "x-admin-key": adminKey },
+        });
         if (res.ok) {
           const st = await res.json();
           setInstallState(st);
@@ -90,34 +105,46 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
+    if (!adminKey) {
+      setLoading(false);
+      return;
+    }
     const fetchConfig = async (retries = 3) => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/setup/config?t=${Date.now()}`);
+        // G5: reveal=1 returns the real (unredacted) .env values so the existing
+        // password-style eye toggles can actually show the keys on click,
+        // instead of empty fields. Admin-key gated; localhost personal app.
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/config?reveal=1&t=${Date.now()}`, {
+          headers: { "x-admin-key": adminKey },
+        });
         if (!res.ok) throw new Error("Backend not reachable");
         const cfg = await res.json();
         
         setProvider(cfg.AI_PROVIDER || "gemini");
         setOllamaModel(cfg.OLLAMA_MODEL || "llama3");
         
-        const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000"));
+        const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000") && !k.includes("*"));
         const sanitize = (k: string) => isRealKey(k) ? k : "";
 
         const gKey = sanitize(cfg.GEMINI_API_KEY || "");
         const aKey = sanitize(cfg.ANTHROPIC_API_KEY || "");
         
         setGeminiKey(gKey);
-        if (isRealKey(gKey)) setGeminiKeyLocked(true);
+        if (cfg.GEMINI_API_KEY_IS_SET || isRealKey(gKey)) setGeminiKeyLocked(true);
         
         setAnthropicKey(aKey);
-        if (isRealKey(aKey)) setAnthropicKeyLocked(true);
+        if (cfg.ANTHROPIC_API_KEY_IS_SET || isRealKey(aKey)) setAnthropicKeyLocked(true);
         
         setPaperMode(cfg.PAPER_MODE === "true" || cfg.PAPER_MODE === true);
 
         setAgentPrivateKey(sanitize(cfg.AGENT_PRIVATE_KEY || ""));
-        if (isRealKey(cfg.AGENT_PRIVATE_KEY)) setAgPkLocked(true);
+        if (cfg.AGENT_PRIVATE_KEY_IS_SET || isRealKey(cfg.AGENT_PRIVATE_KEY || "")) setAgPkLocked(true);
         
         setAgentWalletAddress(sanitize(cfg.AGENT_WALLET_ADDRESS || ""));
-        
+
+        setWalletConnectProjectId(cfg.WALLETCONNECT_PROJECT_ID || cfg._extra?.WALLETCONNECT_PROJECT_ID || "");
+        setRampHostApiKey(sanitize(cfg.RAMP_HOST_API_KEY || cfg._extra?.RAMP_HOST_API_KEY || ""));
+
         setAlpacaApiKey(sanitize(cfg.ALPACA_API_KEY || ""));
         setAlpacaSecretKey(sanitize(cfg.ALPACA_SECRET_KEY || ""));
         
@@ -128,7 +155,14 @@ export default function SettingsPage() {
         
         setTelegramApiId(sanitize(cfg.TELEGRAM_API_ID || ""));
         setTelegramApiHash(sanitize(cfg.TELEGRAM_API_HASH || ""));
-        
+
+        if (cfg.RISK_MAX_DRAWDOWN_PCT) setRiskMaxDrawdown(String(cfg.RISK_MAX_DRAWDOWN_PCT));
+        if (cfg.RISK_MAX_DAILY_LOSS_PCT) setRiskMaxDailyLoss(String(cfg.RISK_MAX_DAILY_LOSS_PCT));
+        if (cfg.RISK_MAX_POSITION_PCT) setRiskMaxPosition(String(cfg.RISK_MAX_POSITION_PCT));
+        if (cfg.RISK_MIN_CONFIDENCE !== undefined && cfg.RISK_MIN_CONFIDENCE !== null) setRiskMinConfidence(String(cfg.RISK_MIN_CONFIDENCE));
+        if (cfg.RISK_CVAR_LIMIT_PCT) setRiskCvarLimit(String(cfg.RISK_CVAR_LIMIT_PCT));
+        if (cfg.NN_KELLY_FRACTION !== undefined && cfg.NN_KELLY_FRACTION !== null) setKellyFraction(String(cfg.NN_KELLY_FRACTION));
+
         setLoading(false);
       } catch (err) {
         if (retries > 0) {
@@ -141,7 +175,7 @@ export default function SettingsPage() {
     };
     
     fetchConfig();
-  }, []);
+  }, [adminKey]);
 
   const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setProvider(e.target.value);
@@ -162,6 +196,8 @@ export default function SettingsPage() {
         ARBITRUM_RPC_URL: arbitrumRpcUrl,
         AGENT_PRIVATE_KEY: agentPrivateKey,
         AGENT_WALLET_ADDRESS: agentWalletAddress,
+        WALLETCONNECT_PROJECT_ID: walletConnectProjectId,
+        RAMP_HOST_API_KEY: rampHostApiKey,
         ALPACA_API_KEY: alpacaApiKey,
         ALPACA_SECRET_KEY: alpacaSecretKey,
         X_API_KEY: xApiKey,
@@ -170,15 +206,22 @@ export default function SettingsPage() {
         X_ACCESS_TOKEN_SECRET: xAccessTokenSecret,
         TELEGRAM_API_ID: telegramApiId,
         TELEGRAM_API_HASH: telegramApiHash,
-        KITE_API_KEY: kiteApiKey,
-        KITE_API_SECRET: kiteApiSecret,
+        RISK_MAX_DRAWDOWN_PCT: riskMaxDrawdown,
+        RISK_MAX_DAILY_LOSS_PCT: riskMaxDailyLoss,
+        RISK_MAX_POSITION_PCT: riskMaxPosition,
+        RISK_MIN_CONFIDENCE: riskMinConfidence,
+        RISK_CVAR_LIMIT_PCT: riskCvarLimit,
+        NN_KELLY_FRACTION: kellyFraction,
       };
+      if (geminiKeyLocked && geminiKey === "") delete (payload as any).GEMINI_API_KEY;
+      if (anthropicKeyLocked && anthropicKey === "") delete (payload as any).ANTHROPIC_API_KEY;
+      if (agPkLocked && agentPrivateKey === "") delete (payload as any).AGENT_PRIVATE_KEY;
 
       let successMsg = "Settings saved successfully. The backend will reboot with new keys.";
       try {
         const res = await fetch("http://127.0.0.1:8000/api/setup/save", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
           body: JSON.stringify(payload),
         });
 
@@ -240,6 +283,19 @@ export default function SettingsPage() {
         <p className="text-sm text-neutral-500 mb-10 w-2/3 leading-relaxed">
           Manage your intelligence providers and execution credentials. Updates to these parameters will trigger an automatic core reboot.
         </p>
+        <div className="max-w-xl mb-6">
+          <label className="block text-[13px] font-medium text-neutral-400 mb-2">Admin Key</label>
+          <input
+            type="password"
+            value={adminKey}
+            onChange={(e) => {
+              setLoading(true);
+              setAdminKey(e.target.value);
+            }}
+            className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all font-mono"
+            placeholder="Required for setup API access"
+          />
+        </div>
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-4 rounded-lg mb-8 backdrop-blur-sm">
@@ -517,6 +573,45 @@ export default function SettingsPage() {
                   placeholder="0x..."
                 />
               </div>
+
+              {/* Workstream D/E: funding keys */}
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">
+                  WalletConnect Project ID <span className="text-neutral-600">(optional — enables the connect QR)</span>
+                </label>
+                <input
+                  type="text"
+                  value={walletConnectProjectId}
+                  onChange={(e) => setWalletConnectProjectId(e.target.value)}
+                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
+                  placeholder="from cloud.reown.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-medium text-neutral-400 mb-2">
+                  Ramp Host API Key <span className="text-neutral-600">(optional — enables Add Funds / Google Pay)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showRampKey ? "text" : "password"}
+                    value={rampHostApiKey}
+                    onChange={(e) => setRampHostApiKey(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-12 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
+                    placeholder="from ramp.network"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRampKey(!showRampKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+                  >
+                    {showRampKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Deposit QR + Add Funds (Google Pay / Ramp) */}
+              <WalletPanel />
             </div>
           </div>
 
@@ -682,6 +777,49 @@ export default function SettingsPage() {
               </div>
             </div>
             
+          </div>
+
+          {/* Advanced Options — risk parameters */}
+          <div className="bg-[#0e0e0e] border border-[#262626] rounded-2xl p-6 mb-6">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-semibold text-neutral-100">Advanced Options — Risk Parameters</span>
+                <Info size={14} className="text-neutral-500" />
+              </div>
+              <span className="text-neutral-400 text-sm">{advancedOpen ? "Hide" : "Show"}</span>
+            </button>
+
+            {advancedOpen && (
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
+                <p className="md:col-span-2 text-[12px] text-neutral-500">
+                  These tune the live risk engine. Changes apply on the next agent restart (triggered by Save).
+                </p>
+                {[
+                  { label: "Max Portfolio Drawdown (%)", val: riskMaxDrawdown, set: setRiskMaxDrawdown, hint: "Hard halt above this drawdown" },
+                  { label: "Max Daily Loss (%)", val: riskMaxDailyLoss, set: setRiskMaxDailyLoss, hint: "Stops trading for the day past this loss" },
+                  { label: "Max Single Position (%)", val: riskMaxPosition, set: setRiskMaxPosition, hint: "Cap on capital deployed per trade" },
+                  { label: "Min Confidence (0-1)", val: riskMinConfidence, set: setRiskMinConfidence, hint: "Reject trades below this model confidence" },
+                  { label: "CVaR Tail-Risk Limit (%)", val: riskCvarLimit, set: setRiskCvarLimit, hint: "Block new trades above this projected tail loss (0 disables)" },
+                  { label: "Kelly Fraction (0 = use model size)", val: kellyFraction, set: setKellyFraction, hint: "Fraction of Kelly to bet; lower = more conservative" },
+                ].map((f) => (
+                  <div key={f.label}>
+                    <label className="block text-[13px] font-medium text-neutral-400 mb-2">{f.label}</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={f.val}
+                      onChange={(e) => f.set(e.target.value)}
+                      className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                    />
+                    <p className="text-[11px] text-neutral-600 mt-1">{f.hint}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end pt-4 pb-12">
