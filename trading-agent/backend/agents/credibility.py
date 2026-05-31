@@ -24,6 +24,8 @@ BASE_TRUST_SCORES = {
     "unknown": 0.25
 }
 
+#add cryptopolitan, bitcoin.com
+
 FAST_LANE_THRESHOLD = 0.85
 
 class CredibilityEngine:

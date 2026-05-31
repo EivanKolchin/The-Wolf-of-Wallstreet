@@ -81,6 +81,8 @@ class NewsPrediction(Base):
     outcome_checked: Mapped[bool] = mapped_column(Boolean, default=False)
     actual_move_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     prediction_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    symbol_relevance: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    matched_keywords: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 class Trade(Base):
     __tablename__ = "trades"
@@ -103,8 +105,17 @@ class Trade(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    kite_tx_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    quote_asset: Mapped[str | None] = mapped_column(String, nullable=True, default="USDC")
+    fee_paid: Mapped[float | None] = mapped_column(Float, nullable=True, default=0.0)
+    exit_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    trailing_stop: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     highest_price_seen: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    broker: Mapped[str | None] = mapped_column(String, nullable=True, default="uniswap_v3")
+    account_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    asset_class: Mapped[str | None] = mapped_column(String, nullable=True, default="crypto")
+    target_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expected_execution_ts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rationale: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 class ModelCheckpoint(Base):
     __tablename__ = "model_checkpoints"
@@ -126,9 +137,105 @@ class AgentEvent(Base):
     details: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
+class KeywordWeight(Base):
+    """Learnable keyword bank: per (symbol, keyword) weight nudged by news outcomes.
+    Seeded from CRYPTO_KEYWORD_BANK; near-zero weights are effectively pruned."""
+    __tablename__ = "keyword_weights"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    keyword: Mapped[str] = mapped_column(String, index=True)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    correct: Mapped[int] = mapped_column(Integer, default=0)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SeverityCalibration(Base):
+    """Tracks predicted vs realized magnitude per severity bucket for LLM calibration."""
+    __tablename__ = "severity_calibration"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    severity_bucket: Mapped[str] = mapped_column(String, unique=True, index=True)
+    sum_predicted: Mapped[float] = mapped_column(Float, default=0.0)
+    sum_realized: Mapped[float] = mapped_column(Float, default=0.0)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class CorrelationSnapshot(Base):
+    """Phase 10 append-only correlation matrix snapshot (never overwritten).
+    Each training cycle / periodic compute appends a row so structural shifts in
+    cross-asset relationships are preserved for the relational engine + audit."""
+    __tablename__ = "correlation_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    version: Mapped[int] = mapped_column(Integer, index=True)
+    matrix: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Account(Base):
+    """A broker account (one per broker+venue), with a base settlement currency."""
+    __tablename__ = "accounts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    broker: Mapped[str] = mapped_column(String, index=True)        # uniswap_v3 | alpaca | ibkr
+    venue: Mapped[str] = mapped_column(String)                     # uniswap | nasdaq | nyse | lse
+    base_currency: Mapped[str] = mapped_column(String, default="USD")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CashLedger(Base):
+    """Per-account, per-currency balance. FX-minimizing: proceeds settle in the
+    instrument's quote currency; conversion only via explicit deposit/withdraw."""
+    __tablename__ = "cash_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[str] = mapped_column(String, index=True)
+    currency: Mapped[str] = mapped_column(String, index=True)
+    balance: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+def _ensure_columns(sync_conn):
+    """Idempotently ADD COLUMN for new fields on existing tables (SQLite-safe).
+    create_all() creates missing tables but never alters existing ones."""
+    from sqlalchemy import inspect as _inspect, text as _text
+    insp = _inspect(sync_conn)
+    tables = set(insp.get_table_names())
+    wanted = {
+        "trades": {
+            "quote_asset": "VARCHAR",
+            "fee_paid": "FLOAT",
+            "exit_reason": "VARCHAR",
+            "trailing_stop": "FLOAT",
+            "highest_price_seen": "FLOAT",
+            "broker": "VARCHAR",
+            "account_id": "VARCHAR",
+            "asset_class": "VARCHAR",
+            "target_price": "FLOAT",
+            "expected_execution_ts": "FLOAT",
+            "rationale": "JSON",
+        },
+        "news_predictions": {
+            "symbol_relevance": "JSON",
+            "matched_keywords": "JSON",
+        },
+    }
+    for table, cols in wanted.items():
+        if table not in tables:
+            continue
+        have = {c["name"] for c in insp.get_columns(table)}
+        for col, coltype in cols.items():
+            if col not in have:
+                sync_conn.execute(_text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_columns)
 
 @asynccontextmanager
 async def get_session() -> AsyncSession:

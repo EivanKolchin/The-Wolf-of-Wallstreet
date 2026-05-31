@@ -10,6 +10,7 @@ import pandas as pd
 from structlog import get_logger
 
 from memory.redis_client import FeatureCache, NewsImpact
+from signals import feature_spec as fs
 
 log = get_logger("signals.features")
 
@@ -41,7 +42,7 @@ class FeatureVectorBuilder:
         news_impact: Optional[NewsImpact]
     ) -> np.ndarray:
         
-        vec = np.zeros(62, dtype=np.float32)
+        vec = np.zeros(fs.BASE, dtype=np.float32)
 
         try:
             # Helper to safely assign values and log errors if they fail
@@ -160,14 +161,14 @@ class FeatureVectorBuilder:
             # ---------------------------------------------------------
             # Regime One-Hot & Confidence (43-48, 61)
             # ---------------------------------------------------------
-            regimes_map = ["uptrend", "downtrend", "ranging", "high_volatility", "news_driven", "low_liquidity"]
+            regimes_map = fs.REGIME_LABELS
             try:
                 for i, r in enumerate(regimes_map):
-                    vec[43 + i] = 1.0 if r == regime else 0.0
+                    vec[fs.REGIME_START + i] = 1.0 if r == regime else 0.0
             except Exception as e:
                 log.warning("Failed to encode regime", error=str(e))
 
-            safe_assign(61, regime_confidence, "regime_confidence")
+            safe_assign(fs.REGIME_CONFIDENCE, regime_confidence, "regime_confidence")
 
             # ---------------------------------------------------------
             # News Impact (49-52)
@@ -241,7 +242,15 @@ class FeatureVectorBuilder:
             # vec is already completely zeroed out at init, which acts as safe default vector.
 
         # Verify exact shape requirements
-        assert len(vec) == 62, f"Feature vector length {len(vec)} != 62"
+        assert len(vec) == fs.BASE, f"Feature vector length {len(vec)} != {fs.BASE}"
+        regime_slice = vec[fs.REGIME]
+        regime_sum = float(np.sum(regime_slice))
+        if regime_sum > 0 and not np.isclose(regime_sum, 1.0, atol=1e-4):
+            log.warning("feature_regime_onehot_drift", symbol=symbol, regime_sum=regime_sum)
+        if np.isclose(vec[20], vec[3], atol=1e-6):
+            log.debug("feature_volume_slot20_matches_slot3", symbol=symbol)
+        if float(np.max(np.abs(vec[35:43]))) == 0.0 and (bids or asks or trades):
+            log.debug("feature_orderbook_slots_zero_with_market_depth", symbol=symbol)
 
         if log.isEnabledFor(logging.DEBUG):
             vector_hash = hashlib.sha256(vec.tobytes()).hexdigest()

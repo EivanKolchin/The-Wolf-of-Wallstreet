@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import aiohttp
 from datetime import datetime, timezone, timedelta
 import structlog
 
@@ -10,8 +11,8 @@ from sqlalchemy import select
 from backend.data.news_feed import NewsIngestionPipeline, NewsArticle
 from backend.agents.credibility import CredibilityEngine
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
-from backend.memory.database import NewsPrediction, Severity, Direction
-from backend.training.backbone import map_asset_to_symbol, extract_symbol_relevance
+from backend.memory.database import NewsPrediction, Severity, Direction, KeywordWeight, SeverityCalibration
+from backend.training.backbone import map_asset_to_symbol, extract_symbol_relevance, CRYPTO_KEYWORD_BANK
 
 logger = structlog.get_logger(__name__)
 
@@ -93,7 +94,8 @@ class LLMNewsAgent:
         try:
             direction_str = data.get("direction", "neutral").lower()
             combined_text = f"{article.headline}\n{article.body[:2000]}"
-            symbol_relevance, matched_keywords = extract_symbol_relevance(combined_text)
+            kw_weights = await self._load_keyword_weights()
+            symbol_relevance, matched_keywords = extract_symbol_relevance(combined_text, weights=kw_weights)
             mapped_symbol = map_asset_to_symbol(data.get("asset"))
             if mapped_symbol:
                 # Ensure model-declared asset is always represented in relevance map
@@ -209,7 +211,9 @@ class LLMNewsAgent:
                 await self.heartbeat_client.ping("llm_news_agent")
             except Exception:
                 pass
-            await asyncio.sleep(30)
+            # Re-ping well within the 10s heartbeat TTL (HeartbeatClient.ping uses setex 10s)
+            # so the dashboard/health check doesn't falsely flag the news agent as offline.
+            await asyncio.sleep(5)
 
     def score_news_prediction(self, prediction: NewsPrediction, actual_move_pct: float) -> float:
         if prediction.direction == Direction.up and actual_move_pct > 0:
@@ -222,35 +226,122 @@ class LLMNewsAgent:
             dir_correct = 0.0
 
         in_range = 1.0 if prediction.magnitude_pct_low <= abs(actual_move_pct) <= prediction.magnitude_pct_high else 0.5
-        
+
         return (dir_correct * 0.7) + (in_range * 0.3)
+
+    async def _load_keyword_weights(self) -> dict:
+        """Load learned (symbol, keyword)->weight; seed from CRYPTO_KEYWORD_BANK on first use."""
+        try:
+            async with self.db_session_factory() as session:
+                rows = (await session.execute(select(KeywordWeight))).scalars().all()
+                if not rows:
+                    for sym, kws in CRYPTO_KEYWORD_BANK.items():
+                        for kw in kws:
+                            session.add(KeywordWeight(symbol=sym, keyword=kw.lower(), weight=1.0))
+                    await session.commit()
+                    rows = (await session.execute(select(KeywordWeight))).scalars().all()
+                return {(r.symbol, r.keyword.lower()): float(r.weight) for r in rows}
+        except Exception as e:
+            logger.warning("keyword_weight_load_failed", error=str(e))
+            return {}
+
+    async def _fetch_realized_move(self, symbol: str, start: datetime, end: datetime) -> float | None:
+        """Realized % move for a crypto symbol over [start, end] via Binance klines."""
+        try:
+            start_ms = int(start.replace(tzinfo=timezone.utc).timestamp() * 1000)
+            end_ms = int(end.replace(tzinfo=timezone.utc).timestamp() * 1000)
+            url = ("https://api.binance.us/api/v3/klines"
+                   f"?symbol={symbol}&interval=5m&startTime={start_ms}&endTime={end_ms}&limit=1000")
+            timeout = aiohttp.ClientTimeout(total=8)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
+                    data = await resp.json()
+            if not data or not isinstance(data, list):
+                return None
+            first_open = float(data[0][1])
+            last_close = float(data[-1][4])
+            if first_open <= 0:
+                return None
+            return (last_close - first_open) / first_open * 100.0
+        except Exception as e:
+            logger.warning("realized_move_fetch_failed", symbol=symbol, error=str(e))
+            return None
+
+    async def _update_keyword_feedback(self, session, prediction, score: float) -> None:
+        """Negative/positive automated feedback on keywords: good predictions raise the
+        keyword's weight, poor ones lower it (toward a 0.05 prune floor)."""
+        matched = prediction.matched_keywords or {}
+        for sym, kws in matched.items():
+            for kw in (kws or []):
+                kwl = str(kw).lower()
+                row = (await session.execute(
+                    select(KeywordWeight).where(KeywordWeight.symbol == sym, KeywordWeight.keyword == kwl)
+                )).scalar_one_or_none()
+                if row is None:
+                    row = KeywordWeight(symbol=sym, keyword=kwl, weight=1.0)
+                    session.add(row)
+                row.hits = (row.hits or 0) + 1
+                if score > 0.5:
+                    row.correct = (row.correct or 0) + 1
+                new_w = float(row.weight) + 0.1 * ((score - 0.5) * 2.0)
+                row.weight = float(max(0.05, min(new_w, 3.0)))
+
+    async def _record_severity_calibration(self, session, prediction, actual_move_pct: float) -> None:
+        bucket = prediction.severity.value if hasattr(prediction.severity, "value") else str(prediction.severity)
+        row = (await session.execute(
+            select(SeverityCalibration).where(SeverityCalibration.severity_bucket == bucket)
+        )).scalar_one_or_none()
+        if row is None:
+            row = SeverityCalibration(severity_bucket=bucket)
+            session.add(row)
+        predicted_mid = (float(prediction.magnitude_pct_low) + float(prediction.magnitude_pct_high)) / 2.0
+        row.sum_predicted = float(row.sum_predicted or 0.0) + predicted_mid
+        row.sum_realized = float(row.sum_realized or 0.0) + abs(actual_move_pct)
+        row.count = (row.count or 0) + 1
 
     async def check_prediction_outcomes(self):
         while True:
             try:
                 await asyncio.sleep(300)
+                scored = []  # (source_domain, score) — trust updates run after commit (separate sessions)
                 async with self.db_session_factory() as session:
                     now = datetime.utcnow()
-                    
+
                     stmt = select(NewsPrediction).where(NewsPrediction.outcome_checked == False)
                     result = await session.execute(stmt)
                     predictions = result.scalars().all()
 
                     for p in predictions:
-                        expires_at = p.created_at + timedelta(minutes=p.t_max_minutes)
-                        if now > expires_at:
-                            actual_move_pct = 0.0
-                            if self.market_feed:
-                                pass # Implement logic to check feed cache real moves
+                        expires_at = p.created_at + timedelta(minutes=max(int(p.t_max_minutes), 1))
+                        if now <= expires_at:
+                            continue
 
-                            score = self.score_news_prediction(p, actual_move_pct)
-                            p.actual_move_pct = actual_move_pct
-                            p.prediction_score = score
+                        mapped = map_asset_to_symbol(p.asset)
+                        actual_move_pct = None
+                        if mapped:
+                            actual_move_pct = await self._fetch_realized_move(mapped, p.created_at, expires_at)
+
+                        if actual_move_pct is None:
+                            # Can't evaluate (non-crypto, or fetch failed) — mark checked to avoid pile-up.
                             p.outcome_checked = True
+                            continue
 
-                            await self.credibility_engine.update_trust_score(p.source_domain, score)
+                        score = self.score_news_prediction(p, actual_move_pct)
+                        p.actual_move_pct = actual_move_pct
+                        p.prediction_score = score
+                        p.outcome_checked = True
+
+                        await self._update_keyword_feedback(session, p, score)
+                        await self._record_severity_calibration(session, p, actual_move_pct)
+                        scored.append((p.source_domain, score))
 
                     await session.commit()
+
+                for domain, score in scored:
+                    try:
+                        await self.credibility_engine.update_trust_score(domain, score)
+                    except Exception as ce:
+                        logger.warning("trust_update_failed", domain=domain, error=str(ce))
 
             except Exception as e:
                 logger.error("prediction_outcome_check_error", error=str(e))

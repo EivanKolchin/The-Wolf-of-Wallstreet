@@ -1,9 +1,43 @@
+import os
+# Workstream B: hardware-aware thread budget, set BEFORE torch is imported
+# anywhere. Replaces the old hard-pin to 1 thread (a conservative choice for a
+# "small CPU") with an auto-tuned count that uses spare physical cores while
+# leaving OS/I/O headroom. `HW_AUTO_TUNE=false` or an explicit OMP_NUM_THREADS
+# restores the legacy single-thread behavior. Falls back to 1 on any error.
+try:
+    from backend.core.hardware import apply_startup_threads, summary_line
+    _HW_BUDGET = apply_startup_threads()
+    print("[Backend] " + summary_line(_HW_BUDGET), flush=True)
+except Exception as _hw_e:
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    print(f"[Backend] hardware auto-tune skipped ({_hw_e}); using 1 thread.", flush=True)
+
 import asyncio
 import ctypes
 import multiprocessing
 import signal
 import sys
-import os
+
+# DNS pre-flight + DoH fallback must run BEFORE any aiohttp / urllib sessions
+# spin up, otherwise they cache the broken system resolver. Cheap when the
+# system DNS works (single parallel probe with a 2.5s budget per host).
+try:
+    from backend.core.network_check import pre_flight as _dns_pre_flight
+    _DNS_SUMMARY = _dns_pre_flight(verbose=True)
+    if _DNS_SUMMARY["system_ok"]:
+        print("[Backend] DNS pre-flight: all hosts OK via system resolver.", flush=True)
+    elif _DNS_SUMMARY["doh_installed"]:
+        print(f"[Backend] DNS pre-flight: system resolver FAILED for "
+              f"{_DNS_SUMMARY['failed_hosts']}; Cloudflare DoH fallback (1.1.1.1) "
+              f"installed for this process.", flush=True)
+    else:
+        print(f"[Backend] WARNING: system DNS AND Cloudflare DoH both unreachable. "
+              f"Failed hosts: {_DNS_SUMMARY['failed_hosts']}. Stock data + LLM calls "
+              f"will not work until this is resolved.", flush=True)
+except Exception as _e:
+    print(f"[Backend] DNS pre-flight skipped due to: {_e}", flush=True)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,8 +60,6 @@ from backend.data.news_feed import NewsIngestionPipeline, DEFAULT_RSS_FEEDS
 from backend.signals.features import FeatureVectorBuilder
 from backend.signals.regime import RegimeDetector
 from backend.risk.manager import RiskManager
-from backend.execution.engine import ExecutionEngine
-from backend.execution.kite_chain import KiteChainClient
 from backend.agents.llm import LLMService
 import ccxt
 import subprocess
@@ -55,7 +87,15 @@ def run_nn_agent(severe_flag):
     async def _run():
         import ccxt.async_support as ccxt_async
         
-        market_feed = BinanceMarketFeed(symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"])
+        # Phase 1: the crypto agent now considers the FULL crypto vocabulary the
+        # model was trained on (8 symbols, ids 0..7) rather than a 2-symbol
+        # subset. Sourced from core.universe so there's a single source of truth.
+        # NOTE: the asset chosen for VIEWING on the UI never reaches this list —
+        # viewing is purely a frontend concern, so it can never narrow the
+        # agent's trading/attention scope.
+        from backend.core import universe as _universe
+        trading_symbols = list(_universe.CRYPTO_SYMBOLS)
+        market_feed = BinanceMarketFeed(symbols=trading_symbols)
         await market_feed.start()
         
         from backend.memory.redis_client import get_redis
@@ -68,14 +108,14 @@ def run_nn_agent(severe_flag):
         global _model_instance
         _model_instance = PersistentTradingModel()
         
-        risk_manager = RiskManager()
-        kite_chain = KiteChainClient(
-            rpc_url=settings.KITE_CHAIN_RPC_URL,
-            private_key=settings.KITE_CHAIN_PRIVATE_KEY,
-            agent_address=settings.KITE_AGENT_ADDRESS,
-            db_session_factory=AsyncSessionLocal
-        )
-        
+        # The breaker measures drawdown against ``peak_portfolio_value``, which
+        # seeds from this initial value. It MUST match the agent's actual starting
+        # cash (INITIAL_USDC_AMOUNT) — otherwise a default 10k peak vs a 1k real
+        # book reads as an instant ~90% phantom drawdown and latches the agent
+        # into HALTED on cycle one (every trade then rejected "manual reset
+        # required"). This was the root cause of "the backend isn't doing much".
+        risk_manager = RiskManager(initial_portfolio_value=float(settings.INITIAL_USDC_AMOUNT))
+
         from backend.execution.defi_engine import UniswapV3Executor, DefiPortfolioTracker, DefiExecutionEngine
         from web3 import Web3
         web3_client = Web3(Web3.HTTPProvider(settings.ARBITRUM_RPC_URL or "https://arb1.arbitrum.io/rpc"))
@@ -96,11 +136,50 @@ def run_nn_agent(severe_flag):
         exec_engine = DefiExecutionEngine(
             uniswap=uniswap,
             portfolio=portfolio,
-            kite_chain=kite_chain,
             db_session_factory=AsyncSessionLocal,
-            paper_mode=False if os.environ.get("PAPER_MODE", "true").lower() == "false" else True
+            paper_mode=settings.PAPER_MODE.lower() != "false",
+            risk_manager=risk_manager,
         )
-        
+
+        # Phase 7b: multi-broker registry. Crypto stays on Uniswap; Alpaca (US stocks)
+        # and IBKR (LSE leveraged ETPs) register if their credentials / Gateway are
+        # available. The crypto agent still routes via exec_engine until the parallel
+        # multi-asset loop lands; the registry surfaces what's connectable for /api/brokers.
+        from backend.execution.broker_registry import BrokerRegistry
+        from backend.execution.alpaca_broker import AlpacaBroker
+        from backend.execution.ibkr_broker import IBKRBroker
+        broker_registry = BrokerRegistry()
+        broker_registry.register("crypto", exec_engine)
+        try:
+            broker_registry.register("us_stock", AlpacaBroker(
+                paper=settings.PAPER_MODE.lower() != "false",
+                db_session_factory=AsyncSessionLocal,
+            ))
+        except Exception as e:
+            logger.warning("alpaca_broker_init_failed", error=str(e))
+        ibkr_broker = None
+        try:
+            ibkr_broker = IBKRBroker(db_session_factory=AsyncSessionLocal)
+            broker_registry.register("lse_etp", ibkr_broker)
+            # Best-effort connect to a running Gateway/TWS. Failure is non-fatal —
+            # is_available() will stay False and the registry routes elsewhere.
+            try:
+                await ibkr_broker.connect()
+            except Exception as e:
+                logger.warning("ibkr_connect_failed_at_startup", error=str(e))
+        except Exception as e:
+            logger.warning("ibkr_broker_init_failed", error=str(e))
+
+        avail = {k: bool(b.is_available()) for k, b in broker_registry.all().items()}
+        logger.info("broker_registry_initialised", brokers=avail)
+        # Publish to Redis so the FastAPI process (which doesn't hold the IB Gateway
+        # connection — only one client per clientId) can surface accurate status.
+        try:
+            import json as _json
+            await redis_session.set("brokers:availability", _json.dumps(avail))
+        except Exception:
+            pass
+
         news_queue = PriorityNewsQueue(redis_session)
         
         agent = NNTradingAgent(
@@ -112,8 +191,16 @@ def run_nn_agent(severe_flag):
             execution_engine=exec_engine,
             news_queue=news_queue,
             severe_flag=severe_flag,
-            symbols=["BTCUSDT", "ETHUSDT", "AAVEUSDT", "SOLUSDT", "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]
+            symbols=trading_symbols
         )
+
+        # Phase 14: macro/derivatives feed populates the macro feature slots
+        # (fear_greed, btc_dominance, funding_rate, oi_change) that previously
+        # always read neutral defaults — see backend/signals/features.py:217-226.
+        from backend.data.macro_feed import MacroFeed
+        macro_feed = MacroFeed(redis_session, symbols=trading_symbols)
+        asyncio.create_task(macro_feed.run())
+
         await agent.run()
 
     try:
