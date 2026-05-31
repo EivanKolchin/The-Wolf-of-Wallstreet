@@ -1,5 +1,5 @@
-// wagmi/viem Kite chain connection
+// wagmi/viem chain connection (execution venue: Arbitrum One)
 export const chainConfig = {
-  chainId: 1,
-  name: 'Kite Chain'
+  chainId: 42161,
+  name: 'Arbitrum One'
 };

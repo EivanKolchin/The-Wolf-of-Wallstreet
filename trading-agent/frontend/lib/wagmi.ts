@@ -1,23 +1,28 @@
-import { http, createConfig } from "wagmi";
-import { mainnet, sepolia } from "wagmi/chains";
+import { http, createConfig, type Config } from "wagmi";
+import { mainnet, arbitrum } from "wagmi/chains";
+import { injected, walletConnect } from "wagmi/connectors";
 
-// Specifically for Kite Chain, assuming generic testnet or custom chain configs if Kite AI isn't predefined.
-const kiteChain = {
-    id: 8453, // placeholder chain id for generic EVM
-    name: 'Kite AI',
-    nativeCurrency: { name: 'KITE', symbol: 'KITE', decimals: 18 },
-    rpcUrls: {
-        default: { http: [process.env.NEXT_PUBLIC_KITE_RPC as string || 'https://rpc.testnet.gokite.ai'] },
-    },
-    blockExplorers: {
-        default: { name: 'Kitescan', url: 'https://testnet.kitescan.ai' },
-    },
-};
+// Execution venue for the crypto agent is Arbitrum One (Uniswap V3).
+//
+// Workstream D: build the wagmi config with explicit connectors.
+//  - injected()      → MetaMask (and other browser-extension wallets).
+//  - walletConnect() → shows a QR to scan with a mobile wallet. Requires a free
+//    projectId (cloud.reown.com), fetched at runtime from /api/wallet/config so
+//    it lives in the backend .env with no frontend rebuild. Omitted when absent.
+export function buildConfig(projectId?: string): Config {
+    const connectors = projectId
+        ? [injected({ shimDisconnect: true }), walletConnect({ projectId, showQrModal: true })]
+        : [injected({ shimDisconnect: true })];
+    return createConfig({
+        chains: [arbitrum, mainnet],
+        connectors,
+        transports: {
+            [arbitrum.id]: http(),
+            [mainnet.id]: http(),
+        },
+    });
+}
 
-export const config = createConfig({
-    chains: [kiteChain as any, mainnet],
-    transports: {
-        [kiteChain.id]: http(),
-        [mainnet.id]: http(),
-    },
-});
+// Default (injected-only) config for first paint / fallback. Providers upgrades
+// this to include WalletConnect once the projectId loads.
+export const config = buildConfig();

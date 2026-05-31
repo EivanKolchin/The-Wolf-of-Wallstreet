@@ -8,8 +8,12 @@ export interface Trade {
     unrealised_pnl?: number;
     stop_loss: number;
     take_profit: number;
-    kite_tx_hash?: string;
+    pnl_usd?: number;
+    exit_reason?: string;
     prediction_score?: number;
+    target_price?: number;
+    expected_execution_ts?: number;
+    rationale?: { summary?: string; [k: string]: any };
 }
 
 export interface NewsImpact {
