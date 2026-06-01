@@ -27,7 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from structlog import get_logger
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 
 # sklearn is only needed for end-of-training metric reports; importing lazily
 # means tests + headless usage don't pull a heavy optional dependency.
@@ -300,7 +300,15 @@ def _download_monthly(symbol: str, interval: str, year: int, month: int) -> Opti
                 "taker_buy_base", "taker_buy_quote", "ignore"
             ])
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    # Binance switched bulk-CSV kline timestamps from milliseconds to MICROSECONDS
+    # in 2025, and some newer monthly files prepend a header row. Coerce to numeric
+    # (a stray header becomes NaN and is dropped), then auto-detect the unit by
+    # magnitude so pre-2025 (ms) and 2025+ (µs) months both parse correctly.
+    ts = pd.to_numeric(df["timestamp"], errors="coerce")
+    df = df.loc[ts.notna()].copy()
+    ts = ts.loc[df.index]
+    unit = "us" if (len(ts) > 0 and float(ts.iloc[0]) >= 1e14) else "ms"
+    df["timestamp"] = pd.to_datetime(ts.astype("int64"), unit=unit)
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = df[c].astype(float)
 
@@ -1035,22 +1043,52 @@ def build_sequences(
 # MULTI-SYMBOL DATASET
 # =============================================================================
 
+class _SeqDataset(Dataset):
+    """Streaming dataset for the float16 memmap path: reads one sequence from
+    disk per item and casts to float32, so RAM stays tiny regardless of dataset
+    size (lets Colab train ALL symbols × multiple years in 12.7 GB)."""
+    def __init__(self, X, y, R, s):
+        self.X = X                              # memmap float16 (or ndarray)
+        self.y = torch.from_numpy(np.ascontiguousarray(y))
+        self.R = torch.from_numpy(np.ascontiguousarray(R))
+        self.s = torch.from_numpy(np.ascontiguousarray(s))
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, i):
+        xi = np.asarray(self.X[i], dtype=np.float32)
+        return torch.from_numpy(xi), self.y[i], self.R[i], self.s[i]
+
+
 def build_dataset(
     symbols: List[str],
     start_year: int,
     start_month: int,
     skip_download: bool = False,
+    mmap_dir: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Downloads, engineers features, builds sequences for all symbols.
 
     Returns:
-      X:           (M_total, SEQ_LEN, INPUT_SIZE)
+      X:           (M_total, SEQ_LEN, INPUT_SIZE)   # float32 in-RAM, or float16 memmap when mmap_dir is set
       y:           (M_total, len(HORIZONS))
       future_rets: (M_total, len(HORIZONS))  # Phase 16: for PnL-weighted loss
       sym_ids:     (M_total,)
+
+    When ``mmap_dir`` is set, each symbol's sequences are written to a temporary
+    float16 file and then assembled into a single on-disk memmap, so peak RAM is
+    bounded by ONE symbol (not the whole dataset). Use a fast LOCAL disk
+    (e.g. /content on Colab), not a mounted Drive.
     """
+    use_mmap = bool(mmap_dir)
+    if use_mmap:
+        os.makedirs(mmap_dir, exist_ok=True)
     all_X, all_y, all_r, all_sym = [], [], [], []
+    tmp_paths: list = []   # (path, n) per symbol when memmapping
+    total = 0
+    feat_dim = INPUT_SIZE
 
     for sym in symbols:
         sym_id = SYMBOL_TO_ID[sym]
@@ -1099,20 +1137,48 @@ def build_dataset(
 
         sym_ids = np.full(len(X), sym_id, dtype=np.int64)
 
-        all_X.append(X)
+        if use_mmap:
+            # Write this symbol's sequences to a temp float16 file and free RAM.
+            feat_dim = X.shape[-1]
+            p = os.path.join(mmap_dir, f"_X_{sym}.npy")
+            np.save(p, X.astype(np.float16))
+            tmp_paths.append((p, len(X)))
+            total += len(X)
+            del X
+        else:
+            all_X.append(X)
         all_y.append(y)
         all_r.append(R)
         all_sym.append(sym_ids)
 
-        log.info("Symbol done", symbol=sym, sequences=len(X),
+        log.info("Symbol done", symbol=sym, sequences=len(sym_ids),
                  class_dist_h0=str(np.bincount(y[:, 0])))
 
-    X_all   = np.concatenate(all_X,   axis=0)
     y_all   = np.concatenate(all_y,   axis=0)
     r_all   = np.concatenate(all_r,   axis=0)
     sym_all = np.concatenate(all_sym, axis=0)
 
-    log.info("Full dataset assembled", total_sequences=len(X_all))
+    if use_mmap:
+        # Assemble one on-disk float16 memmap from the per-symbol temp files.
+        x_path = os.path.join(mmap_dir, "X.npy")
+        X_all = np.lib.format.open_memmap(
+            x_path, mode="w+", dtype=np.float16, shape=(total, SEQ_LEN, feat_dim))
+        off = 0
+        for p, n in tmp_paths:
+            chunk = np.load(p, mmap_mode="r")
+            X_all[off:off + n] = chunk
+            off += n
+            del chunk
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        X_all.flush()
+        log.info("Full dataset assembled (float16 memmap)", total_sequences=total,
+                 approx_gb=round(total * SEQ_LEN * feat_dim * 2 / 1e9, 2), path=x_path)
+    else:
+        X_all = np.concatenate(all_X, axis=0)
+        log.info("Full dataset assembled", total_sequences=len(X_all))
     return X_all, y_all, r_all, sym_all
 
 
@@ -1308,6 +1374,11 @@ def main():
                         help="Reuse cached parquet files — skip all HTTP requests")
     parser.add_argument("--symbols",       nargs="+", default=SYMBOLS,
                         help="Subset of symbols to train on")
+    parser.add_argument("--mmap", action="store_true",
+                        help="Stream the dataset from a float16 disk memmap so ALL symbols × "
+                             "multiple years fit in low RAM (e.g. Colab's 12.7 GB).")
+    parser.add_argument("--mmap-dir", default="/content/_mmap_cache",
+                        help="Local (fast) disk dir for the memmap — NOT a mounted Drive.")
     args = parser.parse_args()
 
     # ── reproducibility ──────────────────────────────────────────────────────
@@ -1328,8 +1399,11 @@ def main():
     log.info("Training symbols", symbols=symbols)
 
     # ── build dataset ────────────────────────────────────────────────────────
-    log.info("Building dataset", start=f"{args.start_year}-{args.start_month:02d}")
-    X, y, R, sym_ids = build_dataset(symbols, args.start_year, args.start_month, args.skip_download)
+    log.info("Building dataset", start=f"{args.start_year}-{args.start_month:02d}", mmap=bool(args.mmap))
+    X, y, R, sym_ids = build_dataset(
+        symbols, args.start_year, args.start_month, args.skip_download,
+        mmap_dir=(args.mmap_dir if args.mmap else None),
+    )
 
     # ── chronological train/val split (last 20% = val) ───────────────────────
     # Sort by time is implicit since we concatenated per-symbol chronologically
@@ -1347,14 +1421,21 @@ def main():
 
     # ── data loaders (Phase 16 4-tuple: X, y, future_returns, sym_ids) ───────
     def make_loader(X_, y_, R_, s_, shuffle):
-        ds = TensorDataset(
-            torch.from_numpy(X_),
-            torch.from_numpy(y_),
-            torch.from_numpy(R_),
-            torch.from_numpy(s_),
-        )
+        if X_.dtype == np.float16:
+            # Memmap/streaming path: read + cast to float32 per item; a couple of
+            # workers hide the disk latency. (Linux/Colab — safe with workers.)
+            ds = _SeqDataset(X_, y_, R_, s_)
+            nw = 2
+        else:
+            ds = TensorDataset(
+                torch.from_numpy(X_),
+                torch.from_numpy(y_),
+                torch.from_numpy(R_),
+                torch.from_numpy(s_),
+            )
+            nw = 0
         return DataLoader(ds, batch_size=args.batch_size, shuffle=shuffle,
-                          pin_memory=True, num_workers=0)
+                          pin_memory=True, num_workers=nw)
 
     train_loader = make_loader(X_tr, y_tr, R_tr, sym_tr, shuffle=True)
     val_loader   = make_loader(X_va, y_va, R_va, sym_va, shuffle=False)

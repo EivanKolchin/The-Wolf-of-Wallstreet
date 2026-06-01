@@ -31,8 +31,10 @@ def test_reject_low_confidence():
 
 def test_reject_above_max_position():
     rm = RiskManager(initial_portfolio_value=10000.0)
-    # size clamps to max_single_position_pct (20%); 20% of 30k = 6k > $5k max notional
-    approved, reason = rm.approve(_decision(size_pct=0.9), {"available_cash": 30000.0})
+    # size clamps to the max single-position pct; at $50k cash the clamped
+    # notional (15-20% = $7.5k-$10k) exceeds the $5k max-notional cap regardless
+    # of the exact configured pct, so this stays valid as the cap is tuned.
+    approved, reason = rm.approve(_decision(size_pct=0.9), {"available_cash": 50000.0})
     assert approved is False
     assert reason == "Above max position"
 
