@@ -443,22 +443,29 @@ def api_gap_fill(symbol: str, interval: str, after_ts: pd.Timestamp) -> pd.DataF
     Used to bridge the gap between the last bulk CSV month and today.
     """
     log.info("API gap-fill", symbol=symbol, interval=interval, after=str(after_ts))
-    url = "https://api.binance.com/api/v3/klines"
+    # Use Binance's PUBLIC data mirror, not api.binance.com — the latter returns
+    # HTTP 451 (geo-block) from US / cloud IPs (e.g. Google Colab). The bulk CSVs
+    # already cover the full history, so this top-up is best-effort and NON-FATAL:
+    # any failure is logged and skipped rather than crashing the whole run.
+    url = "https://data-api.binance.vision/api/v3/klines"
     all_rows = []
     start_ms = int(after_ts.timestamp() * 1000) + 1
-
-    while True:
-        params = {"symbol": symbol, "interval": interval, "startTime": start_ms, "limit": 1000}
-        r = requests.get(url, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if not data:
-            break
-        all_rows.extend(data)
-        if len(data) < 1000:
-            break
-        start_ms = data[-1][0] + 1
-        time.sleep(0.3)
+    try:
+        while True:
+            params = {"symbol": symbol, "interval": interval, "startTime": start_ms, "limit": 1000}
+            r = requests.get(url, params=params, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+            if not data:
+                break
+            all_rows.extend(data)
+            if len(data) < 1000:
+                break
+            start_ms = data[-1][0] + 1
+            time.sleep(0.3)
+    except Exception as e:
+        log.warning("API gap-fill skipped (using bulk CSV history only)",
+                    symbol=symbol, error=str(e)[:200])
 
     if not all_rows:
         return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -468,7 +475,10 @@ def api_gap_fill(symbol: str, interval: str, after_ts: pd.Timestamp) -> pd.DataF
         "close_time", "quote_volume", "trades",
         "taker_buy_base", "taker_buy_quote", "ignore"
     ])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    # Same ms/µs auto-detect as the bulk loader (Binance switched units in 2025).
+    ts = pd.to_numeric(df["timestamp"], errors="coerce")
+    unit = "us" if (len(ts) > 0 and float(ts.iloc[0]) >= 1e14) else "ms"
+    df["timestamp"] = pd.to_datetime(ts.astype("int64"), unit=unit)
     for c in ["open", "high", "low", "close", "volume"]:
         df[c] = df[c].astype(float)
     return df[["timestamp", "open", "high", "low", "close", "volume"]]
@@ -1659,7 +1669,8 @@ log = get_logger("scripts.pretrain")
 def fetch_binance_data(symbol: str = "BTCUSDT", interval: str = "5m", limit: int = 8640) -> pd.DataFrame:
     """Fetch recent K-lines from Binance"""
     log.info("Fetching data from Binance", symbol=symbol, limit=limit)
-    url = "https://api.binance.com/api/v3/klines"
+    # Public data mirror — api.binance.com is geo-blocked (HTTP 451) from US/cloud IPs.
+    url = "https://data-api.binance.vision/api/v3/klines"
     
     # Binance limits to 1000 per request. We loop backwards.
     all_data = []
