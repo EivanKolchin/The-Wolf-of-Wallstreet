@@ -36,12 +36,89 @@ def _classification_report(*args, **kwargs):
     return classification_report(*args, **kwargs)
 classification_report = _classification_report  # type: ignore
 
-try:
-    import pandas_ta as ta
-    HAS_PANDAS_TA = True
-except ImportError:
-    HAS_PANDAS_TA = False
-    print("[WARN] pandas_ta not found. Install with: pip install pandas_ta")
+# pandas_ta is effectively abandoned: the classic 0.3.14b0 this code was written
+# for was pulled from PyPI, and the only remaining 0.4.x demands
+# numpy>=2.2.6 / pandas>=2.3.2 — which fights Colab's pinned pandas==2.2.2 and
+# kept making training un-installable. We only used 8 standard indicators, so we
+# vendor a tiny pure-pandas drop-in named `ta` with the SAME function names AND
+# output column order (the code reads them positionally), so behaviour is
+# unchanged but there is ZERO external indicator dependency.
+class _TA:
+    @staticmethod
+    def _rma(s, length):
+        # Wilder's smoothing (RMA), as used by pandas_ta's rsi/atr/adx.
+        return s.ewm(alpha=1.0 / length, adjust=False, min_periods=length).mean()
+
+    @staticmethod
+    def ema(close, length):
+        return close.ewm(span=length, adjust=False).mean()
+
+    @staticmethod
+    def rsi(close, length=14):
+        d = close.diff()
+        ag = _TA._rma(d.clip(lower=0.0), length)
+        al = _TA._rma((-d).clip(lower=0.0), length)
+        rs = ag / al.replace(0.0, np.nan)
+        return (100.0 - 100.0 / (1.0 + rs)).fillna(100.0)
+
+    @staticmethod
+    def macd(close, fast=12, slow=26, signal=9):
+        macd = close.ewm(span=fast, adjust=False).mean() - close.ewm(span=slow, adjust=False).mean()
+        sig = macd.ewm(span=signal, adjust=False).mean()
+        # pandas_ta order: MACD, MACDh (histogram), MACDs (signal)
+        return pd.DataFrame({"MACD": macd, "MACDh": macd - sig, "MACDs": sig})
+
+    @staticmethod
+    def stochrsi(close, length=14, rsi_length=14, k=3, d=3):
+        r = _TA.rsi(close, rsi_length)
+        lo = r.rolling(length).min()
+        hi = r.rolling(length).max()
+        st = 100.0 * (r - lo) / (hi - lo).replace(0.0, np.nan)
+        kl = st.rolling(k).mean()
+        # pandas_ta order: STOCHRSIk, STOCHRSId
+        return pd.DataFrame({"STOCHRSIk": kl, "STOCHRSId": kl.rolling(d).mean()})
+
+    @staticmethod
+    def _tr(high, low, close):
+        pc = close.shift(1)
+        return pd.concat([(high - low), (high - pc).abs(), (low - pc).abs()], axis=1).max(axis=1)
+
+    @staticmethod
+    def atr(high, low, close, length=14):
+        return _TA._rma(_TA._tr(high, low, close), length)
+
+    @staticmethod
+    def adx(high, low, close, length=14):
+        up = high.diff()
+        dn = -low.diff()
+        plus_dm = ((up > dn) & (up > 0)).astype(float) * up
+        minus_dm = ((dn > up) & (dn > 0)).astype(float) * dn
+        atr = _TA._rma(_TA._tr(high, low, close), length).replace(0.0, np.nan)
+        pdi = 100.0 * _TA._rma(plus_dm, length) / atr
+        mdi = 100.0 * _TA._rma(minus_dm, length) / atr
+        dx = 100.0 * (pdi - mdi).abs() / (pdi + mdi).replace(0.0, np.nan)
+        # pandas_ta order: ADX, DMP (+DI), DMN (-DI)
+        return pd.DataFrame({"ADX": _TA._rma(dx, length), "DMP": pdi, "DMN": mdi})
+
+    @staticmethod
+    def bbands(close, length=20, std=2.0):
+        mid = close.rolling(length).mean()
+        sd = close.rolling(length).std(ddof=0)
+        lower, upper = mid - std * sd, mid + std * sd
+        # pandas_ta order: BBL (lower), BBM (mid), BBU (upper), BBB, BBP
+        return pd.DataFrame({
+            "BBL": lower, "BBM": mid, "BBU": upper,
+            "BBB": 100.0 * (upper - lower) / mid.replace(0.0, np.nan),
+            "BBP": (close - lower) / (upper - lower).replace(0.0, np.nan),
+        })
+
+    @staticmethod
+    def obv(close, volume):
+        return (np.sign(close.diff().fillna(0.0)) * volume).cumsum()
+
+
+ta = _TA
+HAS_PANDAS_TA = True
 
 # ── project root on path ───────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
