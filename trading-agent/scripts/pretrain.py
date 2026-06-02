@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
 import requests
 import torch
@@ -27,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from structlog import get_logger
-from torch.utils.data import DataLoader, TensorDataset, Dataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset, ConcatDataset
 
 # sklearn is only needed for end-of-training metric reports; importing lazily
 # means tests + headless usage don't pull a heavy optional dependency.
@@ -179,6 +180,9 @@ SYMBOLS = [
     "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT",
     # ---- US stocks (ids 8..12) — fetched from Alpaca ----
     "SNDK", "AMD", "MU", "AXTI", "BE",
+    # ---- Cycle 6 additions (ids 13..17) — APPENDED so existing ids stay stable ----
+    "RENDERUSDT", "NEARUSDT",          # crypto (Render = ex-RNDR; Near) — Binance
+    "NVDA", "TSM", "SMCI",             # AI-chip stocks — help the model learn the AMD/MU sector
 ]
 SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
 
@@ -193,9 +197,27 @@ try:
     from backend.core.config import settings as _settings
     WEIGHT_DECAY = float(getattr(_settings, "NN_WEIGHT_DECAY", 1e-4))
     LABEL_SMOOTHING = float(getattr(_settings, "NN_LABEL_SMOOTHING", 0.05))
+    # Recency weighting: scale each sample's loss by a calendar half-life on its
+    # age, so the model leans toward CURRENT market regimes (post-COVID normalisation,
+    # the AI-driven equity boom) while still learning from older data. HALFLIFE=2y
+    # ⇒ a 2-year-old bar counts half as much as today's; FLOOR keeps old data from
+    # ever being fully ignored (so multi-regime history is still learned).
+    RECENCY_HALFLIFE_YEARS = float(getattr(_settings, "NN_RECENCY_HALFLIFE_YEARS", 2.0))
+    RECENCY_FLOOR = float(getattr(_settings, "NN_RECENCY_FLOOR", 0.25))
+    # Focal loss exponent — down-weights easy/abundant 'hold' samples so learning
+    # concentrates on the rare, hard long/short moves. 0 ⇒ plain weighted CE.
+    FOCAL_GAMMA = float(getattr(_settings, "NN_FOCAL_GAMMA", 1.5))
+    # Triple-barrier label width multiple (× rolling vol × √horizon).
+    BARRIER_K = float(getattr(_settings, "NN_BARRIER_K", 1.0))
 except Exception:
     WEIGHT_DECAY = 1e-4
     LABEL_SMOOTHING = 0.05
+    RECENCY_HALFLIFE_YEARS = 2.0
+    RECENCY_FLOOR = 0.25
+    FOCAL_GAMMA = 1.5
+    BARRIER_K = 1.0
+
+VOL_WINDOW = 20   # rolling window (bars) for the 1-bar return vol that scales barriers
 
 # Binance bulk portal base
 BV_BASE = "https://data.binance.vision/data/spot/monthly/klines"
@@ -617,6 +639,11 @@ def _fetch_alpaca_news(symbol: str, start_iso: str, end_iso: str) -> List[dict]:
     return items
 
 
+# Effective news-embedding backend used during this build ("disabled" when news
+# alignment is off → the news block is all zeros). Saved into the checkpoint meta.
+_NEWS_BACKEND_USED = "disabled"
+
+
 def build_news_embed_matrix(df: pd.DataFrame, symbol: str) -> np.ndarray:
     """(N, NEWS_EMBED_FEATURES) matrix aligned to df's 5m bars.
 
@@ -644,6 +671,10 @@ def build_news_embed_matrix(df: pd.DataFrame, symbol: str) -> np.ndarray:
 
     lookback = pd.Timedelta(minutes=float(os.environ.get("PRETRAIN_NEWS_LOOKBACK_MIN", "120")))
     embedder = NewsEmbedder()
+    # Record the backend actually producing these features → saved in the checkpoint
+    # so the live agent can verify it uses the SAME one (else the 16 news dims drift).
+    global _NEWS_BACKEND_USED
+    _NEWS_BACKEND_USED = embedder.effective_backend()
     news.sort(key=lambda x: x["ts"])
     news_ts = pd.to_datetime([x["ts"] for x in news])
 
@@ -1022,51 +1053,91 @@ def apply_rolling_zscore(features: np.ndarray, window: int = ZSCORE_WIN, min_per
 # LABEL GENERATION — MULTI-HORIZON
 # =============================================================================
 
-def build_labels(df: pd.DataFrame, horizons: List[int], thresholds: List[float]) -> np.ndarray:
+def _rolling_vol(close: np.ndarray, window: int = VOL_WINDOW) -> np.ndarray:
+    """Rolling std of 1-bar fractional returns (per-bar volatility), with a robust
+    fill for the warm-up region so barriers are always defined."""
+    n = len(close)
+    r1 = np.zeros(n, dtype=np.float64)
+    r1[1:] = np.diff(close) / (close[:-1] + 1e-12)
+    sig = pd.Series(r1).rolling(window, min_periods=5).std().bfill().to_numpy()
+    finite = sig[np.isfinite(sig) & (sig > 0)]
+    med = float(np.median(finite)) if finite.size else 0.005
+    med = med if med > 0 else 0.005
+    return np.where(np.isfinite(sig) & (sig > 0), sig, med)
+
+
+def _triple_barrier_one(high, low, close, sig, h: int, k: float):
+    """Vol-scaled first-touch triple barrier for one horizon.
+
+    Barrier width (fractional) = k · per-bar-vol · √h. Scanning bars i+1..i+h:
+      • upper (k·vol·√h above close) touched first  → 0 (long)
+      • lower touched first                          → 1 (short)
+      • neither (or both same bar) within h          → 2 (hold, time barrier)
+    Returns (labels (N,) int64 with -1 tail mask, returns (N,) float32): the signed
+    realized move = +barrier for longs, -barrier for shorts, close-return at h for holds.
     """
-    Returns (N, len(horizons)) int64 label matrix.
-    Label encoding: 0=long, 1=short, 2=hold
+    n = len(close)
+    lab = np.full(n, 2, dtype=np.int64)
+    ret = np.full(n, np.nan, dtype=np.float32)
+    if n <= h + 1:
+        lab[max(0, n - h):] = -1
+        return lab, ret
 
-    Each horizon h uses threshold t:
-      future_return > +t  → 0 (long)
-      future_return < -t  → 1 (short)
-      else                → 2 (hold)
+    m       = n - h                                   # bars with a full future window: i in [0, m)
+    barrier = np.clip(k * sig[:m] * math.sqrt(h), 1e-5, None)   # fractional, per bar
+    up      = close[:m] * (1.0 + barrier)
+    dn      = close[:m] * (1.0 - barrier)
+    # Future windows bars i+1..i+h (zero-copy views), aligned to bars 0..m-1.
+    fut_high = sliding_window_view(high, h)[1:m + 1]   # (m, h)
+    fut_low  = sliding_window_view(low,  h)[1:m + 1]
+    long_hit, short_hit = fut_high >= up[:, None], fut_low <= dn[:, None]
+    any_long, any_short = long_hit.any(axis=1), short_hit.any(axis=1)
+    first_long  = np.where(any_long,  long_hit.argmax(axis=1),  h)   # h = "never touched"
+    first_short = np.where(any_short, short_hit.argmax(axis=1), h)
+    is_long, is_short = first_long < first_short, first_short < first_long
 
-    Last max(horizons) rows are masked to -1 (ignored in loss).
-    """
-    cl  = df["close"].values.astype(np.float64)
-    n   = len(cl)
-    out = np.full((n, len(horizons)), 2, dtype=np.int64)  # default: hold
+    lab[:m][is_long]  = 0
+    lab[:m][is_short] = 1
+    r = (close[h:h + m] - close[:m]) / (close[:m] + 1e-12)   # hold/time-barrier return
+    r[is_long]  =  barrier[is_long]                          # realized TP/SL move for touches
+    r[is_short] = -barrier[is_short]
+    ret[:m] = r.astype(np.float32)
+    lab[m:] = -1                                            # mask tail (no full future)
+    return lab, ret
 
-    for hi, (h, t) in enumerate(zip(horizons, thresholds)):
-        for i in range(n - h):
-            ret = (cl[i + h] - cl[i]) / (cl[i] + 1e-8)
-            if ret > t:
-                out[i, hi] = 0
-            elif ret < -t:
-                out[i, hi] = 1
-            else:
-                out[i, hi] = 2
 
-        out[n - h:, hi] = -1  # mask — can't compute future
+def triple_barrier_labels(df: pd.DataFrame, horizons: List[int], k: float = BARRIER_K):
+    """Vol-scaled triple-barrier labels + matched signed returns for ALL horizons.
 
-    return out
+    Returns ``(labels (N,H) int64, returns (N,H) float32)``. Encoding 0=long,
+    1=short, 2=hold; last ``h`` rows of each horizon masked to -1. Replaces the old
+    fixed-threshold labels: barriers adapt to each asset's volatility and match how
+    trades actually exit (take-profit / stop-loss / time). High/low fall back to
+    close when OHLC isn't available (e.g. unit tests)."""
+    close = df["close"].to_numpy(np.float64)
+    high  = (df["high"] if "high" in df else df["close"]).to_numpy(np.float64)
+    low   = (df["low"]  if "low"  in df else df["close"]).to_numpy(np.float64)
+    sig   = _rolling_vol(close)
+    n, H  = len(close), len(horizons)
+    labels  = np.full((n, H), 2, dtype=np.int64)
+    returns = np.full((n, H), np.nan, dtype=np.float32)
+    for hi, h in enumerate(horizons):
+        labels[:, hi], returns[:, hi] = _triple_barrier_one(high, low, close, sig, h, k)
+    return labels, returns
+
+
+def build_labels(df: pd.DataFrame, horizons: List[int], thresholds: List[float] = None) -> np.ndarray:
+    """(N, H) int64 triple-barrier labels (0=long,1=short,2=hold; -1 tail mask).
+    ``thresholds`` is kept for signature compatibility but ignored — barriers are
+    now volatility-scaled (see ``triple_barrier_labels``)."""
+    return triple_barrier_labels(df, horizons, BARRIER_K)[0]
 
 
 def build_label_returns(df: pd.DataFrame, horizons: List[int]) -> np.ndarray:
-    """Phase 16: parallel to build_labels — emit the actual signed future_return
-    per (sample, horizon). Used for PnL-magnitude weighting in the loss.
-
-    Returns (N, len(horizons)) float32 with NaN for the last `h` rows of each
-    horizon (matching the label mask). Sequence builder filters these out.
-    """
-    cl = df["close"].values.astype(np.float64)
-    n = len(cl)
-    out = np.full((n, len(horizons)), np.nan, dtype=np.float32)
-    for hi, h in enumerate(horizons):
-        for i in range(n - h):
-            out[i, hi] = float((cl[i + h] - cl[i]) / (cl[i] + 1e-8))
-    return out
+    """(N, H) float32 signed realized returns matched to ``build_labels`` (for the
+    PnL-magnitude loss weight): +barrier for longs, -barrier for shorts, close
+    return at the horizon for holds; NaN tail matches the label mask."""
+    return triple_barrier_labels(df, horizons, BARRIER_K)[1]
 
 
 def pnl_magnitude_weight(returns_h: np.ndarray,
@@ -1126,26 +1197,119 @@ def build_sequences(
     return X_arr, y_arr, R_arr
 
 
+def _build_sequences_to_file(
+    features: np.ndarray,
+    labels: np.ndarray,
+    returns: np.ndarray,
+    out_path: str,
+    seq_len: int = SEQ_LEN,
+    chunk: int = 8192,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """RAM-safe sibling of ``build_sequences`` for the ``--mmap`` path.
+
+    ``build_sequences`` materialises the WHOLE symbol as one float32 array
+    (BTCUSDT ≈ 464k × 60 × 86 × 4B ≈ 9.6 GB), then ``np.save`` adds a float16
+    copy on top — peaking ~14 GB and getting OOM-killed on Colab (the spurious
+    "^C" after "Building sequences"). This streams the sliding windows straight
+    into a float16 ``.npy`` memmap on disk in small chunks, so peak RAM is ~one
+    chunk (~0.2 GB) regardless of symbol size.
+
+    Masking, endpoint indexing and X/y/R alignment match ``build_sequences``
+    exactly. Returns ``(y, R, n_seq)``; the X windows live on disk at ``out_path``.
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    n, feat_dim = features.shape
+    H = labels.shape[1]
+    empty_y = np.empty((0, H), np.int64)
+    empty_r = np.empty((0, returns.shape[1]), np.float32)
+    if n <= seq_len:
+        return empty_y, empty_r, 0
+
+    # Endpoint i in [seq_len, n): window = features[i-seq_len:i], label = labels[i-1].
+    # Drop windows whose label row is masked (-1) — identical to build_sequences.
+    ends   = np.arange(seq_len, n)
+    keep   = ~np.any(labels[ends - 1] == -1, axis=1)
+    ends   = ends[keep]
+    m      = int(ends.shape[0])
+    if m == 0:
+        return empty_y, empty_r, 0
+
+    y = labels[ends - 1].astype(np.int64)
+    R = returns[ends - 1].astype(np.float32)
+
+    feats32 = np.ascontiguousarray(features, dtype=np.float32)
+    # Zero-copy view of every window: swv[j] == features[j:j+seq_len].T  (F, seq_len)
+    swv     = sliding_window_view(feats32, seq_len, axis=0)
+    starts  = ends - seq_len
+
+    Xmm = np.lib.format.open_memmap(
+        out_path, mode="w+", dtype=np.float16, shape=(m, seq_len, feat_dim))
+    for s in range(0, m, chunk):
+        e = min(s + chunk, m)
+        # Gather only this chunk's windows into RAM, then store as float16.
+        block = swv[starts[s:e]]                       # (cs, F, seq_len) float32
+        Xmm[s:e] = block.transpose(0, 2, 1).astype(np.float16)
+    Xmm.flush()
+    del Xmm, swv, feats32
+    return y, R, m
+
+
 # =============================================================================
 # MULTI-SYMBOL DATASET
 # =============================================================================
 
+def _recency_weights(timestamps, ref_ts,
+                     halflife_years: float = RECENCY_HALFLIFE_YEARS,
+                     floor: float = RECENCY_FLOOR) -> np.ndarray:
+    """Per-sample loss weights with a CALENDAR half-life: a sample `halflife_years`
+    old weighs 0.5×, two half-lives 0.25×, … floored at `floor` so older regimes
+    are still learned (never fully ignored). Calendar-based (not index-based) so the
+    same date across BTC/AMD/etc. gets the same emphasis — the model leans toward
+    the current regime (post-COVID, the AI boom) consistently across assets.
+
+    `timestamps` is an array of the per-sample label times; `ref_ts` is "now".
+    """
+    ts  = pd.to_datetime(np.asarray(timestamps)).values            # datetime64[ns]
+    ref = pd.Timestamp(ref_ts).to_datetime64()
+    age_years = (ref - ts) / np.timedelta64(365, "D")              # float64 years
+    age_years = np.maximum(age_years.astype(np.float64), 0.0)
+    w = np.power(0.5, age_years / max(float(halflife_years), 1e-6))
+    return np.clip(w, float(floor), 1.0).astype(np.float32)
+
+
 class _SeqDataset(Dataset):
-    """Streaming dataset for the float16 memmap path: reads one sequence from
-    disk per item and casts to float32, so RAM stays tiny regardless of dataset
-    size (lets Colab train ALL symbols × multiple years in 12.7 GB)."""
-    def __init__(self, X, y, R, s):
-        self.X = X                              # memmap float16 (or ndarray)
+    """Fork-safe streaming dataset for the float16 memmap path. ``X`` is either a
+    ``.npy`` PATH (opened lazily inside each DataLoader worker, so the memmap is
+    never pickled/duplicated across workers) or an in-RAM array (tests). Yields one
+    sequence cast to float32 plus its label / future-return / symbol-id / recency
+    weight — a 5-tuple — so RAM stays tiny regardless of dataset size.
+
+    ``lo`` lets a train/val split point at a sub-range of the symbol's file while
+    ``y/R/s/w`` are pre-sliced to match (so the per-symbol memmap is reused for
+    both splits without copying)."""
+    def __init__(self, X, y, R, s, w=None, lo: int = 0):
+        self._x_path = str(X) if isinstance(X, (str, os.PathLike)) else None
+        self._X      = None if self._x_path else X
+        self.lo      = int(lo)
         self.y = torch.from_numpy(np.ascontiguousarray(y))
         self.R = torch.from_numpy(np.ascontiguousarray(R))
         self.s = torch.from_numpy(np.ascontiguousarray(s))
+        if w is None:
+            w = np.ones(len(self.y), dtype=np.float32)
+        self.w = torch.from_numpy(np.ascontiguousarray(np.asarray(w, dtype=np.float32)))
+
+    def _arr(self):
+        if self._X is None:                      # opened once per worker process
+            self._X = np.load(self._x_path, mmap_mode="r")
+        return self._X
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, i):
-        xi = np.asarray(self.X[i], dtype=np.float32)
-        return torch.from_numpy(xi), self.y[i], self.R[i], self.s[i]
+        xi = np.asarray(self._arr()[self.lo + i], dtype=np.float32)
+        return torch.from_numpy(xi), self.y[i], self.R[i], self.s[i], self.w[i]
 
 
 def build_dataset(
@@ -1171,11 +1335,16 @@ def build_dataset(
     """
     use_mmap = bool(mmap_dir)
     if use_mmap:
+        # Start clean: stale files from an interrupted run must not pile up and
+        # exhaust the local disk (a full build is ≈ 41 GB of float16 sequences;
+        # leftovers + a fresh build was overflowing Colab's 112 GB and halting).
+        if os.path.isdir(mmap_dir):
+            shutil.rmtree(mmap_dir, ignore_errors=True)
         os.makedirs(mmap_dir, exist_ok=True)
-    all_X, all_y, all_r, all_sym = [], [], [], []
-    tmp_paths: list = []   # (path, n) per symbol when memmapping
-    total = 0
-    feat_dim = INPUT_SIZE
+
+    ref_ts = pd.Timestamp.now()          # recency reference ("now") shared by all symbols
+    parts: list = []                     # per-symbol dicts (mmap path) — see below
+    all_X, all_y, all_r, all_sym, all_w = [], [], [], [], []
 
     for sym in symbols:
         sym_id = SYMBOL_TO_ID[sym]
@@ -1210,63 +1379,133 @@ def build_dataset(
         news_embed = build_news_embed_matrix(df5m, sym)               # (N, 16) raw or zeros
         combined   = np.concatenate([combined, news_embed], axis=1)   # (N, 86)
 
-        log.info("Building labels", symbol=sym)
-        labels     = build_labels(df5m, HORIZONS, THRESHOLDS)
-        # Phase 16: parallel signed future returns for PnL-magnitude weighting
-        returns    = build_label_returns(df5m, HORIZONS)
+        log.info("Building labels (triple-barrier, vol-scaled)", symbol=sym)
+        # One pass → matched labels + signed returns (first-touch TP/SL/time barriers).
+        labels, returns = triple_barrier_labels(df5m, HORIZONS, BARRIER_K)
+
+        # Recency weight per surviving sample — computed from the SAME valid mask
+        # the sequence builders apply (endpoints in [SEQ_LEN, N) whose label row
+        # isn't masked), so it stays row-aligned with X/y/R without touching the
+        # builders. `ends-1` is each sample's label timestamp.
+        ends   = np.arange(SEQ_LEN, len(labels))
+        keep   = ~np.any(labels[ends - 1] == -1, axis=1)
+        ends   = ends[keep]
+        w_rec  = _recency_weights(df5m["timestamp"].to_numpy()[ends - 1], ref_ts)
 
         log.info("Building sequences", symbol=sym)
-        X, y, R = build_sequences(combined, labels, returns=returns)
-
-        if len(X) == 0:
-            log.warning("No sequences produced", symbol=sym)
-            continue
-
-        sym_ids = np.full(len(X), sym_id, dtype=np.int64)
-
         if use_mmap:
-            # Write this symbol's sequences to a temp float16 file and free RAM.
-            feat_dim = X.shape[-1]
+            # RAM-safe: stream this symbol's windows straight to a float16 file
+            # (peak RAM ~one chunk) instead of materialising the whole symbol as
+            # float32 (BTC ≈ 9.6 GB → Colab OOM). The per-symbol file is KEPT and
+            # trained from directly — no 41 GB assembled second copy, so peak disk
+            # is ~½ and the chronological train/val split stays per-symbol.
             p = os.path.join(mmap_dir, f"_X_{sym}.npy")
-            np.save(p, X.astype(np.float16))
-            tmp_paths.append((p, len(X)))
-            total += len(X)
-            del X
+            y, R, n_seq = _build_sequences_to_file(combined, labels, returns, p)
+            if n_seq == 0:
+                log.warning("No sequences produced", symbol=sym)
+                continue
+            assert n_seq == len(w_rec), (sym, n_seq, len(w_rec))   # alignment guard
+            parts.append({"path": p, "n": n_seq, "y": y, "R": R,
+                          "s": np.full(n_seq, sym_id, np.int64), "w": w_rec})
+            log.info("Symbol done", symbol=sym, sequences=n_seq,
+                     class_dist_h0=str(np.bincount(y[:, 0])))
         else:
-            all_X.append(X)
-        all_y.append(y)
-        all_r.append(R)
-        all_sym.append(sym_ids)
+            X, y, R = build_sequences(combined, labels, returns=returns)
+            if len(X) == 0:
+                log.warning("No sequences produced", symbol=sym)
+                continue
+            assert len(X) == len(w_rec), (sym, len(X), len(w_rec))
+            all_X.append(X); all_y.append(y); all_r.append(R)
+            all_sym.append(np.full(len(X), sym_id, np.int64)); all_w.append(w_rec)
+            log.info("Symbol done", symbol=sym, sequences=len(X),
+                     class_dist_h0=str(np.bincount(y[:, 0])))
 
-        log.info("Symbol done", symbol=sym, sequences=len(sym_ids),
-                 class_dist_h0=str(np.bincount(y[:, 0])))
-
-    y_all   = np.concatenate(all_y,   axis=0)
-    r_all   = np.concatenate(all_r,   axis=0)
-    sym_all = np.concatenate(all_sym, axis=0)
-
+    # Tagged return so make_split_loaders knows which path to take:
+    #   ("parts", [ {path, n, y, R, s, w} per symbol ])  — low-disk memmap path
+    #   ("array", X, y, R, sym_ids, w)                    — in-RAM path (tests/local)
     if use_mmap:
-        # Assemble one on-disk float16 memmap from the per-symbol temp files.
-        x_path = os.path.join(mmap_dir, "X.npy")
-        X_all = np.lib.format.open_memmap(
-            x_path, mode="w+", dtype=np.float16, shape=(total, SEQ_LEN, feat_dim))
-        off = 0
-        for p, n in tmp_paths:
-            chunk = np.load(p, mmap_mode="r")
-            X_all[off:off + n] = chunk
-            off += n
-            del chunk
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-        X_all.flush()
-        log.info("Full dataset assembled (float16 memmap)", total_sequences=total,
-                 approx_gb=round(total * SEQ_LEN * feat_dim * 2 / 1e9, 2), path=x_path)
+        if not parts:
+            raise RuntimeError("No symbols produced any sequences")
+        total = sum(p["n"] for p in parts)
+        gb    = total * SEQ_LEN * INPUT_SIZE * 2 / 1e9
+        log.info("Dataset ready (per-symbol float16 memmaps — no assembly copy)",
+                 total_sequences=total, approx_gb=round(gb, 2), symbols=len(parts))
+        return ("parts", parts)
+    if not all_X:
+        raise RuntimeError("No symbols produced any sequences")
+    X_all = np.concatenate(all_X, axis=0)
+    log.info("Full dataset assembled (in-RAM)", total_sequences=len(X_all))
+    return ("array", X_all, np.concatenate(all_y), np.concatenate(all_r),
+            np.concatenate(all_sym), np.concatenate(all_w))
+
+
+def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2, embargo: int = None):
+    """Train/val DataLoaders with a PER-SYMBOL chronological split: the last
+    ``val_frac`` of EACH symbol becomes validation. This fixes the old global-tail
+    split (which put the dataset's last rows — entirely the stock symbols — into
+    val, leaving crypto unvalidated and leaking symbol order). Every batch is a
+    5-tuple ``(X, y, future_returns, symbol_id, recency_weight)``.
+
+    ``embargo`` purges the last ``embargo`` TRAIN rows at each symbol's boundary so
+    a train sample's label window (which peeks up to ``max(HORIZONS)`` candles
+    ahead) can't overlap the val period — otherwise val loss is optimistic. Defaults
+    to ``max(HORIZONS)``; pass 0 to disable.
+
+    Returns ``(train_loader, val_loader, y_train, n_train, n_val)``. Handles both
+    ``build_dataset`` outputs: ``"parts"`` trains straight off the per-symbol
+    float16 memmaps (low disk/RAM); ``"array"`` uses in-RAM TensorDatasets.
+    """
+    if embargo is None:
+        embargo = max(HORIZONS)
+    embargo = int(max(0, embargo))
+    kind = build_out[0]
+    train_sets, val_sets, y_tr_blocks = [], [], []
+
+    if kind == "parts":
+        for pt in build_out[1]:
+            n = pt["n"]; cut = max(1, min(n - 1, int(n * (1.0 - val_frac))))
+            tr_hi = max(1, cut - embargo)         # purge label-overlap rows at the boundary
+            # One float16 file feeds BOTH splits via the `lo` offset (no copy).
+            train_sets.append(_SeqDataset(pt["path"], pt["y"][:tr_hi], pt["R"][:tr_hi],
+                                          pt["s"][:tr_hi], pt["w"][:tr_hi], lo=0))
+            val_sets.append(_SeqDataset(pt["path"], pt["y"][cut:], pt["R"][cut:],
+                                        pt["s"][cut:], pt["w"][cut:], lo=cut))
+            y_tr_blocks.append(pt["y"][:tr_hi])
+        num_workers = 2
+    elif kind == "array":
+        _, X, y, R, s, w = build_out
+
+        def _tensor_ds(ix):
+            return TensorDataset(
+                torch.from_numpy(np.ascontiguousarray(X[ix]).astype(np.float32)),
+                torch.from_numpy(np.ascontiguousarray(y[ix])),
+                torch.from_numpy(np.ascontiguousarray(R[ix])),
+                torch.from_numpy(np.ascontiguousarray(s[ix])),
+                torch.from_numpy(np.ascontiguousarray(w[ix]).astype(np.float32)),
+            )
+
+        for sid in np.unique(s):
+            idx = np.where(s == sid)[0]
+            cut = max(1, min(len(idx) - 1, int(len(idx) * (1.0 - val_frac))))
+            tr_hi = max(1, cut - embargo)
+            train_sets.append(_tensor_ds(idx[:tr_hi]))
+            val_sets.append(_tensor_ds(idx[cut:]))
+            y_tr_blocks.append(y[idx[:tr_hi]])
+        num_workers = 0
     else:
-        X_all = np.concatenate(all_X, axis=0)
-        log.info("Full dataset assembled", total_sequences=len(X_all))
-    return X_all, y_all, r_all, sym_all
+        raise ValueError(f"Unknown build_dataset output kind: {kind!r}")
+
+    train_ds = ConcatDataset(train_sets)
+    val_ds   = ConcatDataset(val_sets)
+    y_train  = np.concatenate(y_tr_blocks, axis=0)
+    persist  = num_workers > 0          # keep workers (+ their lazy memmaps) across epochs
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                              pin_memory=True, num_workers=num_workers,
+                              persistent_workers=persist)
+    val_loader   = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+                              pin_memory=True, num_workers=num_workers,
+                              persistent_workers=persist)
+    return train_loader, val_loader, y_train, len(train_ds), len(val_ds)
 
 
 # =============================================================================
@@ -1296,54 +1535,65 @@ def make_weighted_loss(y_train: np.ndarray, *, per_sample: bool = True) -> List[
 
 
 def _apply_horizon_loss(loss_fn, logits, targets, sample_weights):
-    """Helper: compute a single-horizon loss honouring per-sample weighting.
+    """Helper: compute a single-horizon loss honouring per-sample weighting + focal.
 
-    Phase 16: when ``loss_fn`` was built with ``reduction='none'`` it returns
-    a ``(B,)`` per-sample loss; we multiply by ``sample_weights`` and take the
-    mean. Falls back gracefully when ``sample_weights`` is None (legacy)."""
+    When ``loss_fn`` was built with ``reduction='none'`` it returns a ``(B,)``
+    per-sample (class-weighted, label-smoothed) CE. We then:
+      • apply a focal modulation ``(1 - p_true)^FOCAL_GAMMA`` so easy/abundant
+        'hold' samples contribute less and the rare, hard directional moves drive
+        learning (FOCAL_GAMMA = 0 disables it → plain weighted CE);
+      • multiply by the per-sample weight (PnL-magnitude × recency) and average.
+    Falls back gracefully when ``sample_weights`` is None."""
     raw = loss_fn(logits, targets)              # (B,) if reduction='none', else scalar
     if raw.dim() == 0:
-        return raw                              # already reduced
+        return raw                              # already reduced (mean) — no focal/weights
+    if FOCAL_GAMMA > 0:
+        # p_true = softmax(logits)[true class]; gradients flow through it (standard focal).
+        p_true = torch.softmax(logits, dim=1).gather(1, targets.unsqueeze(1)).squeeze(1)
+        raw = (1.0 - p_true).clamp_min(0.0).pow(FOCAL_GAMMA) * raw
     if sample_weights is None:
         return raw.mean()
     return (raw * sample_weights).mean()
 
 
-def train_epoch(model, loader, optimizer, loss_fns, device):
+def train_epoch(model, loader, optimizer, loss_fns, device, scaler=None, use_amp=False):
     model.train()
     total_loss = 0.0
     n_batches  = 0
 
     for batch in loader:
-        # Phase 16: optional 4th element = future_returns (B, H) for PnL weighting.
-        if len(batch) == 4:
-            bx, by, br, bs = batch
-            br = br.to(device)
-        else:
-            bx, by, bs = batch
-            br = None
-        bx = bx.to(device); by = by.to(device); bs = bs.to(device)
+        # 5-tuple: X, y, future_returns (B,H), symbol_ids, recency_weight (B,)
+        bx, by, br, bs, bw = batch
+        bx = bx.to(device, non_blocking=True); by = by.to(device, non_blocking=True)
+        br = br.to(device, non_blocking=True); bs = bs.to(device, non_blocking=True)
+        bw = bw.to(device, non_blocking=True)
 
-        optimizer.zero_grad()
-        out = model(bx, bs)
-        logits_list = out[0]   # tolerant to 4-tuple (offline) and 5-tuple (live w/ exits)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+            out = model(bx, bs)
+            logits_list = out[0]   # [0]=logits per horizon (4-/5-tuple tolerant)
 
-        loss = 0.0
-        for h_idx, (logits, loss_fn) in enumerate(zip(logits_list, loss_fns)):
-            loss_fn_d = loss_fn.to(device)
-            if br is not None:
-                # Per-sample PnL-magnitude weights for this horizon
+            loss = 0.0
+            for h_idx, (logits, loss_fn) in enumerate(zip(logits_list, loss_fns)):
+                loss_fn_d = loss_fn.to(device)
+                # Per-sample PnL-magnitude weight for this horizon …
                 abs_r = br[:, h_idx].abs()
-                med = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
-                w = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0)
-            else:
-                w = None
-            loss = loss + _apply_horizon_loss(loss_fn_d, logits, by[:, h_idx], w)
-        loss = loss / len(HORIZONS)
+                med   = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
+                w_pnl = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0)
+                w     = w_pnl * bw                      # … × calendar recency weight
+                loss  = loss + _apply_horizon_loss(loss_fn_d, logits, by[:, h_idx], w)
+            loss = loss / len(HORIZONS)
 
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
+        if use_amp and scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)                  # unscale before clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
 
         total_loss += loss.item()
         n_batches  += 1
@@ -1352,7 +1602,7 @@ def train_epoch(model, loader, optimizer, loss_fns, device):
 
 
 @torch.no_grad()
-def eval_epoch(model, loader, loss_fns, device):
+def eval_epoch(model, loader, loss_fns, device, use_amp=False):
     model.eval()
     total_loss = 0.0
     n_batches  = 0
@@ -1361,30 +1611,24 @@ def eval_epoch(model, loader, loss_fns, device):
     all_probs  = [[] for _ in HORIZONS]
 
     for batch in loader:
-        if len(batch) == 4:
-            bx, by, br, bs = batch
-            br = br.to(device)
-        else:
-            bx, by, bs = batch
-            br = None
-        bx = bx.to(device); by = by.to(device); bs = bs.to(device)
+        bx, by, br, bs, bw = batch
+        bx = bx.to(device, non_blocking=True); by = by.to(device, non_blocking=True)
+        br = br.to(device, non_blocking=True); bs = bs.to(device, non_blocking=True)
+        bw = bw.to(device, non_blocking=True)
 
-        out = model(bx, bs)
-        logits_list, probs_list = out[0], out[1]
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
+            out = model(bx, bs)
+            logits_list, probs_list = out[0], out[1]
 
-        loss = 0.0
-        for h_idx, (logits, probs, loss_fn) in enumerate(zip(logits_list, probs_list, loss_fns)):
-            if br is not None:
+            loss = 0.0
+            for h_idx, (logits, probs, loss_fn) in enumerate(zip(logits_list, probs_list, loss_fns)):
                 abs_r = br[:, h_idx].abs()
-                med = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
-                w = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0)
-            else:
-                w = None
-            loss = loss + _apply_horizon_loss(loss_fn.to(device), logits, by[:, h_idx], w)
-            preds = logits.argmax(dim=1).cpu().numpy()
-            all_preds[h_idx].extend(preds)
-            all_labels[h_idx].extend(by[:, h_idx].cpu().numpy())
-            all_probs[h_idx].extend(probs.cpu().numpy())
+                med   = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
+                w     = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0) * bw
+                loss  = loss + _apply_horizon_loss(loss_fn.to(device), logits, by[:, h_idx], w)
+                all_preds[h_idx].extend(logits.argmax(dim=1).cpu().numpy())
+                all_labels[h_idx].extend(by[:, h_idx].cpu().numpy())
+                all_probs[h_idx].extend(probs.float().cpu().numpy())   # .float(): AMP-safe
 
         total_loss += (loss / len(HORIZONS)).item()
         n_batches  += 1
@@ -1439,8 +1683,10 @@ def save_checkpoint(model, optimizer, epoch, val_loss, path: Path, label="checkp
         "horizons":             HORIZONS,
         "symbols":              SYMBOLS,
         "label":                label,
+        "news_backend":         _NEWS_BACKEND_USED,   # live verifies it matches (Cycle 3)
     }, path)
-    log.info("Checkpoint saved", path=str(path), epoch=epoch, val_loss=f"{val_loss:.4f}")
+    log.info("Checkpoint saved", path=str(path), epoch=epoch, val_loss=f"{val_loss:.4f}",
+             news_backend=_NEWS_BACKEND_USED)
 
 
 # =============================================================================
@@ -1466,13 +1712,19 @@ def main():
                              "multiple years fit in low RAM (e.g. Colab's 12.7 GB).")
     parser.add_argument("--mmap-dir", default="/content/_mmap_cache",
                         help="Local (fast) disk dir for the memmap — NOT a mounted Drive.")
+    parser.add_argument("--amp", action="store_true",
+                        help="Mixed-precision (fp16) training on CUDA — ~2-3× faster on "
+                             "L4/A100 tensor cores + lower VRAM. Ignored on CPU.")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="RNG seed. Train several seeds (0,1,2,…) for an ensemble; "
+                             "non-default seeds save to seed-tagged checkpoints.")
     args = parser.parse_args()
 
     # ── reproducibility ──────────────────────────────────────────────────────
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
+        torch.cuda.manual_seed_all(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info("Device", device=str(device))
@@ -1487,45 +1739,19 @@ def main():
 
     # ── build dataset ────────────────────────────────────────────────────────
     log.info("Building dataset", start=f"{args.start_year}-{args.start_month:02d}", mmap=bool(args.mmap))
-    X, y, R, sym_ids = build_dataset(
+    build_out = build_dataset(
         symbols, args.start_year, args.start_month, args.skip_download,
         mmap_dir=(args.mmap_dir if args.mmap else None),
     )
 
-    # ── chronological train/val split (last 20% = val) ───────────────────────
-    # Sort by time is implicit since we concatenated per-symbol chronologically
-    # For strict correctness: split each symbol individually then recombine
-    split = int(len(X) * 0.8)
-    X_tr, X_va     = X[:split],       X[split:]
-    y_tr, y_va     = y[:split],       y[split:]
-    R_tr, R_va     = R[:split],       R[split:]
-    sym_tr, sym_va = sym_ids[:split], sym_ids[split:]
-
-    log.info("Split sizes", train=len(X_tr), val=len(X_va))
+    # ── per-symbol chronological split + 5-tuple recency-weighted loaders ─────
+    use_amp = bool(getattr(args, "amp", False)) and device.type == "cuda"
+    train_loader, val_loader, y_tr, n_tr, n_va = make_split_loaders(
+        build_out, args.batch_size, val_frac=0.2,
+    )
+    log.info("Split sizes", train=n_tr, val=n_va, amp=use_amp)
     for hi, h in enumerate(HORIZONS):
-        log.info(f"H+{h} class dist — train: {np.bincount(y_tr[:, hi])}  "
-                 f"val: {np.bincount(y_va[:, hi])}")
-
-    # ── data loaders (Phase 16 4-tuple: X, y, future_returns, sym_ids) ───────
-    def make_loader(X_, y_, R_, s_, shuffle):
-        if X_.dtype == np.float16:
-            # Memmap/streaming path: read + cast to float32 per item; a couple of
-            # workers hide the disk latency. (Linux/Colab — safe with workers.)
-            ds = _SeqDataset(X_, y_, R_, s_)
-            nw = 2
-        else:
-            ds = TensorDataset(
-                torch.from_numpy(X_),
-                torch.from_numpy(y_),
-                torch.from_numpy(R_),
-                torch.from_numpy(s_),
-            )
-            nw = 0
-        return DataLoader(ds, batch_size=args.batch_size, shuffle=shuffle,
-                          pin_memory=True, num_workers=nw)
-
-    train_loader = make_loader(X_tr, y_tr, R_tr, sym_tr, shuffle=True)
-    val_loader   = make_loader(X_va, y_va, R_va, sym_va, shuffle=False)
+        log.info(f"H+{h} train class dist: {np.bincount(y_tr[:, hi])}")
 
     # ── model ────────────────────────────────────────────────────────────────
     model = ImprovedTradingLSTM(
@@ -1547,14 +1773,30 @@ def main():
 
     # ── optimiser + scheduler ────────────────────────────────────────────────
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=WEIGHT_DECAY)
+    # NOTE: no verbose= — it was deprecated and REMOVED in PyTorch 2.3+ (Colab
+    # ships a newer torch); passing it raises TypeError. LR changes still apply.
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=3, factor=0.5, verbose=True
+        optimizer, mode="min", patience=3, factor=0.5
     )
+
+    # ── mixed-precision scaler (CUDA only) — ~2-3× faster on L4/A100 tensor
+    #    cores + lower VRAM, letting you push a larger --batch-size. fp32 fallback
+    #    is automatic when --amp is off or on CPU. ──────────────────────────────
+    scaler = None
+    if use_amp:
+        try:
+            scaler = torch.amp.GradScaler("cuda")          # PyTorch 2.3+ API
+        except (AttributeError, TypeError):
+            scaler = torch.cuda.amp.GradScaler()           # older fallback
+    log.info("Mixed precision (AMP)", enabled=use_amp)
 
     # ── paths ────────────────────────────────────────────────────────────────
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    best_path   = MODELS_DIR / "pretrain_v2_best.pt"
-    latest_path = MODELS_DIR / "trading_lstm_latest.pt"
+    # Default seed keeps the canonical name the live agent loads; other seeds get
+    # tagged files so an ensemble's members don't overwrite each other.
+    tag         = "" if args.seed == 42 else f"_seed{args.seed}"
+    best_path   = MODELS_DIR / f"pretrain_v2_best{tag}.pt"
+    latest_path = MODELS_DIR / f"trading_lstm_latest{tag}.pt"
 
     # ── training loop ────────────────────────────────────────────────────────
     best_val_loss    = float("inf")
@@ -1562,9 +1804,10 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         t0         = time.time()
-        train_loss = train_epoch(model, train_loader, optimizer, loss_fns, device)
+        train_loss = train_epoch(model, train_loader, optimizer, loss_fns, device,
+                                 scaler=scaler, use_amp=use_amp)
         val_loss, preds_list, labels_list, probs_list = eval_epoch(
-            model, val_loader, loss_fns, device
+            model, val_loader, loss_fns, device, use_amp=use_amp
         )
         scheduler.step(val_loss)
         elapsed = time.time() - t0
@@ -1592,7 +1835,7 @@ def main():
     # ── final metrics on validation set ──────────────────────────────────────
     log.info("\n===== FINAL VALIDATION METRICS =====")
     _, preds_list, labels_list, probs_list = eval_epoch(
-        model, val_loader, loss_fns, device
+        model, val_loader, loss_fns, device, use_amp=use_amp
     )
     for hi, h in enumerate(HORIZONS):
         compute_metrics(preds_list[hi], labels_list[hi], probs_list[hi], h)

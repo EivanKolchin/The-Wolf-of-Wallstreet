@@ -258,6 +258,26 @@ class PersistentTradingModel:
         self.trade_count = ckpt.get("trade_count", 0)
         self.cumulative_pnl = ckpt.get("cumulative_pnl", 0.0)
 
+        # News-embedding backend consistency (Cycle 3): the 16 news dims [70:86] only
+        # mean the same thing live as in training if produced by the SAME backend.
+        # Non-fatal — we only warn, never block — so loading behaviour is unchanged.
+        ckpt_news = ckpt.get("news_backend")
+        if ckpt_news and ckpt_news != "disabled":
+            try:
+                from backend.signals.news_embedding import get_embedder
+                live_news = get_embedder().effective_backend()
+            except Exception:
+                live_news = None
+            if live_news and live_news != ckpt_news:
+                logger.warning(
+                    "news_embed_backend_mismatch",
+                    trained_with=ckpt_news, live=live_news,
+                    fix=f"pip install sentence-transformers and set NN_NEWS_EMBED_BACKEND={ckpt_news} "
+                        f"so live news features match the trained model",
+                )
+        elif ckpt_news == "disabled":
+            logger.info("checkpoint_trained_without_news_alignment")
+
         if result.missing_keys:
             logger.info("model_loaded_core_exit_heads_fresh", missing=len(result.missing_keys),
                         trade_count=self.trade_count)

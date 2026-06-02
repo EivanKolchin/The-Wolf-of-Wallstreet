@@ -94,6 +94,17 @@ class Settings(BaseSettings):
     NN_WEIGHT_DECAY: float = 1e-4           # L2 regularization (was 1e-5; modest anti-overfit bump)
     NN_LABEL_SMOOTHING: float = 0.05        # softens targets → less overconfident, less overfit
     NN_AUGMENT_NOISE_STD: float = 0.0       # Gaussian noise added to replay sequences in online AWR (0 = off)
+    NN_FOCAL_GAMMA: float = 1.5             # focal loss exponent: focuses learning on the rare, hard
+    #                                         directional moves vs the dominant 'hold' class (0 = plain CE)
+    NN_BARRIER_K: float = 1.0               # triple-barrier label width = K · (rolling 1-bar vol) · √horizon.
+    #                                         Vol-scaled TP/SL barriers (first-touch) → labels match real exits
+    #                                         and auto-adapt per asset. ~1.0 keeps widths near the old thresholds.
+    # Offline-training recency weighting (pretrain.py): scale each sample's loss by a
+    # calendar half-life on its age so the model leans toward the CURRENT regime
+    # (post-COVID, AI boom) without forgetting older patterns. Training-only — does
+    # not affect live inference.
+    NN_RECENCY_HALFLIFE_YEARS: float = 2.0  # a 2-year-old bar weighs 0.5× vs today's
+    NN_RECENCY_FLOOR: float = 0.25          # oldest bars never drop below 25% weight
     # Funding / wallet (Workstreams D/E): MetaMask connect (WalletConnect QR) +
     # Google-Pay fiat on-ramp. Publishable keys are safe in the frontend; they're
     # served by /api/wallet/config and set via Settings -> .env.

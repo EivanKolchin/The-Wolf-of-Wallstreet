@@ -66,9 +66,19 @@ def test_build_label_returns_matches_label_signs():
 
 
 # ---------------------------------------------------------------- end-to-end weighted loss
-def test_train_epoch_with_pnl_weights_changes_gradient_vs_unweighted():
-    """The 4-tuple batch path (with future_returns) must apply per-sample weights
-    so gradients differ from the 3-tuple legacy path on the same data."""
+def _five_tuple_loader(X, y, R, s, w, B):
+    from torch.utils.data import TensorDataset, DataLoader
+    ds = TensorDataset(
+        torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(R),
+        torch.from_numpy(s), torch.from_numpy(w),
+    )
+    return DataLoader(ds, batch_size=B)
+
+
+def test_train_epoch_pnl_weights_change_gradient_vs_uniform():
+    """The PnL-magnitude weight must affect backprop: sharp future-return spread
+    (few big moves) yields different gradients than a uniform spread. Recency
+    weight is held at 1.0 so this isolates the PnL term in the new 5-tuple path."""
     from scripts.pretrain import (
         make_weighted_loss, train_epoch,
         HORIZONS, NUM_CLASSES, INPUT_SIZE, SEQ_LEN,
@@ -80,65 +90,67 @@ def test_train_epoch_with_pnl_weights_changes_gradient_vs_unweighted():
     X = rng.standard_normal((B, SEQ_LEN, INPUT_SIZE)).astype(np.float32)
     y = rng.integers(0, NUM_CLASSES, size=(B, len(HORIZONS))).astype(np.int64)
     sym_ids = np.zeros(B, dtype=np.int64)
-    # Construct future_returns where most samples are chop (~0.01%) and a few
-    # are large (~5%) so the weight ratio is sharp.
-    future_returns = np.full((B, len(HORIZONS)), 0.0001, dtype=np.float32)
-    future_returns[:3, :] = 0.05    # big moves on first 3 samples
+    w_rec = np.ones(B, dtype=np.float32)                       # isolate the PnL term
+
+    R_uniform = np.full((B, len(HORIZONS)), 0.01, dtype=np.float32)   # all equal → w_pnl≈1
+    R_sharp   = np.full((B, len(HORIZONS)), 0.0001, dtype=np.float32)
+    R_sharp[:3, :] = 0.05                                             # few big moves
 
     device = torch.device("cpu")
 
     def _grad_norm(model):
         return float(sum((p.grad.detach().norm()**2).item() for p in model.parameters() if p.grad is not None) ** 0.5)
 
-    # --- unweighted (legacy 3-tuple) ---
     torch.manual_seed(0)
     model_a = ImprovedTradingLSTM().to(device)
-    loss_fns_a = make_weighted_loss(y, per_sample=False)
+    loss_a = make_weighted_loss(y, per_sample=True)
     opt_a = torch.optim.SGD(model_a.parameters(), lr=1e-3)
-    from torch.utils.data import TensorDataset, DataLoader
-    ds_a = TensorDataset(torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(sym_ids))
-    loader_a = DataLoader(ds_a, batch_size=B)
-    train_epoch(model_a, loader_a, opt_a, loss_fns_a, device)
+    train_epoch(model_a, _five_tuple_loader(X, y, R_uniform, sym_ids, w_rec, B),
+                opt_a, loss_a, device, scaler=None, use_amp=False)
     gn_a = _grad_norm(model_a)
 
-    # --- weighted (4-tuple) ---
     torch.manual_seed(0)
     model_b = ImprovedTradingLSTM().to(device)
-    loss_fns_b = make_weighted_loss(y, per_sample=True)
+    loss_b = make_weighted_loss(y, per_sample=True)
     opt_b = torch.optim.SGD(model_b.parameters(), lr=1e-3)
-    ds_b = TensorDataset(
-        torch.from_numpy(X), torch.from_numpy(y),
-        torch.from_numpy(future_returns), torch.from_numpy(sym_ids),
-    )
-    loader_b = DataLoader(ds_b, batch_size=B)
-    train_epoch(model_b, loader_b, opt_b, loss_fns_b, device)
+    train_epoch(model_b, _five_tuple_loader(X, y, R_sharp, sym_ids, w_rec, B),
+                opt_b, loss_b, device, scaler=None, use_amp=False)
     gn_b = _grad_norm(model_b)
 
-    # Different gradient magnitude → the weighting actually affected backprop.
-    # Allow either direction (weighted can be larger or smaller depending on chop mix)
-    # but they must be meaningfully different.
-    assert abs(gn_a - gn_b) > 1e-6, f"weighted grad {gn_b} ≈ unweighted {gn_a} — weighting had no effect"
+    assert abs(gn_a - gn_b) > 1e-6, f"sharp grad {gn_b} ≈ uniform {gn_a} — PnL weighting had no effect"
 
 
-def test_legacy_3_tuple_batch_still_works():
-    """Backward compat: a loader that yields 3-tuples (no future_returns) must
-    still train without error."""
+def test_recency_weight_changes_gradient():
+    """Recency weighting must also reach backprop: down-weighting old samples
+    (w<1) changes the gradient vs all-ones, on identical data."""
     from scripts.pretrain import (
         make_weighted_loss, train_epoch, HORIZONS, NUM_CLASSES, INPUT_SIZE, SEQ_LEN,
     )
     from agents.improved_model import ImprovedTradingLSTM
-    from torch.utils.data import TensorDataset, DataLoader
 
-    rng = np.random.default_rng(1)
-    B = 8
+    rng = np.random.default_rng(7)
+    B = 12
     X = rng.standard_normal((B, SEQ_LEN, INPUT_SIZE)).astype(np.float32)
     y = rng.integers(0, NUM_CLASSES, size=(B, len(HORIZONS))).astype(np.int64)
-    sym = np.zeros(B, dtype=np.int64)
-    ds = TensorDataset(torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(sym))
-    loader = DataLoader(ds, batch_size=B)
+    R = np.full((B, len(HORIZONS)), 0.01, dtype=np.float32)    # uniform PnL term
+    s = np.zeros(B, dtype=np.int64)
+    device = torch.device("cpu")
 
-    model = ImprovedTradingLSTM()
-    loss_fns = make_weighted_loss(y, per_sample=True)  # 'none' reduction, but no weights -> falls back to mean
-    opt = torch.optim.SGD(model.parameters(), lr=1e-3)
-    out = train_epoch(model, loader, opt, loss_fns, torch.device("cpu"))
-    assert np.isfinite(out)
+    def _gn(m):
+        return float(sum((p.grad.detach().norm()**2).item() for p in m.parameters() if p.grad is not None) ** 0.5)
+
+    torch.manual_seed(0)
+    m1 = ImprovedTradingLSTM().to(device)
+    train_epoch(m1, _five_tuple_loader(X, y, R, s, np.ones(B, np.float32), B),
+                torch.optim.SGD(m1.parameters(), lr=1e-3), make_weighted_loss(y), device)
+    g1 = _gn(m1)
+
+    torch.manual_seed(0)
+    m2 = ImprovedTradingLSTM().to(device)
+    w_decayed = np.linspace(0.25, 1.0, B).astype(np.float32)   # older samples down-weighted
+    train_epoch(m2, _five_tuple_loader(X, y, R, s, w_decayed, B),
+                torch.optim.SGD(m2.parameters(), lr=1e-3), make_weighted_loss(y), device)
+    g2 = _gn(m2)
+
+    assert np.isfinite(g1) and np.isfinite(g2)
+    assert abs(g1 - g2) > 1e-6, "recency weighting had no effect on gradients"

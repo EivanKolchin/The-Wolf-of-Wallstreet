@@ -143,6 +143,16 @@ class NewsEmbedder:
             out = out / norm
         return out.astype(np.float32)
 
+    def effective_backend(self) -> str:
+        """The backend ACTUALLY in effect: ``'transformer'`` only if it's selected
+        *and* the model loaded successfully, otherwise ``'hashing'``. Use this (not
+        ``self.backend``) for offline↔live consistency checks — ``'transformer'``
+        silently falls back to ``'hashing'`` when ``sentence-transformers`` is
+        missing, and a mismatch would feed the model meaningless news features."""
+        if self.backend == "transformer" and self._ensure_transformer():
+            return "transformer"
+        return "hashing"
+
     # ---- public API ----------------------------------------------------------
     def embed_text(self, text: str) -> np.ndarray:
         text = (text or "").strip()
