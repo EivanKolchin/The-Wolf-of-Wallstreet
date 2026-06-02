@@ -66,6 +66,8 @@ SETUP_ALLOWED_KEYS = {
     "RISK_MIN_CONFIDENCE",
     "RISK_CVAR_LIMIT_PCT",
     "NN_KELLY_FRACTION",
+    # Model architecture (Cycle 8): "lstm" | "tcn" — switch the temporal core, then retrain.
+    "NN_TRUNK",
     # Stock brokers + data providers
     "IBKR_HOST",
     "IBKR_PORT",

@@ -64,6 +64,8 @@ export default function SettingsPage() {
   const [riskMinConfidence, setRiskMinConfidence] = useState("0.0");
   const [riskCvarLimit, setRiskCvarLimit] = useState("10.0");
   const [kellyFraction, setKellyFraction] = useState("0.5");
+  // Cycle 8: temporal-core architecture (lstm | tcn). Changing it requires a retrain.
+  const [nnTrunk, setNnTrunk] = useState("lstm");
 
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installState, setInstallState] = useState<any>({
@@ -162,6 +164,7 @@ export default function SettingsPage() {
         if (cfg.RISK_MIN_CONFIDENCE !== undefined && cfg.RISK_MIN_CONFIDENCE !== null) setRiskMinConfidence(String(cfg.RISK_MIN_CONFIDENCE));
         if (cfg.RISK_CVAR_LIMIT_PCT) setRiskCvarLimit(String(cfg.RISK_CVAR_LIMIT_PCT));
         if (cfg.NN_KELLY_FRACTION !== undefined && cfg.NN_KELLY_FRACTION !== null) setKellyFraction(String(cfg.NN_KELLY_FRACTION));
+        if (cfg.NN_TRUNK) setNnTrunk(String(cfg.NN_TRUNK).toLowerCase());
 
         setLoading(false);
       } catch (err) {
@@ -212,6 +215,7 @@ export default function SettingsPage() {
         RISK_MIN_CONFIDENCE: riskMinConfidence,
         RISK_CVAR_LIMIT_PCT: riskCvarLimit,
         NN_KELLY_FRACTION: kellyFraction,
+        NN_TRUNK: nnTrunk,
       };
       if (geminiKeyLocked && geminiKey === "") delete (payload as any).GEMINI_API_KEY;
       if (anthropicKeyLocked && anthropicKey === "") delete (payload as any).ANTHROPIC_API_KEY;
@@ -818,6 +822,20 @@ export default function SettingsPage() {
                     <p className="text-[11px] text-neutral-600 mt-1">{f.hint}</p>
                   </div>
                 ))}
+                <div className="md:col-span-2">
+                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Model Architecture (temporal core)</label>
+                  <select
+                    value={nnTrunk}
+                    onChange={(e) => setNnTrunk(e.target.value)}
+                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
+                  >
+                    <option value="lstm">LSTM (default — recurrent)</option>
+                    <option value="tcn">TCN (causal temporal conv-net)</option>
+                  </select>
+                  <p className="text-[11px] text-neutral-600 mt-1">
+                    Switches the model&apos;s temporal core. You must <span className="text-neutral-400">retrain</span> with this setting and load that checkpoint — the live model cold-starts if the checkpoint&apos;s core doesn&apos;t match. Compare LSTM vs TCN via scripts/backtest.py.
+                  </p>
+                </div>
               </div>
             )}
           </div>

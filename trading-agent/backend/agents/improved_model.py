@@ -48,6 +48,10 @@ SYMBOLS = [
     "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT",
     # ---- US stocks (ids 8..12) — Phase 7b ----
     "SNDK", "AMD", "MU", "AXTI", "BE",
+    # ---- Cycle 6 additions (ids 13..17) — APPENDED so existing ids stay stable
+    #      (older checkpoints still load; rows 13..17 just start fresh) ----
+    "RENDERUSDT", "NEARUSDT",          # crypto (Render = ex-RNDR; Near) — Binance
+    "NVDA", "TSM", "SMCI",             # AI-chip stocks — help the model learn the AMD/MU sector
 ]
 SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
 
@@ -87,6 +91,64 @@ class AttentionLayer(nn.Module):
         return context, weights.squeeze(-1)
 
 
+# =============================================================================
+# Cycle 8 — causal Temporal Convolutional Network (switchable temporal core)
+# =============================================================================
+class _CausalConv1d(nn.Conv1d):
+    """1-D conv with LEFT-only padding → strictly causal (never sees the future)."""
+    def __init__(self, in_ch, out_ch, kernel_size, dilation):
+        super().__init__(in_ch, out_ch, kernel_size, dilation=dilation)
+        self._left_pad = (kernel_size - 1) * dilation
+
+    def forward(self, x):
+        return super().forward(F.pad(x, (self._left_pad, 0)))
+
+
+class _ChannelLayerNorm(nn.Module):
+    """LayerNorm over CHANNELS at each timestep — batch-independent (safe at live
+    batch=1 + MC-dropout) AND causal: each step is normalized only over its own
+    channels, so it never mixes information across time (no future leak)."""
+    def __init__(self, ch):
+        super().__init__()
+        self.ln = nn.LayerNorm(ch)
+
+    def forward(self, x):                  # x: (B, C, T)
+        return self.ln(x.transpose(1, 2)).transpose(1, 2)
+
+
+class _TCNBlock(nn.Module):
+    """Residual block: two causal convs + per-timestep channel norm + ReLU + dropout."""
+    def __init__(self, ch, kernel_size, dilation, dropout):
+        super().__init__()
+        self.conv1 = _CausalConv1d(ch, ch, kernel_size, dilation)
+        self.conv2 = _CausalConv1d(ch, ch, kernel_size, dilation)
+        self.norm1 = _ChannelLayerNorm(ch)
+        self.norm2 = _ChannelLayerNorm(ch)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        y = self.drop(F.relu(self.norm1(self.conv1(x))))
+        y = self.drop(F.relu(self.norm2(self.conv2(y))))
+        return F.relu(x + y)
+
+
+class TemporalConvNet(nn.Module):
+    """Causal dilated TCN — a drop-in temporal core: (B, T, in) → (B, T, hidden).
+    Dilations 1,2,4,8,16 (kernel 3) give a receptive field of 63 bars (≥ SEQ_LEN 60),
+    so every step sees the full lookback like the LSTM, but computed in parallel."""
+    def __init__(self, in_dim, hidden, kernel_size=3, dilations=(1, 2, 4, 8, 16), dropout=0.1):
+        super().__init__()
+        self.proj = nn.Conv1d(in_dim, hidden, 1)
+        self.blocks = nn.ModuleList(
+            [_TCNBlock(hidden, kernel_size, d, dropout) for d in dilations])
+
+    def forward(self, x):                  # x: (B, T, in)
+        h = self.proj(x.transpose(1, 2))   # (B, hidden, T)
+        for blk in self.blocks:
+            h = blk(h)
+        return h.transpose(1, 2)           # (B, T, hidden)
+
+
 class ImprovedTradingLSTM(nn.Module):
     """Unified multi-horizon policy net with symbol embedding + learned exit heads."""
 
@@ -112,20 +174,29 @@ class ImprovedTradingLSTM(nn.Module):
             from backend.core.config import settings as _s
             dropout = float(getattr(_s, "NN_DROPOUT", dropout))
             rnn_type = str(getattr(_s, "NN_RNN_TYPE", "lstm")).lower()
+            trunk_type = str(getattr(_s, "NN_TRUNK", "lstm")).lower()
         except Exception:
             rnn_type = "lstm"
+            trunk_type = "lstm"
         self.rnn_type = rnn_type
+        self.trunk_type = trunk_type if trunk_type in ("lstm", "tcn") else "lstm"
 
         lstm_in = input_size + symbol_embed_dim
-        _rnn = nn.GRU if rnn_type == "gru" else nn.LSTM
-        self.lstm = _rnn(
-            input_size=lstm_in,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
-            batch_first=True,
-            bidirectional=False,   # causal — no future peek
-        )
+        # Cycle 8: switchable temporal core. The TCN produces the SAME (B, T, hidden)
+        # as the LSTM, so layer-norm → attention → shared MLP → every head (direction,
+        # size, exits, next-candle) and the symbol embedding stay wired identically.
+        if self.trunk_type == "tcn":
+            self.tcn = TemporalConvNet(lstm_in, hidden_size, dropout=dropout)
+        else:
+            _rnn = nn.GRU if rnn_type == "gru" else nn.LSTM
+            self.lstm = _rnn(
+                input_size=lstm_in,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=dropout if num_layers > 1 else 0.0,
+                batch_first=True,
+                bidirectional=False,   # causal — no future peek
+            )
         self.layer_norm = nn.LayerNorm(hidden_size)
         self.attention = AttentionLayer(hidden_size)
         self.dropout = nn.Dropout(dropout)
@@ -193,9 +264,12 @@ class ImprovedTradingLSTM(nn.Module):
         emb = self.symbol_embedding(symbol_ids)        # (B, embed)
         emb = emb.unsqueeze(1).expand(-1, T, -1)       # (B, T, embed)
         x = torch.cat([x, emb], dim=-1)
-        lstm_out, _ = self.lstm(x)
-        lstm_out = self.layer_norm(lstm_out)
-        context, attn_w = self.attention(lstm_out)
+        if self.trunk_type == "tcn":
+            core_out = self.tcn(x)                      # (B, T, hidden)
+        else:
+            core_out, _ = self.lstm(x)                 # (B, T, hidden)
+        core_out = self.layer_norm(core_out)
+        context, attn_w = self.attention(core_out)
         context = self.dropout(context)
         return self.shared(context), attn_w            # (B, 64), (B, T)
 

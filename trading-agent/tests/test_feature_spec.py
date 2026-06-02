@@ -17,11 +17,12 @@ from signals import feature_spec as fs  # noqa: E402
 
 
 def test_version_and_sizes():
-    assert fs.VERSION == "v2.2"   # Phase 3 bump (16-dim NEWS_EMBED block)
+    assert fs.VERSION == "v2.3"   # Cycle 7 bump (4-dim EARNINGS block)
     assert fs.BASE == 62
     assert fs.HTF == 8
     assert fs.NEWS_EMBED_DIM == 16
-    assert fs.INPUT == 86
+    assert fs.EARNINGS_DIM == 4
+    assert fs.INPUT == 90
 
 
 def test_news_embed_block_layout():

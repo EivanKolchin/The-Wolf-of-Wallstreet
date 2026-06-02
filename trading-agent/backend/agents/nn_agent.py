@@ -94,6 +94,16 @@ class NNTradingAgent:
             logger.warning("news_embedder_init_failed", error=str(e))
             self.news_embedder = get_embedder()
 
+        # Cycle 7: earnings-calendar features feed the EARNINGS slots [86:90] for
+        # stocks (Finnhub). Cached per symbol; zeros when no key/data — matching
+        # exactly what scripts/pretrain.py writes offline.
+        try:
+            from backend.signals.earnings import EarningsProvider
+            self.earnings_provider = EarningsProvider(getattr(settings, "FINNHUB_API_KEY", "") or "")
+        except Exception as e:
+            logger.warning("earnings_provider_init_failed", error=str(e))
+            self.earnings_provider = None
+
         # Phase 15: real 1h/4h HTF features populate the 8 slots [62:70].
         # Provider runs background refresh tasks per (symbol, tf); get_features
         # is synchronous and returns the cached 8-vec (or zeros during warm-up).
@@ -181,6 +191,22 @@ class NNTradingAgent:
                         out[fs.NEWS_EMBED] = emb
             except Exception as e:
                 logger.debug("news_embed_extend_failed", symbol=symbol, error=str(e))
+        # EARNINGS [86:90] — stocks only (Finnhub calendar); zeros otherwise. Mirrors
+        # scripts/pretrain.build_earnings_matrix so offline-trained weights stay valid.
+        if symbol is not None and getattr(self, "earnings_provider", None) is not None \
+                and _universe.asset_class_of(symbol) == "us_stock":
+            try:
+                import pandas as pd
+                from backend.signals.earnings import earnings_features_at
+                now = pd.Timestamp.utcnow().tz_localize(None)
+                ev = self.earnings_provider.events(
+                    symbol,
+                    (now - pd.Timedelta(days=400)).strftime("%Y-%m-%d"),
+                    (now + pd.Timedelta(days=120)).strftime("%Y-%m-%d"))
+                if ev:
+                    out[fs.EARNINGS] = earnings_features_at(ev, now)
+            except Exception as e:
+                logger.debug("earnings_extend_failed", symbol=symbol, error=str(e))
         return out
 
     def _get_news_for_symbol(self, symbol: str) -> NewsImpact | None:

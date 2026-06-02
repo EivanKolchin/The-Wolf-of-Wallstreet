@@ -89,7 +89,10 @@ class Settings(BaseSettings):
     # A4 / anti-overfitting architecture knobs (model is untrained → retrain is
     # free). These must match between live (improved_model.py) and offline
     # (scripts/pretrain.py) for checkpoints to load — both read these settings.
-    NN_RNN_TYPE: str = "lstm"               # "lstm" | "gru" (gru = fewer params, faster, less overfit)
+    NN_TRUNK: str = "lstm"                  # "lstm" | "tcn" — temporal core (Cycle 8). TCN = causal
+    #                                         dilated convs (parallel, big receptive field); switch in
+    #                                         the UI, train both, let the backtest pick the winner.
+    NN_RNN_TYPE: str = "lstm"               # "lstm" | "gru" (only used when NN_TRUNK="lstm")
     NN_DROPOUT: float = 0.3                 # recurrent + trunk dropout (regularization)
     NN_WEIGHT_DECAY: float = 1e-4           # L2 regularization (was 1e-5; modest anti-overfit bump)
     NN_LABEL_SMOOTHING: float = 0.05        # softens targets → less overconfident, less overfit

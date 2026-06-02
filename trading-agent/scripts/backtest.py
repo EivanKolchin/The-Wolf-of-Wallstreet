@@ -96,7 +96,7 @@ def backtest_symbol(model, sym, args, device):
     probs = probs_for_starts(model, feats, starts_oos, pre.SYMBOL_TO_ID[sym], device)
     sig = directional_signal(probs[:, 0], probs[:, 1], min_confidence=args.min_confidence,
                              min_edge=args.min_edge, allow_short=not args.long_only)
-    ppy = BARS_PER_YEAR_STOCK if sym in pre.SYMBOLS[8:] else BARS_PER_YEAR_5M
+    ppy = BARS_PER_YEAR_STOCK if pre._is_stock_symbol(sym) else BARS_PER_YEAR_5M
     if args.exec:
         # Cycle 5 execution layer: vol-targeted sizing + ATR trailing/breakeven/scale-out.
         atr = atr_from_ohlc(high_oos, low_oos, close_oos, window=14)

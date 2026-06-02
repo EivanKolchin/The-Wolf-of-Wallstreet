@@ -15,14 +15,18 @@ from __future__ import annotations
 CRYPTO_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "AAVEUSDT",
     "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT",
+    # Cycle 6 — high-volatility liquid pairs (Render = ex-RNDR; Near)
+    "RENDERUSDT", "NEARUSDT",
 ]
 
 # US underlyings the agent trades (signal computation happens here)
-STOCK_UNDERLYINGS = ["SNDK", "AMD", "MU", "AXTI", "BE"]
+# Cycle 6 — NVDA/TSM/SMCI: AI-chip sector, liquid, and correlated with AMD/MU.
+STOCK_UNDERLYINGS = ["SNDK", "AMD", "MU", "AXTI", "BE", "NVDA", "TSM", "SMCI"]
 
 # native US listing venue (for the chart + extended-hours routing)
 US_EXCHANGE = {
     "SNDK": "NASDAQ", "AMD": "NASDAQ", "MU": "NASDAQ", "AXTI": "NASDAQ", "BE": "NYSE",
+    "NVDA": "NASDAQ", "TSM": "NYSE", "SMCI": "NASDAQ",
 }
 
 # underlying -> LSE leveraged UCITS ETP routing.
@@ -35,6 +39,10 @@ ETP_MAP = {
     "MU":   {"etp_available": True,  "long_etp": "", "short_etp": "", "venue": "lse"},
     "AXTI": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
     "BE":   {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nyse"},
+    # Cycle 6 — trade the underlying directly (Alpaca); ETP routing off by default.
+    "NVDA": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
+    "TSM":  {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nyse"},
+    "SMCI": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
 }
 
 

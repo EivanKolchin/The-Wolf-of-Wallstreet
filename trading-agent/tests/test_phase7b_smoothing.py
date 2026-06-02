@@ -35,10 +35,10 @@ def test_offline_symbol_registry_matches_live_order():
 
 
 def test_checkpoint_loader_splices_smaller_embedding(tmp_path, monkeypatch):
-    """Save a checkpoint with 8 embedding rows; load it into a model expecting 13.
-    The first 8 rows must match exactly; rows 8..12 should be freshly initialised."""
+    """Save a checkpoint with 8 embedding rows; load it into the current (larger)
+    model. The first 8 rows must match exactly; the rest should be freshly initialised."""
     from agents.nn_model import PersistentTradingModel
-    from agents.improved_model import ImprovedTradingLSTM
+    from agents.improved_model import ImprovedTradingLSTM, SYMBOLS
     from agents.model_io import save_checkpoint
 
     # Build a small ImprovedTradingLSTM with only 8 symbols.
@@ -52,13 +52,30 @@ def test_checkpoint_loader_splices_smaller_embedding(tmp_path, monkeypatch):
     monkeypatch.setattr(PersistentTradingModel, "CHECKPOINT_DIR", tmp_path / "ckpts")
     pm = PersistentTradingModel()
 
-    # Live model is the new 13-row one.
+    # Live model has the current (post-Cycle-6) vocabulary.
     live_emb = pm.model.symbol_embedding.weight
-    assert live_emb.shape[0] == 13
+    assert live_emb.shape[0] == len(SYMBOLS)
     # First 8 rows should be the spliced-in 0.5 sentinel...
     assert torch.allclose(live_emb[:8], torch.full_like(live_emb[:8], 0.5))
-    # ...and rows 8..12 should NOT be the sentinel (freshly init'd by xavier).
+    # ...and the appended rows should NOT be the sentinel (freshly init'd by xavier).
     assert not torch.allclose(live_emb[8:], torch.full_like(live_emb[8:], 0.5))
+
+
+def test_cycle6_new_symbols_registered_and_classified():
+    """Render/Near (crypto) + NVDA/TSM/SMCI (stocks) are in the registry, agree
+    live↔offline, classify correctly, and have live routing entries."""
+    from agents.improved_model import SYMBOLS, SYMBOL_TO_ID
+    from scripts.pretrain import _is_stock_symbol, SYMBOLS as off_syms
+    from backend.core import universe
+
+    assert list(SYMBOLS) == list(off_syms) and len(SYMBOLS) == 18
+    for c in ("RENDERUSDT", "NEARUSDT"):
+        assert c in SYMBOL_TO_ID and not _is_stock_symbol(c)
+        assert c in universe.CRYPTO_SYMBOLS
+    for s in ("NVDA", "TSM", "SMCI"):
+        assert s in SYMBOL_TO_ID and _is_stock_symbol(s)
+        assert s in universe.STOCK_UNDERLYINGS
+        assert s in universe.US_EXCHANGE and s in universe.ETP_MAP   # routing wired
 
 
 def test_pretrain_alpaca_helpers_exposed():

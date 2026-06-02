@@ -514,7 +514,7 @@ _ALPACA_DATA_BASE = "https://data.alpaca.markets/v2"
 _ALPACA_TF = {"5m": "5Min", "1h": "1Hour", "4h": "4Hour"}
 
 # Symbol classification — mirror backend/core/universe.STOCK_UNDERLYINGS.
-_STOCK_SYMBOLS = {"SNDK", "AMD", "MU", "AXTI", "BE"}
+_STOCK_SYMBOLS = {"SNDK", "AMD", "MU", "AXTI", "BE", "NVDA", "TSM", "SMCI"}
 
 
 def _is_stock_symbol(sym: str) -> bool:
@@ -698,6 +698,49 @@ def build_news_embed_matrix(df: pd.DataFrame, symbol: str) -> np.ndarray:
         matched += 1
     log.info("news_align_done", symbol=symbol, bars=n, matched=matched, unique_news=len(emb_cache))
     return mat
+
+
+# Whether earnings features were actually aligned during this build (recorded in
+# the checkpoint so live can match). Crypto / align-off / no-key → stays False.
+_EARNINGS_ALIGNED = False
+
+
+def build_earnings_matrix(df: pd.DataFrame, symbol: str) -> np.ndarray:
+    """(N, EARNINGS_DIM) earnings-calendar features aligned to df's 5m bars.
+
+    Stocks only (crypto → zeros). Gated behind PRETRAIN_EARNINGS_ALIGN (default off)
+    because it hits the Finnhub calendar API; off → zeros (identical to a live agent
+    with no earnings data). Leakage-safe: see backend.signals.earnings.
+    """
+    n = len(df)
+    mat = np.zeros((n, fs.EARNINGS_DIM), dtype=np.float32)
+    if not _is_stock_symbol(symbol):
+        return mat
+    if os.environ.get("PRETRAIN_EARNINGS_ALIGN", "0") not in ("1", "true", "True"):
+        return mat
+    try:
+        from backend.core.config import settings as _s
+        token = (getattr(_s, "FINNHUB_API_KEY", "") or "")
+    except Exception:
+        token = os.environ.get("FINNHUB_API_KEY", "")
+    if not token:
+        log.warning("earnings_align_no_finnhub_key", symbol=symbol)
+        return mat
+    try:
+        from backend.signals.earnings import EarningsProvider, earnings_feature_matrix
+    except Exception as e:
+        log.warning("earnings_module_import_failed", error=str(e))
+        return mat
+    ts = pd.to_datetime(df["timestamp"])
+    events = EarningsProvider(token).events(
+        symbol, ts.iloc[0].strftime("%Y-%m-%d"), ts.iloc[-1].strftime("%Y-%m-%d"))
+    if not events:
+        log.info("earnings_align_no_events", symbol=symbol)
+        return mat
+    global _EARNINGS_ALIGNED
+    _EARNINGS_ALIGNED = True
+    log.info("earnings_align_done", symbol=symbol, events=len(events))
+    return earnings_feature_matrix(events, df["timestamp"].to_numpy())
 
 
 def load_full_history(
@@ -1379,6 +1422,10 @@ def build_dataset(
         news_embed = build_news_embed_matrix(df5m, sym)               # (N, 16) raw or zeros
         combined   = np.concatenate([combined, news_embed], axis=1)   # (N, 86)
 
+        # Cycle 7: earnings-calendar block (stocks only; zeros otherwise) → (N, 90).
+        earnings   = build_earnings_matrix(df5m, sym)                 # (N, 4) raw or zeros
+        combined   = np.concatenate([combined, earnings], axis=1)     # (N, 90)
+
         log.info("Building labels (triple-barrier, vol-scaled)", symbol=sym)
         # One pass → matched labels + signed returns (first-touch TP/SL/time barriers).
         labels, returns = triple_barrier_labels(df5m, HORIZONS, BARRIER_K)
@@ -1684,9 +1731,12 @@ def save_checkpoint(model, optimizer, epoch, val_loss, path: Path, label="checkp
         "symbols":              SYMBOLS,
         "label":                label,
         "news_backend":         _NEWS_BACKEND_USED,   # live verifies it matches (Cycle 3)
+        "earnings_aligned":     _EARNINGS_ALIGNED,    # Cycle 7
+        "trunk_type":           getattr(model, "trunk_type", "lstm"),   # Cycle 8 (lstm|tcn)
     }, path)
     log.info("Checkpoint saved", path=str(path), epoch=epoch, val_loss=f"{val_loss:.4f}",
-             news_backend=_NEWS_BACKEND_USED)
+             news_backend=_NEWS_BACKEND_USED, earnings_aligned=_EARNINGS_ALIGNED,
+             trunk=getattr(model, "trunk_type", "lstm"))
 
 
 # =============================================================================

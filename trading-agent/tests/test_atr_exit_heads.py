@@ -26,8 +26,8 @@ from agents.improved_model import (  # noqa: E402
 
 
 def test_feature_schema_version_bumped_to_v2_1():
-    # Phase 3 bumped the schema to v2.2 (added the 16-dim NEWS_EMBED block).
-    assert fs.VERSION == "v2.2", f"expected v2.2 after Phase 3 news-embed bump, got {fs.VERSION}"
+    # Cycle 7 bumped the schema to v2.3 (added the 4-dim EARNINGS block at [86:90]).
+    assert fs.VERSION == "v2.3", f"expected v2.3 after Cycle 7 earnings bump, got {fs.VERSION}"
 
 
 def test_forward_emits_both_legacy_fraction_and_atr_mult_keys():
