@@ -73,36 +73,37 @@ def test_make_split_loaders_splits_each_symbol_not_global_tail():
 
 
 def test_make_split_loaders_parts_path_offsets_and_symbols(tmp_path):
-    """The actual Colab path: per-symbol float16 memmaps (no assembled copy). Verify
-    the val split reads the LATER rows of each file (lo offset) and both symbols are
-    present in train + val. Datasets are indexed directly (no worker procs)."""
+    """The actual Colab path: per-symbol feature matrix + end indices (on-the-fly
+    windows). Verify the val split takes the LATER endpoints of each symbol and both
+    symbols are present in train + val. Datasets are indexed directly (no workers)."""
     T, F, H = pt.SEQ_LEN, pt.INPUT_SIZE, len(pt.HORIZONS)
-    n = 20
+    n = 20                  # endpoints per symbol
+    N = T + n               # feature-matrix rows
     parts = []
     for sid in (0, 8):
-        xp = tmp_path / f"_X_{sid}.npy"
-        Xmm = np.lib.format.open_memmap(str(xp), mode="w+", dtype=np.float16, shape=(n, T, F))
-        for r in range(n):
-            Xmm[r] = np.float16(r)                  # row r holds the value r
-        Xmm.flush()
-        parts.append({"path": str(xp), "n": n,
+        feats = np.broadcast_to(np.arange(N, dtype=np.float32)[:, None], (N, F)).copy()  # row r == r
+        fp = tmp_path / f"_F_{sid}.npy"
+        np.save(fp, feats.astype(np.float16))
+        ends = np.arange(T, N)                       # n increasing endpoints
+        parts.append({"feat_path": str(fp), "ends": ends, "n": n,
                       "y": np.full((n, H), sid, np.int64),
                       "R": np.zeros((n, H), np.float32),
                       "s": np.full(n, sid, np.int64),
                       "w": np.ones(n, np.float32)})
 
     tr, va, y_tr, n_tr, n_va = pt.make_split_loaders(("parts", parts), batch_size=4, val_frac=0.25, embargo=0)
-    assert n_tr == 30 and n_va == 10                # 2 symbols × 20; 25% val = 5 each
+    assert n_tr == 30 and n_va == 10                 # 2 symbols × 20; 25% val = 5 each
     assert len(y_tr) == 30
 
-    # Index the underlying datasets directly (avoids DataLoader worker processes).
-    val_ds = va.dataset
-    val_vals = [float(val_ds[i][0].mean()) for i in range(len(val_ds))]
-    assert min(val_vals) >= 15.0                    # val = rows >= cut(15): lo offset correct
-    tr_ds = tr.dataset
-    assert {int(tr_ds[i][3]) for i in range(len(tr_ds))} == {0, 8}   # both symbols in train
-    assert {int(val_ds[i][3]) for i in range(len(val_ds))} == {0, 8} # … and val (no leak)
-    assert len(tr_ds[0]) == 5                        # 5-tuple
+    tr_ds, val_ds = tr.dataset, va.dataset
+    # Window mean increases with the endpoint, so val (later endpoints) must be
+    # strictly "later" than train — confirms the chronological split + on-the-fly slice.
+    tr_max = max(float(tr_ds[i][0].mean()) for i in range(len(tr_ds)))
+    va_min = min(float(val_ds[i][0].mean()) for i in range(len(val_ds)))
+    assert va_min > tr_max
+    assert {int(tr_ds[i][3]) for i in range(len(tr_ds))} == {0, 8}    # both symbols in train
+    assert {int(val_ds[i][3]) for i in range(len(val_ds))} == {0, 8}  # … and val (no leak)
+    assert len(tr_ds[0]) == 5                         # 5-tuple
 
 
 def test_embargo_purges_train_boundary_rows():
@@ -113,6 +114,16 @@ def test_embargo_purges_train_boundary_rows():
     _, _, _, n_tr_e, n_va_e = pt.make_split_loaders(bo, batch_size=16, val_frac=0.2, embargo=30)
     assert n_va_0 == n_va_e                          # validation unchanged
     assert n_tr_0 - n_tr_e == 2 * 30                 # 2 symbols × 30 purged rows
+
+
+def test_make_split_loaders_reserves_untouched_test_tail():
+    """P1a: the last ``test_frac`` of each symbol must be excluded from BOTH train and
+    val (it's the honest hold-out the backtest scores); val is the slice just before it."""
+    bo = _array_build_out(n_per=100, sids=(0,))
+    _, _, _, n_tr, n_va = pt.make_split_loaders(bo, batch_size=16, val_frac=0.15,
+                                                test_frac=0.20, embargo=0)
+    assert n_tr == 65 and n_va == 15          # train [:65], val [65:80]
+    assert n_tr + n_va == 80                  # the last 20 (test tail) is reserved, not loaded
 
 
 def test_default_embargo_is_max_horizon():
@@ -155,9 +166,12 @@ def test_train_and_eval_run_end_to_end_cpu():
     opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
     train_loss = pt.train_epoch(model, tr, opt, loss_fns, device, scaler=None, use_amp=False)
-    val_loss, preds, labels, probs = pt.eval_epoch(model, va, loss_fns, device, use_amp=False)
+    val_loss, preds, labels, probs, returns = pt.eval_epoch(model, va, loss_fns, device, use_amp=False)
 
     assert np.isfinite(train_loss) and np.isfinite(val_loss)
     assert len(preds) == len(pt.HORIZONS)
     assert preds[0].shape == labels[0].shape
     assert probs[0].shape[1] == pt.NUM_CLASSES
+    # eval_epoch now also returns realized per-horizon returns for net-alpha selection.
+    assert len(returns) == len(pt.HORIZONS)
+    assert returns[0].shape == labels[0].shape

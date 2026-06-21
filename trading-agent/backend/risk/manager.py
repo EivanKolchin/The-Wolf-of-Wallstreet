@@ -64,23 +64,31 @@ class RiskManager:
         2.5%). Caller may omit; the floor at 0.005 keeps behaviour close to the
         legacy value when the caller doesn't know ATR.
 
-        Returns a position fraction in [min, max_single_position_pct], or None if
-        Kelly sizing is disabled (NN_KELLY_FRACTION <= 0 -> use the model's size)."""
+        Returns a position fraction in [0, max_single_position_pct], or None if
+        Kelly sizing is disabled (NN_KELLY_FRACTION <= 0 -> use the model's size).
+
+        Anti-Kelly guard: returns None when edge is too weak to bet
+        (information ratio < 1.5 or lower credible bound <= 0)."""
         frac = float(getattr(settings, "NN_KELLY_FRACTION", 0.5))
         if frac <= 0:
             return None
         max_pct = self.limits["max_single_position_pct"] / 100.0
+        edge_mean = abs(float(edge_mean))
+        edge_std = max(float(edge_std), 1e-8)
+        # Edge/uncertainty gate: minimum information ratio of 1.5
+        if edge_mean / edge_std < 1.5:
+            return None
         z = 1.0  # ~84% one-sided lower bound
-        edge_lcb = abs(float(edge_mean)) - z * max(0.0, float(edge_std))
+        edge_lcb = edge_mean - z * edge_std
         if edge_lcb <= 0:
-            return 0.02  # edge not robust under uncertainty -> minimum size
+            return None  # no robust edge -> no trade
         # ATR-scaled variance floor — 0.5% min keeps behaviour bounded for
         # calm regimes; the 2.0x coefficient gives a meaningful shrink for
         # high-vol regimes (3% ATR → 6% floor → ~3x position cut).
         variance_floor = max(0.005, 2.0 * float(atr_pct or 0.0))
-        variance = float(edge_std) ** 2 + variance_floor
+        variance = edge_std ** 2 + variance_floor
         size = frac * (edge_lcb / variance)
-        return float(min(max(size, 0.02), max_pct))
+        return float(min(max(size, 0.0), max_pct))
 
     # --------------------------------------------- Statistical R:R boundary floors
     def enforce_exit_floors(self, sl_frac: float, tp_frac: float, recent_vol: float) -> tuple[float, float]:

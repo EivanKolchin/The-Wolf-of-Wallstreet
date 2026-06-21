@@ -48,13 +48,26 @@ class Settings(BaseSettings):
     ADMIN_KEY: str = "supersecretadmin"
     LOG_LEVEL: str = "INFO"
     NN_HOLD_PROB_MULTIPLIER: float = 1.0
-    NN_MIN_ACTION_CONFIDENCE: float = 0.0
-    NN_LONG_CONFIDENCE_THRESHOLD: float = 0.0
-    NN_SHORT_CONFIDENCE_THRESHOLD: float = 0.0
+    NN_MIN_ACTION_CONFIDENCE: float = 0.0    # general ceiling: always use per-direction thresholds below
+    NN_LONG_CONFIDENCE_THRESHOLD: float = 0.40  # min long prob to trade (fixes anti-hold bias)
+    NN_SHORT_CONFIDENCE_THRESHOLD: float = 0.40 # min short prob to trade
     NN_ONLINE_PNL_NOISE_BAND: float = 0.0005
     NN_ONLINE_PNL_WEIGHT_SCALE: float = 0.01
     NN_ONLINE_WEIGHT_CAP: float = 3.0
     FEATURE_SCHEMA_VERSION: str = "v2.0"
+
+    # Train/serve unification: build the LIVE model input through the SAME
+    # backend.features pipeline the offline trainer uses (FeatureStore), instead of
+    # the legacy divergent technical.py path. Default ON — it is the correct,
+    # skew-free path. Set false ONLY to fall back to the legacy builder for A/B.
+    FEATURE_STORE_LIVE: bool = True
+    # Live 5m OHLCV buffer depth + startup backfill. The offline rolling z-score
+    # uses a 1000-bar trailing window, so the live buffer must hold ≥ ~1060 bars
+    # (1000 window + 60 sequence) for the traded rows' normalisation to MATCH
+    # offline. Backfill paginates Binance klines on startup so this is satisfied
+    # immediately rather than after days of live accumulation.
+    LIVE_OHLCV_BUFFER_BARS: int = 1300
+    LIVE_OHLCV_BACKFILL_BARS: int = 1200
 
     # API rate limiting (keep outbound calls under exchange limits)
     BINANCE_RATE_LIMIT_PER_SEC: float = 8.0
@@ -85,7 +98,10 @@ class Settings(BaseSettings):
     HW_THREAD_CAP: int = 8                  # max intra-op threads (guards E-core thrash on the i5)
     HW_USE_IGPU: bool = False               # opt-in Intel iGPU inference (shared RAM — off by default)
     # Uncertainty-gated trading (Workstream C): require edge to dominate MC noise.
-    NN_MIN_EDGE_TO_UNCERTAINTY: float = 1.0  # min |edge_mean|/(edge_std+eps) to act; 0 disables
+    NN_MIN_EDGE_TO_UNCERTAINTY: float = 1.5  # min |edge_mean|/(edge_std+eps) to act; 0 disables.
+    #                                          Matches the Kelly IR gate (risk/manager.kelly_size)
+    #                                          so a sub-1.5 IR is HELD at decision time, rather than
+    #                                          slipping through to trade at the model's default size.
     # A4 / anti-overfitting architecture knobs (model is untrained → retrain is
     # free). These must match between live (improved_model.py) and offline
     # (scripts/pretrain.py) for checkpoints to load — both read these settings.
@@ -93,15 +109,31 @@ class Settings(BaseSettings):
     #                                         dilated convs (parallel, big receptive field); switch in
     #                                         the UI, train both, let the backtest pick the winner.
     NN_RNN_TYPE: str = "lstm"               # "lstm" | "gru" (only used when NN_TRUNK="lstm")
-    NN_DROPOUT: float = 0.3                 # recurrent + trunk dropout (regularization)
-    NN_WEIGHT_DECAY: float = 1e-4           # L2 regularization (was 1e-5; modest anti-overfit bump)
+    # P1c anti-overfit: the model was memorizing (train 0.04 vs val 0.16). Shrinking the
+    # recurrent core is the strongest regularizer. MUST match between offline (pretrain.py)
+    # and live (improved_model.py) — both read these so checkpoints stay loadable.
+    NN_HIDDEN_SIZE: int = 128               # was 256 — halve the trunk width
+    NN_NUM_LAYERS: int = 2                  # was 3  — fewer recurrent layers
+    NN_DROPOUT: float = 0.35                # recurrent + trunk dropout (Tier-1 anti-overfit: 0.3 → 0.35)
+    NN_WEIGHT_DECAY: float = 2e-4           # L2 regularization (Tier-1 anti-overfit: 1e-4 → 2e-4)
     NN_LABEL_SMOOTHING: float = 0.05        # softens targets → less overconfident, less overfit
     NN_AUGMENT_NOISE_STD: float = 0.0       # Gaussian noise added to replay sequences in online AWR (0 = off)
     NN_FOCAL_GAMMA: float = 1.5             # focal loss exponent: focuses learning on the rare, hard
     #                                         directional moves vs the dominant 'hold' class (0 = plain CE)
-    NN_BARRIER_K: float = 1.0               # triple-barrier label width = K · (rolling 1-bar vol) · √horizon.
-    #                                         Vol-scaled TP/SL barriers (first-touch) → labels match real exits
-    #                                         and auto-adapt per asset. ~1.0 keeps widths near the old thresholds.
+    NN_BARRIER_K: float = 1.25              # triple-barrier label width = K · (rolling 1-bar vol) · √horizon.
+    #                                         Tier-2: 1.0 → 1.25 widens barriers → fewer noise touches → more
+    #                                         'hold' labels → less over-trading + cleaner short-horizon labels.
+    # Tier-2: temper inverse-frequency class weights toward uniform (α<1). Stops the model
+    # over-predicting long/short (hold recall was ~0.16) → fewer, higher-quality trades.
+    NN_CLASS_WEIGHT_POWER: float = 0.0      # 0.0=uniform, 1.0=full inverse-freq; uniform fixes anti-hold bias
+    # Tier-1a: per-horizon TRAINING loss weights (offline). The 15-min H+3 head is near-noise on
+    # 5m bars and shares the trunk, so down-weight it; the 1h/4h heads carry the real edge.
+    NN_HORIZON_LOSS_WEIGHTS: str = "0.2,1.0,1.0"
+    # Tier-1b: which horizon index's val trading-score selects the best checkpoint (1 = H+12/1h).
+    NN_SELECT_HORIZON: int = 1
+    # Tier-1.5: zero the 8 orderbook microstructure dims at LIVE inference so they match the
+    # offline-zero training (no historical L2 data). Turn off only after retraining WITH orderbook.
+    NN_ZERO_ORDERBOOK: bool = True
     # Offline-training recency weighting (pretrain.py): scale each sample's loss by a
     # calendar half-life on its age so the model leans toward the CURRENT regime
     # (post-COVID, AI boom) without forgetting older patterns. Training-only — does
@@ -117,7 +149,12 @@ class Settings(BaseSettings):
     ONRAMP_DEFAULT_PAYMENT_METHOD: str = "" # e.g. "google_pay" — biases the widget where supported
     ONRAMP_CRYPTO_ASSET: str = "ARBITRUM_USDC"  # asset delivered to the agent wallet
     DEPOSIT_CHAIN_ID: int = 42161           # Arbitrum One — for the EIP-681 deposit QR
-    # Anti-inaction: discourage the agent from holding forever
+    # Anti-inaction: discourage the agent from holding forever.
+    # DEFAULT OFF: forcing trades when flat is pure fee-burn for a thin-edge
+    # directional strategy (the edge lives in the high-conviction tail). The ramp
+    # only runs when NN_IDLE_HOLD_ENABLED is true; otherwise idle_pressure stays 0
+    # and the decay below is inert regardless of its value.
+    NN_IDLE_HOLD_ENABLED: bool = False     # master switch for the idle-pressure ramp
     NN_IDLE_HOLD_DECAY: float = 0.5        # at full idle pressure, hold prob scaled by (1 - this)
     NN_IDLE_PATIENCE: int = 60             # cycles of no-trade before idle pressure reaches 1.0
     NN_MIN_EDGE_OVER_FEE: float = 1.0      # require |edge| > this * round-trip fee to open a trade

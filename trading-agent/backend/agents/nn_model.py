@@ -103,6 +103,9 @@ class ValueBaseline(nn.Module):
     Operates on the policy's 64-dim shared trunk embedding. Trained to predict
     the shaped reward; its output is used (detached) to form advantages."""
 
+    # CONSIDER MODIFYING NEURAL NETWORK TO MAKE AVOID OVERFITS YET PREDICT MORE ACCURATELY AT COST OF LONGER AND MORE COMPLEX TRAININGS
+    # E.G.: DYNAMIC STRUCTURE AND DIFFERENT LEARNING ALGORITHMS
+
     def __init__(self, in_dim: int = 64):
         super().__init__()
         self.net = nn.Sequential(nn.Linear(in_dim, 32), nn.ReLU(), nn.Linear(32, 1))
@@ -133,6 +136,15 @@ class PersistentTradingModel:
 
     def __init__(self):
         self.idle_pressure = 0.0
+        # Trade the SELECTED tradeable horizon (default H+12 = 1h), NOT the H+3
+        # head. H+3 (15m) was validated as pure noise / negative expectancy, yet
+        # every inference path used to default to horizon_idx=0. Single source of
+        # truth so infer / infer_with_distribution / infer_batch all agree.
+        try:
+            _sel = int(getattr(settings, "NN_SELECT_HORIZON", 1))
+        except Exception:
+            _sel = 1
+        self.primary_horizon_idx = max(0, min(_sel, len(HORIZONS) - 1))
         self._build_fresh()
 
         self.trade_count = 0
@@ -176,13 +188,21 @@ class PersistentTradingModel:
             logger.warning("ipex_optimize_failed", error=str(e))
 
     def _cold_start(self):
+        unsafe = os.environ.get("FORCE_UNSAFE_START", "").lower() in ("true", "1", "yes")
+        if not unsafe:
+            raise RuntimeError(
+                "NO TRAINED CHECKPOINT FOUND. The model cannot trade with random weights. "
+                "Run `python scripts/pretrain.py` first, or set FORCE_UNSAFE_START=true "
+                "in your environment (development-only; never on a live account)."
+            )
+        logger.warning(
+            "model_cold_start_untrained",
+            note="No compatible v2 checkpoint. FORCE_UNSAFE_START=true — trading with "
+                 "random weights. Run scripts/pretrain.py to produce trained weights.",
+        )
         self._build_fresh()
         self.trade_count = 0
         self.cumulative_pnl = 0.0
-        logger.warning(
-            "model_cold_start_untrained",
-            note="No compatible v2 checkpoint. Run scripts/pretrain.py to produce trained weights.",
-        )
         self.safe_checkpoint(label="initial")
 
     def _load_or_initialise(self):
@@ -339,7 +359,9 @@ class PersistentTradingModel:
         return [p.detach().cpu().numpy() for p in probs_list]  # each (K, 3)
 
     def infer(self, feature_sequence: np.ndarray, symbol_id: int = 0,
-              mc_samples: int = 1, horizon_idx: int = 0) -> InferenceResult:
+              mc_samples: int = 1, horizon_idx: int | None = None) -> InferenceResult:
+        if horizon_idx is None:
+            horizon_idx = self.primary_horizon_idx
         seq = torch.tensor(np.asarray(feature_sequence), dtype=torch.float32).unsqueeze(0)
         sid = torch.tensor([int(symbol_id)], dtype=torch.long)
 
@@ -401,7 +423,7 @@ class PersistentTradingModel:
         )
 
     def infer_with_distribution(self, feature_sequence: np.ndarray, symbol_id: int = 0,
-                                 mc_samples: int = 16, horizon_idx: int = 0):
+                                 mc_samples: int = 16, horizon_idx: int | None = None):
         """A2: ONE batched MC forward yields BOTH the decision's edge stats and
         the full (K,H) predictive distribution, so the trading cycle and the
         visualization loop don't each pay for their own MC pass.
@@ -409,6 +431,8 @@ class PersistentTradingModel:
         Returns ``(InferenceResult, {"horizons", "edge_samples"})``. The
         InferenceResult's decision/size/exits match ``infer()``; its
         edge_mean/edge_std are refined from the same MC samples used for the bands."""
+        if horizon_idx is None:
+            horizon_idx = self.primary_horizon_idx
         res = self.infer(feature_sequence, symbol_id, mc_samples=1, horizon_idx=horizon_idx)
         seq = torch.tensor(np.asarray(feature_sequence), dtype=torch.float32).unsqueeze(0)
         sid = torch.tensor([int(symbol_id)], dtype=torch.long)
@@ -425,7 +449,7 @@ class PersistentTradingModel:
         return res, {"horizons": list(HORIZONS), "edge_samples": edge_samples}
 
     def infer_batch(self, sequences: list, symbol_ids: list,
-                    mc_samples: int = 16, horizon_idx: int = 0) -> list:
+                    mc_samples: int = 16, horizon_idx: int | None = None) -> list:
         """A3: cross-symbol batched inference. Runs ONE deterministic forward over
         all N symbols and ONE batched MC forward over (N*K) rows, then does the
         cheap per-symbol decision post-processing. Returns a list of
@@ -433,6 +457,8 @@ class PersistentTradingModel:
 
         Equivalent to calling ``infer_with_distribution`` per symbol, but collapses
         2N model calls into 2 — the win scales with the number of symbols."""
+        if horizon_idx is None:
+            horizon_idx = self.primary_horizon_idx
         N = len(sequences)
         if N == 0:
             return []

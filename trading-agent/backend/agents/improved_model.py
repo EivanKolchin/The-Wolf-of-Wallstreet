@@ -25,10 +25,32 @@ try:  # works whether imported as backend.agents.* or with backend/ on path
 except ImportError:  # pragma: no cover
     from backend.signals import feature_spec as fs
 
+
+_ZERO_OB_CACHE = None
+
+
+def _zero_orderbook_enabled() -> bool:
+    """Tier 1.5: whether to zero the orderbook block at inference (default True). Cached
+    after first read. See backend/core/config.py:NN_ZERO_ORDERBOOK."""
+    global _ZERO_OB_CACHE
+    if _ZERO_OB_CACHE is None:
+        try:
+            from backend.core.config import settings as _s
+            _ZERO_OB_CACHE = bool(getattr(_s, "NN_ZERO_ORDERBOOK", True))
+        except Exception:
+            _ZERO_OB_CACHE = True
+    return _ZERO_OB_CACHE
+
+
 # --- architecture constants (must match scripts/pretrain.py for weight compat) ---
-INPUT_SIZE = fs.INPUT          # 70
-HIDDEN_SIZE = 256
-NUM_LSTM_LAYERS = 3
+INPUT_SIZE = fs.INPUT          # 90 (single source of truth: feature_spec.INPUT)
+try:  # P1c: trunk size is config-driven so offline + live stay in lock-step.
+    from backend.core.config import settings as _arch_cfg
+    HIDDEN_SIZE = int(getattr(_arch_cfg, "NN_HIDDEN_SIZE", 128))
+    NUM_LSTM_LAYERS = int(getattr(_arch_cfg, "NN_NUM_LAYERS", 2))
+except Exception:
+    HIDDEN_SIZE = 128
+    NUM_LSTM_LAYERS = 2
 DROPOUT = 0.3
 SYMBOL_EMBED_DIM = 16
 HORIZONS = [3, 12, 48]         # candles ahead per direction head (5m → 15m/1h/4h)
@@ -274,6 +296,11 @@ class ImprovedTradingLSTM(nn.Module):
         return self.shared(context), attn_w            # (B, 64), (B, T)
 
     def forward(self, x: torch.Tensor, symbol_ids: torch.Tensor):
+        if _zero_orderbook_enabled():
+            # Tier 1.5: the 8 orderbook dims are zero in offline training/backtest (no historical
+            # L2 data), so feeding live nonzero values is a train/serve skew the model never learned.
+            x = x.clone()
+            x[..., fs.ORDERBOOK] = 0.0
         shared, attn_w = self._trunk(x, symbol_ids)
         logits_list = [h(shared) / self.temperature for h in self.direction_heads]
         probs_list = [F.softmax(lg, dim=-1) for lg in logits_list]

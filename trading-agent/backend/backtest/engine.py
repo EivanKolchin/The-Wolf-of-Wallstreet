@@ -39,6 +39,86 @@ def directional_signal(p_long, p_short, *, min_confidence: float = 0.4,
     return sig
 
 
+def regression_alpha_beta(strat_returns, market_returns,
+                          bars_per_year: float = BARS_PER_YEAR_5M) -> tuple:
+    """OLS of per-bar strategy returns on market (benchmark) returns → ``(alpha_ann, beta)``.
+
+    This is the explicit alpha/beta separation the analysis calls for: ``beta`` is how
+    much the strategy just rides the market, ``alpha_ann`` (annualised intercept) is the
+    skill that remains after removing that exposure. alpha>0 with |beta|≈0 = genuine
+    timing edge; alpha≈0 with beta≈1 = a long-biased model riding a rising market.
+    """
+    s = np.asarray(strat_returns, dtype=np.float64).ravel()
+    m = np.asarray(market_returns, dtype=np.float64).ravel()
+    n = min(s.size, m.size)
+    if n < 2:
+        return 0.0, 0.0
+    s, m = s[:n], m[:n]
+    mvar = float(np.var(m, ddof=1))   # ddof=1 to match np.cov's ddof=1 → unbiased beta
+    beta = float(np.cov(s, m, ddof=1)[0, 1] / mvar) if mvar > 1e-18 else 0.0
+    alpha_per_bar = float(np.mean(s) - beta * np.mean(m))
+    return alpha_per_bar * bars_per_year, beta
+
+
+def net_alpha_score(p_long, p_short, fwd_returns, *, fee_bps: float = 10.0,
+                    slippage_bps: float = 5.0, min_confidence: float = 0.0,
+                    min_edge: float = 0.0, ann: float = 252.0 ** 0.5) -> float:
+    """Cost-aware per-sample net-edge score for fast CHECKPOINT SELECTION (no equity curve).
+
+    Maps probabilities → a {-1, 0, +1} position via the SAME live gate
+    (``directional_signal``), charges round-trip cost per entry against the realized
+    forward return, and returns a Sharpe-like ratio of the net per-sample PnL. Unlike the
+    old win-rate×confidence proxy this honours BOTH trade magnitude AND costs, so the
+    selected epoch is the one that would actually make money — not the most confident one.
+    (``fwd_returns`` is the per-sample realized signed return at the horizon; holds where
+    the gate is flat contribute 0, so a model that never trades scores ~0.)"""
+    sig = directional_signal(p_long, p_short, min_confidence=min_confidence, min_edge=min_edge)
+    fwd = np.asarray(fwd_returns, dtype=np.float64).ravel()
+    n = min(sig.size, fwd.size)
+    sig, fwd = sig[:n], fwd[:n]
+    cost = (fee_bps + slippage_bps) / 1e4
+    pnl = sig * fwd - cost * np.abs(sig)
+    mean = float(pnl.mean())
+    sd = float(pnl.std())
+    # Sharpe-like ratio. When pnl has ~no variance (degenerate/constant streams) fall back
+    # to the sign of the mean so a consistent LOSER scores negative and a consistent WINNER
+    # positive (a hard std>0 guard would wrongly collapse both to 0). A no-trade stream
+    # (mean==0) still scores 0. Real model outputs always have std>0 → the Sharpe path.
+    denom = sd if sd > 1e-9 else (abs(mean) + 1e-12)
+    return float(mean / denom * ann)
+
+
+def deflated_sharpe_ratio(sr_per_period: float, n_obs: int, n_trials: int,
+                          skew: float = 0.0, kurt: float = 3.0,
+                          trial_sr_std: float = None) -> float:
+    """Probability the TRUE (per-period) Sharpe exceeds 0 after deflating for multiple
+    testing (Bailey & López de Prado, 2014).
+
+    A backtest Sharpe is inflated by how many configurations were tried — test enough
+    momentum lookbacks and one will look great by luck. The DSR discounts the observed SR
+    by the expected MAXIMUM SR under the null across ``n_trials`` independent configs, then
+    adjusts for non-normal returns (``skew``, ``kurt``) and sample length ``n_obs``.
+
+    ``sr_per_period`` is the NON-annualised Sharpe (mean/std of per-bar returns).
+    ``trial_sr_std`` is the std of the trials' SRs if known (else a 1/√n_obs estimation
+    proxy is used). Returns a probability in [0, 1]; > 0.95 is the usual "real" bar.
+    """
+    import math
+    from scipy.stats import norm
+    if n_obs < 2 or n_trials < 1:
+        return 0.0
+    gamma = 0.5772156649015329   # Euler–Mascheroni
+    var = (trial_sr_std ** 2) if (trial_sr_std and trial_sr_std > 0) else (1.0 / n_obs)
+    if n_trials <= 1:
+        sr0 = 0.0
+    else:
+        z1 = norm.ppf(1.0 - 1.0 / n_trials)
+        z2 = norm.ppf(1.0 - 1.0 / (n_trials * math.e))
+        sr0 = math.sqrt(max(var, 0.0)) * ((1.0 - gamma) * z1 + gamma * z2)
+    denom = math.sqrt(max(1e-12, 1.0 - skew * sr_per_period + ((kurt - 1.0) / 4.0) * sr_per_period ** 2))
+    return float(norm.cdf((sr_per_period - sr0) * math.sqrt(n_obs - 1.0) / denom))
+
+
 @dataclass
 class BacktestResult:
     equity: np.ndarray                 # equity curve, starts at 1.0
@@ -67,18 +147,22 @@ def compute_metrics(net_returns: np.ndarray, equity: np.ndarray,
     std = float(r.std(ddof=1)) if n > 1 else 0.0
     downside = r[r < 0]
     dstd = float(downside.std(ddof=1)) if downside.size > 1 else 0.0
-    ann = float(np.sqrt(bars_per_year))
+    # Annualization factor for Sharpe/Sortino/vol = sqrt(bars per year).
+    # BUG FIX: this was named `ann` and then OVERWRITTEN below by the annualized
+    # RETURN, so Sharpe = mean/std × (annualized return) instead of × sqrt(bars/yr).
+    # On an exploding full-notional equity curve that produced "Sharpe = 1.3e12".
+    ann_factor = float(np.sqrt(bars_per_year))
 
     out["bars"] = float(n)
     out["total_return"] = float(equity[-1] - 1.0) if equity.size else 0.0
     out["ann_return"] = 0.0
     if equity.size and n and equity[-1] > 0:
         with np.errstate(over="ignore", invalid="ignore"):
-            ann = equity[-1] ** (bars_per_year / n) - 1.0
-        out["ann_return"] = float(ann) if np.isfinite(ann) else 0.0
-    out["ann_vol"] = std * ann
-    out["sharpe"] = (mean / std * ann) if std > 1e-12 else 0.0
-    out["sortino"] = (mean / dstd * ann) if dstd > 1e-12 else 0.0
+            ann_ret = equity[-1] ** (bars_per_year / n) - 1.0
+        out["ann_return"] = float(ann_ret) if np.isfinite(ann_ret) else 0.0
+    out["ann_vol"] = std * ann_factor
+    out["sharpe"] = (mean / std * ann_factor) if std > 1e-12 else 0.0
+    out["sortino"] = (mean / dstd * ann_factor) if dstd > 1e-12 else 0.0
     out["max_drawdown"] = _max_drawdown(equity)
     # Trade-level stats
     wins = [t for t in trades if t["net"] > 0]
@@ -90,6 +174,28 @@ def compute_metrics(net_returns: np.ndarray, equity: np.ndarray,
     out["profit_factor"] = float(gross_win / gross_loss) if gross_loss > 1e-12 else (np.inf if gross_win > 0 else 0.0)
     out["avg_trade"] = float(np.mean([t["net"] for t in trades])) if trades else 0.0
     return out
+
+
+def _benchmark_metrics(net: np.ndarray, bar_ret: np.ndarray, bars_per_year: float) -> Dict[str, float]:
+    """Separate ALPHA from market BETA. Compares the strategy's per-bar net returns to a
+    passive ALWAYS-LONG benchmark (buy-and-hold the same asset):
+      • ``bench_sharpe`` / ``bench_return`` — the beta you'd get for free by just holding;
+      • ``excess_sharpe`` — information ratio of (strategy − always-long). ≈0 (or negative)
+        means the strategy adds NO skill beyond market direction — its headline Sharpe is
+        pure beta (e.g. a long-biased model in a bull window). >0 means genuine timing edge.
+    """
+    n = net.size
+    annf = float(np.sqrt(bars_per_year))
+    bmean = float(bar_ret.mean()) if n else 0.0
+    bstd = float(bar_ret.std(ddof=1)) if n > 1 else 0.0
+    active = net - bar_ret                       # strategy minus passive long
+    amean = float(active.mean()) if n else 0.0
+    astd = float(active.std(ddof=1)) if n > 1 else 0.0
+    return {
+        "bench_sharpe":  (bmean / bstd * annf) if bstd > 1e-12 else 0.0,
+        "bench_return":  float(np.cumprod(1.0 + bar_ret)[-1] - 1.0) if n else 0.0,
+        "excess_sharpe": (amean / astd * annf) if astd > 1e-12 else 0.0,
+    }
 
 
 def _segment_trades(position: np.ndarray, net_returns: np.ndarray) -> List[Dict]:
@@ -160,6 +266,7 @@ def run_backtest(close, signal, *, fee_bps: float = 10.0, slippage_bps: float = 
     metrics = compute_metrics(net, equity, trades, bars_per_year=bars_per_year)
     metrics["total_cost"] = float(cost.sum())
     metrics["turnover"] = float(turn.sum())
+    metrics.update(_benchmark_metrics(net, bar_ret, bars_per_year))   # alpha vs buy-and-hold beta
     return BacktestResult(equity=equity, net_returns=net, position=pos, trades=trades, metrics=metrics)
 
 
@@ -260,4 +367,5 @@ def run_exec_backtest(close, high, low, atr, signal, *, forecast_vol=None,
     metrics = compute_metrics(net, equity, trades, bars_per_year=bars_per_year)
     metrics["total_cost"] = float(cost.sum()); metrics["turnover"] = float(turn.sum())
     metrics["avg_exposure"] = float(np.mean(np.abs(position)))
+    metrics.update(_benchmark_metrics(net, bar_ret, bars_per_year))   # alpha vs buy-and-hold beta
     return BacktestResult(equity=equity, net_returns=net, position=position, trades=trades, metrics=metrics)

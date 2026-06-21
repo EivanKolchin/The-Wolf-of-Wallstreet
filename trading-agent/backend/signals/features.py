@@ -229,13 +229,20 @@ class FeatureVectorBuilder:
             # Time Encodings (57-60)
             # ---------------------------------------------------------
             try:
+                bar_time = df.index[-1]
+                if not isinstance(bar_time, pd.Timestamp):
+                    raise TypeError("index is not DatetimeIndex")
+                vec[57] = math.sin(2 * math.pi * bar_time.hour / 24.0)
+                vec[58] = math.cos(2 * math.pi * bar_time.hour / 24.0)
+                vec[59] = math.sin(2 * math.pi * bar_time.weekday() / 7.0)
+                vec[60] = math.cos(2 * math.pi * bar_time.weekday() / 7.0)
+            except Exception as e:
+                log.warning("Failed to encode time from bar timestamp (fallback to utcnow)", error=str(e))
                 now = datetime.utcnow()
                 vec[57] = math.sin(2 * math.pi * now.hour / 24.0)
                 vec[58] = math.cos(2 * math.pi * now.hour / 24.0)
                 vec[59] = math.sin(2 * math.pi * now.weekday() / 7.0)
                 vec[60] = math.cos(2 * math.pi * now.weekday() / 7.0)
-            except Exception as e:
-                log.warning("Failed to encode time", error=str(e))
 
         except Exception as e:
             log.error("Fatal error in feature builder", error=str(e))

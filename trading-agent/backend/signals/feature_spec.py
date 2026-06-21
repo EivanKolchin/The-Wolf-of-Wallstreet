@@ -64,6 +64,11 @@ NEWS_EMBED_DIM = 16
 EARNINGS_DIM = 4
 INPUT = BASE + HTF + NEWS_EMBED_DIM + EARNINGS_DIM  # 90
 
+# Rolling-window length (in 5m bars) for the anchored VWAP (feature 10). 96 ≈ 8h. Shared by
+# BOTH the offline builder (scripts/pretrain.py) and the live builder (signals/technical.py)
+# via rolling_vwap_distance() below, so the feature can never drift between train and serve.
+VWAP_WINDOW = 96
+
 # --- single-index features ---
 VOLUME_RATIO = 3
 SPREAD = 4
@@ -108,6 +113,36 @@ EARNINGS_START = NEWS_EMBED_END                       # 86
 EARNINGS = slice(EARNINGS_START, INPUT)               # [86:90] — earnings-calendar features
 
 
+def rolling_vwap_distance(high, low, close, volume, window: int = VWAP_WINDOW) -> np.ndarray:
+    """Causal distance of close from a ROLLING-window VWAP, as ``(close - vwap) / close``.
+
+    Replaces the old cumulative-from-series-start VWAP (``cumsum/cumsum``), which decays to a
+    near-flat constant over a multi-year history (a dead feature) AND meant something different
+    live (computed over a short buffer) than offline (4 years) — a train/serve skew. A fixed
+    rolling window is identical offline and live given the same recent ``window`` bars, so this
+    single helper is the shared source of truth for both pipelines.
+
+    Pure numpy (no pandas/talib) so it imports cleanly in the Colab trainer and the live agent.
+    The first ``window-1`` bars use an expanding window (min_periods=1 semantics).
+    """
+    eps = 1e-8
+    high = np.asarray(high, dtype=np.float64)
+    low = np.asarray(low, dtype=np.float64)
+    close = np.asarray(close, dtype=np.float64)
+    volume = np.asarray(volume, dtype=np.float64)
+    tpv = (high + low + close) / 3.0 * volume
+    c_tpv = np.cumsum(tpv)
+    c_vol = np.cumsum(volume)
+    w = max(int(window), 1)
+    roll_tpv = c_tpv.copy()
+    roll_vol = c_vol.copy()
+    if close.shape[0] > w:                       # rolling sum = cumsum[i] - cumsum[i-w]
+        roll_tpv[w:] = c_tpv[w:] - c_tpv[:-w]
+        roll_vol[w:] = c_vol[w:] - c_vol[:-w]
+    vwap = roll_tpv / (roll_vol + eps)
+    return ((close - vwap) / (close + eps)).astype(np.float32)
+
+
 def regime_index(name: str):
     """Absolute index of a regime label in the BASE vector, or None if unknown."""
     try:
@@ -118,6 +153,54 @@ def regime_index(name: str):
 
 def regime_onehot(name: str) -> list[float]:
     return [1.0 if r == name else 0.0 for r in REGIME_LABELS]
+
+
+# Human-readable name per feature index (0..INPUT-1) — drives the signal-audit IC report,
+# feature-importance prints, and the dead-feature prune list. Order MUST match the layout
+# above exactly (self-checked on import).
+FEATURE_NAMES = (
+    ["body", "upper_wick", "lower_wick", "volume_ratio", "spread",
+     "ema9_dist", "ema21_dist", "ema50_dist", "ema200_dist", "golden_cross", "vwap_dist",
+     "rsi", "macd_norm", "macd_hist", "stoch_rsi", "adx_norm", "rsi_divergence",
+     "atr_norm", "bb_width", "bb_pct_b", "vol_momentum", "obv_slope",
+     "fib_level", "fib_distance", "fib_strength",
+     "pat_doji", "pat_bull_marubozu", "pat_bear_marubozu", "pat_hammer", "pat_shooting_star",
+     "pat_3up", "pat_3down", "pat_bull_engulf", "pat_bear_engulf", "pat_spare",
+     "ob_book_imbalance", "ob_bid_depth", "ob_ask_depth", "ob_cvd_slope", "ob_cvd_div",
+     "ob_whale", "ob_bull_sweep", "ob_bear_sweep"]
+    + [f"regime_{r}" for r in REGIME_LABELS]                                  # 43-48
+    + ["news_direction", "news_magnitude", "news_confidence", "news_age"]     # 49-52
+    + ["macro_fear_greed", "macro_btc_dominance", "macro_funding", "macro_oi_change"]  # 53-56
+    + ["time_sin_hour", "time_cos_hour", "time_sin_weekday", "time_cos_weekday"]       # 57-60
+    + ["regime_confidence"]                                                   # 61
+    + ["htf_1h_rsi", "htf_1h_ema21_dist", "htf_1h_macd_hist", "htf_1h_atr",
+       "htf_4h_rsi", "htf_4h_ema21_dist", "htf_4h_trend", "htf_4h_atr"]       # 62-69
+    + [f"news_embed_{i}" for i in range(NEWS_EMBED_DIM)]                      # 70-85
+    + ["earn_time_to_next", "earn_pre_flag", "earn_post_drift", "earn_last_surprise"]  # 86-89
+)
+
+
+def feature_name(i: int) -> str:
+    """Readable name for feature index ``i`` (falls back to ``featN`` out of range)."""
+    return FEATURE_NAMES[i] if 0 <= i < len(FEATURE_NAMES) else f"feat{i}"
+
+
+# Indices that are STUBBED (zero/constant) in OFFLINE training data and therefore carry no
+# learnable signal for an offline-trained model — confirmed dead (|IC|<0.003) by the signal
+# audit. These are exactly the blocks the offline builder fills with zeros/constants:
+# orderbook, news scalars+embeddings, macro, earnings, the constant spread, the binary
+# rsi_divergence/pat_spare, and the two regime flags not derivable from OHLCV. The Phase-2
+# hybrid trains on the COMPLEMENT (ACTIVE_FEATURE_INDICES) to shed ~45% noise inputs. The
+# legacy 90-wide LSTM is unaffected (it still consumes the full vector).
+_STUB_OFFLINE = (
+    {SPREAD, 16, 34, regime_index("news_driven"), regime_index("low_liquidity")}  # spread, rsi_div, pat_spare, 2 regime flags
+    | set(range(ORDERBOOK.start, ORDERBOOK.stop))
+    | set(range(NEWS.start, NEWS.stop))
+    | set(range(MACRO.start, MACRO.stop))
+    | set(range(NEWS_EMBED_START, NEWS_EMBED_END))
+    | set(range(EARNINGS_START, INPUT))
+)
+ACTIVE_FEATURE_INDICES = [i for i in range(INPUT) if i not in _STUB_OFFLINE]  # the 49 live features
 
 
 def validate(vec: np.ndarray, *, allow_htf: bool = False) -> None:
@@ -157,6 +240,8 @@ def _self_check() -> None:
         raise AssertionError("FeatureSpec regions do not tile 0..BASE-1 exactly")
     if len(REGIME_LABELS) != (REGIME.stop - REGIME.start):
         raise AssertionError("REGIME_LABELS length must equal the REGIME slice width")
+    if len(FEATURE_NAMES) != INPUT:
+        raise AssertionError(f"FEATURE_NAMES has {len(FEATURE_NAMES)} entries, expected INPUT={INPUT}")
 
 
 _self_check()

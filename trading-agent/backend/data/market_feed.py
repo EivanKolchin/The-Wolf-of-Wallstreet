@@ -73,8 +73,17 @@ class BinanceMarketFeed:
         
         self.last_message_time = time.time()
 
-        # Data stores
-        self._closed_klines: Dict[str, deque] = {s.upper(): deque(maxlen=300) for s in self.symbols}
+        # Data stores. The 5m kline buffer must hold ≥ the offline z-score window
+        # (1000) + sequence (60) so the LIVE FeatureStore matrix matches the offline
+        # one — see backend/core/config.py:LIVE_OHLCV_BUFFER_BARS.
+        try:
+            from backend.core.config import settings as _s
+            _buf = int(getattr(_s, "LIVE_OHLCV_BUFFER_BARS", 1300))
+        except Exception:
+            _buf = 1300
+        self._kline_buffer_bars = max(300, _buf)
+        self._closed_klines: Dict[str, deque] = {
+            s.upper(): deque(maxlen=self._kline_buffer_bars) for s in self.symbols}
         self._orderbooks: Dict[str, dict] = {s.upper(): None for s in self.symbols}
         self._recent_trades: Dict[str, deque] = {s.upper(): deque(maxlen=100) for s in self.symbols}
         
@@ -82,23 +91,48 @@ class BinanceMarketFeed:
         try:
             import requests
             import asyncio
+            try:
+                from backend.core.config import settings as _s
+                target = int(getattr(_s, "LIVE_OHLCV_BACKFILL_BARS", 1200))
+            except Exception:
+                target = 1200
+            # Backfill ≥ target bars so the rolling z-score in the live FeatureStore
+            # has a full 1000-bar window (Binance caps a single klines call at 1000,
+            # so page backward by endTime until we have enough).
             def fetch():
                 for symbol in self.symbols:
-                    url = f"https://api.binance.us/api/v3/klines?symbol={symbol.upper()}&interval=5m&limit=100"
-                    resp = requests.get(url, timeout=10)
-                    if resp.status_code == 200:
+                    sym = symbol.upper()
+                    collected: list = []
+                    end_time = None
+                    for _ in range(12):  # hard cap on pages (12 * 1000 ≫ any target)
+                        url = (f"https://api.binance.us/api/v3/klines?symbol={sym}"
+                               f"&interval=5m&limit=1000")
+                        if end_time is not None:
+                            url += f"&endTime={end_time}"
+                        resp = requests.get(url, timeout=10)
+                        if resp.status_code != 200:
+                            log.warning("backfill_http_error", symbol=sym, status=resp.status_code)
+                            break
                         klines = resp.json()
-                        for k in klines:
-                            self._closed_klines[symbol.upper()].append({
-                                "timestamp": int(k[0]),
-                                "open": float(k[1]),
-                                "high": float(k[2]),
-                                "low": float(k[3]),
-                                "close": float(k[4]),
-                                "volume": float(k[5])
-                            })
+                        if not klines:
+                            break
+                        collected = klines + collected           # prepend older pages
+                        if len(collected) >= target or len(klines) < 1000:
+                            break
+                        end_time = int(klines[0][0]) - 1          # ms before earliest open
+                    # Keep only the most recent `target` bars, in chronological order.
+                    for k in collected[-target:]:
+                        self._closed_klines[sym].append({
+                            "timestamp": int(k[0]),
+                            "open": float(k[1]),
+                            "high": float(k[2]),
+                            "low": float(k[3]),
+                            "close": float(k[4]),
+                            "volume": float(k[5]),
+                        })
             await asyncio.to_thread(fetch)
-            log.info("Historical klines prefetched")
+            log.info("Historical klines prefetched", target_bars=target,
+                     loaded={s.upper(): len(self._closed_klines[s.upper()]) for s in self.symbols})
         except Exception as e:
             log.error("error_fetching_historical", error=str(e))
 

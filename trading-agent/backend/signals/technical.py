@@ -3,6 +3,8 @@ import pandas as pd
 import talib
 from structlog import get_logger
 
+from backend.signals import feature_spec as fs
+
 log = get_logger("signals.technical")
 
 def _clip_scale(val: float, min_val: float, max_val: float, target_min: float, target_max: float) -> float:
@@ -22,8 +24,12 @@ def calculate_moving_averages(df: pd.DataFrame) -> dict:
     ema_21 = pd.Series(talib.EMA(close.values, timeperiod=21), index=close.index)
     ema_50 = pd.Series(talib.EMA(close.values, timeperiod=50), index=close.index)
     ema_200 = pd.Series(talib.EMA(close.values, timeperiod=200), index=close.index)
-    vwap = (df['volume'] * (df['high'] + df['low'] + close) / 3).cumsum() / df['volume'].cumsum()
-    
+    # ROLLING-window anchored VWAP via the shared helper (was cumulative-from-buffer-start,
+    # which both decayed to a flat constant and diverged from the offline 4-year cumulative).
+    # Same helper + window as scripts/pretrain.py feat 10 → no train/serve drift in the value.
+    vwap_dist_series = fs.rolling_vwap_distance(
+        df['high'].values, df['low'].values, close.values, df['volume'].values)
+
     current_close = close.iloc[-1]
     
     def calc_dist(ema_series):
@@ -41,11 +47,8 @@ def calculate_moving_averages(df: pd.DataFrame) -> dict:
         golden_cross = 0.5
 
     try:
-        if vwap is not None and not pd.isna(vwap.iloc[-1]):
-            vwap_dist = (current_close - vwap.iloc[-1]) / vwap.iloc[-1]
-            vwap_dist_scaled = _clip_scale(vwap_dist, -0.05, 0.05, -1.0, 1.0)
-        else:
-            vwap_dist_scaled = 0.0
+        vd = float(vwap_dist_series[-1]) if len(vwap_dist_series) else float("nan")
+        vwap_dist_scaled = _clip_scale(vd, -0.05, 0.05, -1.0, 1.0) if np.isfinite(vd) else 0.0
     except Exception:
         vwap_dist_scaled = 0.0
         

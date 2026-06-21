@@ -49,8 +49,9 @@ def test_infer_with_distribution_matches_decision(tmp_path, monkeypatch):
     assert res.direction == det.direction
     assert abs(res.size - det.size) < 1e-6
     assert dist["edge_samples"].shape == (16, len(HORIZONS))
-    # edge stats on the combined result are derived from the MC samples
-    e0 = dist["edge_samples"][:, 0]
+    # edge stats on the combined result are derived from the MC samples at the
+    # horizon actually traded (primary_horizon_idx — default H+12, NOT the H+3 noise head).
+    e0 = dist["edge_samples"][:, pm.primary_horizon_idx]
     assert abs(res.edge_mean - float(np.mean(e0))) < 1e-6
     assert abs(res.edge_std - float(np.std(e0))) < 1e-6
 

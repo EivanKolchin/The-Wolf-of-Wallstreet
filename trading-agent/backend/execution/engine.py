@@ -57,15 +57,15 @@ class ExecutionEngine:
             logger.warning("order_normalisation_failed", symbol=decision.symbol, error=str(e))
             return None
 
-        # Determine stop loss and take profit for record keeping
-        stop_loss_pct = 0.05
-        take_profit_pct = 0.10
+        # Use model-provided SL/TP from the decision
+        sl_frac = float(getattr(decision, "sl", 0.0) or 0.0)
+        tp_frac = float(getattr(decision, "tp", 0.0) or 0.0)
         if decision.direction == "long":
-            stop_loss = price * (1 - stop_loss_pct)
-            take_profit = price * (1 + take_profit_pct)
+            stop_loss = price * (1 - sl_frac) if sl_frac > 0 else 0.0
+            take_profit = price * (1 + tp_frac) if tp_frac > 0 else 0.0
         else:
-            stop_loss = price * (1 + stop_loss_pct)
-            take_profit = price * (1 - take_profit_pct)
+            stop_loss = price * (1 + sl_frac) if sl_frac > 0 else 0.0
+            take_profit = price * (1 - tp_frac) if tp_frac > 0 else 0.0
 
         active_news_json = decision.active_news.to_json() if decision.active_news and hasattr(decision.active_news, 'to_json') else (decision.active_news if decision.active_news else None)
         if isinstance(active_news_json, str):
@@ -91,7 +91,14 @@ class ExecutionEngine:
         )
 
         if self.paper_mode:
-            logger.info("PAPER_TRADE_EXECUTED", symbol=decision.symbol, qty=qty, price=price, direction=decision.direction)
+            slippage_bps = max(5, int(getattr(decision, "size_pct", 0.0) * 100))  # 5-20bps based on size
+            slippage = price * slippage_bps / 10000.0
+            if decision.direction == "long":
+                price = price + slippage
+            else:
+                price = price - slippage
+            logger.info("PAPER_TRADE_EXECUTED", symbol=decision.symbol, qty=qty, price=price,
+                        direction=decision.direction, slippage_bps=slippage_bps)
         else:
             try:
                 order_type = self.select_order_type(decision)

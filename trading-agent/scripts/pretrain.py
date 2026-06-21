@@ -37,89 +37,9 @@ def _classification_report(*args, **kwargs):
     return classification_report(*args, **kwargs)
 classification_report = _classification_report  # type: ignore
 
-# pandas_ta is effectively abandoned: the classic 0.3.14b0 this code was written
-# for was pulled from PyPI, and the only remaining 0.4.x demands
-# numpy>=2.2.6 / pandas>=2.3.2 — which fights Colab's pinned pandas==2.2.2 and
-# kept making training un-installable. We only used 8 standard indicators, so we
-# vendor a tiny pure-pandas drop-in named `ta` with the SAME function names AND
-# output column order (the code reads them positionally), so behaviour is
-# unchanged but there is ZERO external indicator dependency.
-class _TA:
-    @staticmethod
-    def _rma(s, length):
-        # Wilder's smoothing (RMA), as used by pandas_ta's rsi/atr/adx.
-        return s.ewm(alpha=1.0 / length, adjust=False, min_periods=length).mean()
-
-    @staticmethod
-    def ema(close, length):
-        return close.ewm(span=length, adjust=False).mean()
-
-    @staticmethod
-    def rsi(close, length=14):
-        d = close.diff()
-        ag = _TA._rma(d.clip(lower=0.0), length)
-        al = _TA._rma((-d).clip(lower=0.0), length)
-        rs = ag / al.replace(0.0, np.nan)
-        return (100.0 - 100.0 / (1.0 + rs)).fillna(100.0)
-
-    @staticmethod
-    def macd(close, fast=12, slow=26, signal=9):
-        macd = close.ewm(span=fast, adjust=False).mean() - close.ewm(span=slow, adjust=False).mean()
-        sig = macd.ewm(span=signal, adjust=False).mean()
-        # pandas_ta order: MACD, MACDh (histogram), MACDs (signal)
-        return pd.DataFrame({"MACD": macd, "MACDh": macd - sig, "MACDs": sig})
-
-    @staticmethod
-    def stochrsi(close, length=14, rsi_length=14, k=3, d=3):
-        r = _TA.rsi(close, rsi_length)
-        lo = r.rolling(length).min()
-        hi = r.rolling(length).max()
-        st = 100.0 * (r - lo) / (hi - lo).replace(0.0, np.nan)
-        kl = st.rolling(k).mean()
-        # pandas_ta order: STOCHRSIk, STOCHRSId
-        return pd.DataFrame({"STOCHRSIk": kl, "STOCHRSId": kl.rolling(d).mean()})
-
-    @staticmethod
-    def _tr(high, low, close):
-        pc = close.shift(1)
-        return pd.concat([(high - low), (high - pc).abs(), (low - pc).abs()], axis=1).max(axis=1)
-
-    @staticmethod
-    def atr(high, low, close, length=14):
-        return _TA._rma(_TA._tr(high, low, close), length)
-
-    @staticmethod
-    def adx(high, low, close, length=14):
-        up = high.diff()
-        dn = -low.diff()
-        plus_dm = ((up > dn) & (up > 0)).astype(float) * up
-        minus_dm = ((dn > up) & (dn > 0)).astype(float) * dn
-        atr = _TA._rma(_TA._tr(high, low, close), length).replace(0.0, np.nan)
-        pdi = 100.0 * _TA._rma(plus_dm, length) / atr
-        mdi = 100.0 * _TA._rma(minus_dm, length) / atr
-        dx = 100.0 * (pdi - mdi).abs() / (pdi + mdi).replace(0.0, np.nan)
-        # pandas_ta order: ADX, DMP (+DI), DMN (-DI)
-        return pd.DataFrame({"ADX": _TA._rma(dx, length), "DMP": pdi, "DMN": mdi})
-
-    @staticmethod
-    def bbands(close, length=20, std=2.0):
-        mid = close.rolling(length).mean()
-        sd = close.rolling(length).std(ddof=0)
-        lower, upper = mid - std * sd, mid + std * sd
-        # pandas_ta order: BBL (lower), BBM (mid), BBU (upper), BBB, BBP
-        return pd.DataFrame({
-            "BBL": lower, "BBM": mid, "BBU": upper,
-            "BBB": 100.0 * (upper - lower) / mid.replace(0.0, np.nan),
-            "BBP": (close - lower) / (upper - lower).replace(0.0, np.nan),
-        })
-
-    @staticmethod
-    def obv(close, volume):
-        return (np.sign(close.diff().fillna(0.0)) * volume).cumsum()
-
-
-ta = _TA
-HAS_PANDAS_TA = True
+# Indicator shim (`ta`), feature & regime builders, HTF assembly and rolling
+# z-score now live in backend/features/pipeline.py (the single source of truth
+# shared with the live agent). Imported below after the feature_spec import.
 
 # ── project root on path ───────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -149,6 +69,14 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 from backend.signals import feature_spec as fs
+from backend.features.pipeline import (  # canonical feature math (single source of truth)
+    _TA, ta, HAS_PANDAS_TA, _safe,
+    build_feature_matrix, detect_regime, build_htf_features, apply_rolling_zscore,
+    assemble_matrix,
+)
+# Cost-aware net-alpha selection metric (replaces the win-rate×confidence proxy) — lives in
+# the leaf engine module so importing it here can't create a cycle with scripts/evaluate.py.
+from backend.backtest.engine import net_alpha_score
 
 log = get_logger("pretrain_v2")
 
@@ -161,15 +89,22 @@ SEQ_LEN         = 60              # LSTM lookback (candles @ 5m = 5 hrs)
 BASE_FEATURES   = fs.BASE         # matches live system (62)
 HTF_FEATURES    = fs.HTF          # 4 from 1h + 4 from 4h (8)
 NEWS_EMBED_FEATURES = fs.NEWS_EMBED_DIM  # Phase 3 semantic news embedding (16)
-INPUT_SIZE      = fs.INPUT        # 86 (= 62 BASE + 8 HTF + 16 NEWS_EMBED)
+INPUT_SIZE      = fs.INPUT        # 90 (= 62 BASE + 8 HTF + 16 NEWS_EMBED + 4 EARNINGS)
 
 SYMBOL_EMBED_DIM = 16
-HIDDEN_SIZE      = 256
-NUM_LSTM_LAYERS  = 3
-DROPOUT          = 0.3
+HIDDEN_SIZE      = 128    # pre-settings default; NN_HIDDEN_SIZE below overrides (P1c anti-overfit: was 256)
+NUM_LSTM_LAYERS  = 2      # pre-settings default; NN_NUM_LAYERS below overrides (P1c: was 3)
+DROPOUT          = 0.35   # pre-settings default; NN_DROPOUT below overrides (Tier-1 anti-overfit)
 HORIZONS         = [3, 12, 48]    # candles ahead for each label head
 THRESHOLDS       = [0.003, 0.005, 0.010]  # long/short threshold per horizon
 NUM_CLASSES      = 3              # 0=long, 1=short, 2=hold
+
+# P1a — honest per-symbol chronological split. Train on the first VAL_FRAC-complement,
+# SELECT on the val slice, and RESERVE the last TEST_FRAC as an untouched hold-out that
+# the model never trains or selects on. scripts/backtest.py scores exactly that tail
+# (its default --val-frac == TEST_FRAC), so the backtest is true out-of-sample.
+VAL_FRAC  = 0.15
+TEST_FRAC = 0.20
 
 # Phase 7b: stock underlyings appended to the crypto list. Order MUST match the
 # live `backend.agents.improved_model.SYMBOLS` exactly so embedding-table IDs
@@ -187,6 +122,11 @@ SYMBOLS = [
 SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
 
 DATA_DIR    = ROOT / "training_data" / "raw"
+FEATURE_CACHE_DIR = ROOT / "training_data" / "features"   # A3: prebuilt feature/label cache
+# Bump when the FEATURE COMPUTATION changes (independent of fs.VERSION, which tracks only the
+# LAYOUT). This invalidates stale caches built before a value-changing fix. "a1a2bbhtf" = the
+# Phase-A causal/VWAP/BB fixes + the HTF close-time leak fix (the audit caught HTF look-ahead).
+FEATURE_CACHE_TAG = "a1a2bbhtf"
 MODELS_DIR  = ROOT / "models"
 ZSCORE_WIN  = 1000   # rolling normalisation window
 BATCH_SIZE  = 128
@@ -195,27 +135,49 @@ LR          = 3e-4
 # regularises the model the same way the online learner does.
 try:
     from backend.core.config import settings as _settings
-    WEIGHT_DECAY = float(getattr(_settings, "NN_WEIGHT_DECAY", 1e-4))
+    WEIGHT_DECAY = float(getattr(_settings, "NN_WEIGHT_DECAY", 2e-4))
     LABEL_SMOOTHING = float(getattr(_settings, "NN_LABEL_SMOOTHING", 0.05))
-    # Recency weighting: scale each sample's loss by a calendar half-life on its
-    # age, so the model leans toward CURRENT market regimes (post-COVID normalisation,
-    # the AI-driven equity boom) while still learning from older data. HALFLIFE=2y
-    # ⇒ a 2-year-old bar counts half as much as today's; FLOOR keeps old data from
-    # ever being fully ignored (so multi-regime history is still learned).
+    DROPOUT = float(getattr(_settings, "NN_DROPOUT", 0.35))          # Tier-1 anti-overfit
+    HIDDEN_SIZE = int(getattr(_settings, "NN_HIDDEN_SIZE", 128))     # P1c: smaller trunk → less overfit
+    NUM_LSTM_LAYERS = int(getattr(_settings, "NN_NUM_LAYERS", 2))
+    # Recency weighting: scale each sample's loss by a calendar half-life on its age so
+    # the model leans toward CURRENT regimes while still learning older data (FLOOR keeps
+    # old bars from ever being fully ignored). See backend/core/config.py for rationale.
     RECENCY_HALFLIFE_YEARS = float(getattr(_settings, "NN_RECENCY_HALFLIFE_YEARS", 2.0))
     RECENCY_FLOOR = float(getattr(_settings, "NN_RECENCY_FLOOR", 0.25))
-    # Focal loss exponent — down-weights easy/abundant 'hold' samples so learning
-    # concentrates on the rare, hard long/short moves. 0 ⇒ plain weighted CE.
+    # Focal loss exponent — down-weights easy/abundant 'hold' samples (0 ⇒ plain weighted CE).
     FOCAL_GAMMA = float(getattr(_settings, "NN_FOCAL_GAMMA", 1.5))
-    # Triple-barrier label width multiple (× rolling vol × √horizon).
-    BARRIER_K = float(getattr(_settings, "NN_BARRIER_K", 1.0))
+    BARRIER_K = float(getattr(_settings, "NN_BARRIER_K", 1.25))      # Tier-2: wider barriers
+    # Tier-2: class weight power — 0 = uniform weights, 1 = pure inverse-frequency.
+    # The bias test (Step 1) proved the model has ANTI-hold bias (over-trades) with the
+    # default 0.5 — it down-weights hold as the majority class → model ignores it → trades
+    # too aggressively. Uniform (0.0) gives hold equal loss weight, fixing the over-trading.
+    CLASS_WEIGHT_POWER = float(getattr(_settings, "NN_CLASS_WEIGHT_POWER", 0.0))
+    # Tier-1a: per-horizon training loss weights — down-weight the noisy 15-min (H+3) head so
+    # it doesn't pollute the shared trunk the profitable 1h/4h heads depend on.
+    _hw_raw = str(getattr(_settings, "NN_HORIZON_LOSS_WEIGHTS", "0.2,1.0,1.0"))
+    HORIZON_LOSS_WEIGHTS = [float(x) for x in _hw_raw.split(",") if x.strip()]
+    # Tier-1b: which horizon's val trading-score selects the best checkpoint (1 = H+12/1h).
+    SELECT_HORIZON_IDX = int(getattr(_settings, "NN_SELECT_HORIZON", 1))
 except Exception:
-    WEIGHT_DECAY = 1e-4
+    WEIGHT_DECAY = 2e-4
     LABEL_SMOOTHING = 0.05
+    DROPOUT = 0.35
+    HIDDEN_SIZE = 128
+    NUM_LSTM_LAYERS = 2
     RECENCY_HALFLIFE_YEARS = 2.0
     RECENCY_FLOOR = 0.25
     FOCAL_GAMMA = 1.5
-    BARRIER_K = 1.0
+    BARRIER_K = 1.25
+    CLASS_WEIGHT_POWER = 0.0
+    HORIZON_LOSS_WEIGHTS = [0.2, 1.0, 1.0]
+    SELECT_HORIZON_IDX = 1
+
+# Tier-1a/1b: validate the weights against the actual horizon count + precompute the sum.
+if len(HORIZON_LOSS_WEIGHTS) != len(HORIZONS):
+    HORIZON_LOSS_WEIGHTS = [1.0] * len(HORIZONS)
+SELECT_HORIZON_IDX = max(0, min(SELECT_HORIZON_IDX, len(HORIZONS) - 1))
+_HW_SUM = float(sum(HORIZON_LOSS_WEIGHTS)) or 1.0
 
 VOL_WINDOW = 20   # rolling window (bars) for the 1-bar return vol that scales barriers
 
@@ -431,9 +393,17 @@ def load_or_download(
     cache_path = DATA_DIR / f"{symbol}_{interval}_{start_year}{start_month:02d}_{end_year}{end_month:02d}.parquet"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    if cache_path.exists() and not skip_download:
+    # Always prefer the cache when it exists — that's the whole point of caching.
+    # (Bug fix: the old `and not skip_download` meant --skip-download FORCED a re-download,
+    #  the exact opposite of its name — so every cell re-pulled the full history.)
+    if cache_path.exists():
         log.info("Loading from cache", path=str(cache_path))
         return pd.read_parquet(cache_path)
+    # No cache present. --skip-download means "stay offline" → fail loudly instead of downloading.
+    if skip_download:
+        raise RuntimeError(
+            f"--skip-download set but no cache at {cache_path}. Run the prefetch cell once "
+            f"(or a run without --skip-download) to populate the cache, then retry.")
 
     frames = []
     year, month = start_year, start_month
@@ -517,8 +487,17 @@ _ALPACA_TF = {"5m": "5Min", "1h": "1Hour", "4h": "4Hour"}
 _STOCK_SYMBOLS = {"SNDK", "AMD", "MU", "AXTI", "BE", "NVDA", "TSM", "SMCI"}
 
 
+def _extra_stocks() -> set:
+    """Extra US-stock tickers from PRETRAIN_EXTRA_STOCKS (space/comma-separated) so the signal
+    audit can pull a BROADER stock universe (related semis/tech) without editing the code —
+    used to test whether more stock data reveals any 5m edge before committing to a stock retrain."""
+    raw = os.environ.get("PRETRAIN_EXTRA_STOCKS", "")
+    return {x.strip().upper() for x in raw.replace(",", " ").split() if x.strip()}
+
+
 def _is_stock_symbol(sym: str) -> bool:
-    return (sym or "").upper() in _STOCK_SYMBOLS
+    s = (sym or "").upper()
+    return s in _STOCK_SYMBOLS or s in _extra_stocks()
 
 
 def _alpaca_headers() -> dict:
@@ -530,14 +509,33 @@ def _alpaca_headers() -> dict:
     }
 
 
-def load_alpaca_history(symbol: str, start_year: int, start_month: int) -> Dict[str, pd.DataFrame]:
+def load_alpaca_history(symbol: str, start_year: int, start_month: int,
+                        skip_download: bool = False) -> Dict[str, pd.DataFrame]:
     """Page through Alpaca Stock Bars (free IEX feed) from start_year-start_month
     to now, for each TF used by the live model. Returns the same shape as
     ``load_full_history``: ``{"5m": df, "1h": df, "4h": df}`` with columns
     ``timestamp, open, high, low, close, volume``.
+
+    Caches each timeframe to parquet (like the crypto path) so re-runs reuse it; with
+    ``skip_download`` it loads cache ONLY and never calls the Alpaca API.
     """
     import requests
     import datetime as _dt
+
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cache_paths = {tf: DATA_DIR / f"{symbol}_{tf}_{start_year}{start_month:02d}_alpaca.parquet"
+                   for tf in _ALPACA_TF}
+    # Always prefer cache when all timeframes are present.
+    if all(p.exists() for p in cache_paths.values()):
+        cached: Dict[str, pd.DataFrame] = {}
+        for tf, p in cache_paths.items():
+            log.info("Loading from cache", path=str(p))
+            cached[tf] = pd.read_parquet(p)
+        return cached
+    if skip_download:
+        missing = [str(p) for p in cache_paths.values() if not p.exists()]
+        raise RuntimeError(f"--skip-download set but Alpaca cache missing for {symbol}: {missing} — "
+                           f"run the prefetch cell once to populate it.")
 
     hdrs = _alpaca_headers()
     if not hdrs["APCA-API-KEY-ID"] or not hdrs["APCA-API-SECRET-KEY"]:
@@ -581,6 +579,7 @@ def load_alpaca_history(symbol: str, start_year: int, start_month: int) -> Dict[
             raise RuntimeError(f"Alpaca returned 0 bars for {symbol} @ {tf_alpaca}")
         df = pd.DataFrame(all_rows).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_convert(None)
+        df.to_parquet(cache_paths[tf_short])          # cache for re-runs / --skip-download
         out[tf_short] = df
         log.info("alpaca_history_loaded", symbol=symbol, tf=tf_short, rows=len(df))
     return out
@@ -755,7 +754,7 @@ def load_full_history(
     For US stocks: Alpaca Stock Bars (Phase 7b).
     """
     if _is_stock_symbol(symbol):
-        return load_alpaca_history(symbol, start_year, start_month)
+        return load_alpaca_history(symbol, start_year, start_month, skip_download)
 
     now   = pd.Timestamp.now()
     ey, em = now.year, now.month - 1
@@ -765,9 +764,12 @@ def load_full_history(
     dfs = {}
     for interval in ["5m", "1h", "4h"]:
         df = load_or_download(symbol, interval, start_year, start_month, ey, em, skip_download)
-        gap = api_gap_fill(symbol, interval, df["timestamp"].iloc[-1])
-        if len(gap):
-            df = pd.concat([df, gap], ignore_index=True).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+        # Gap-fill the recent tail from the API — but only when we're allowed online.
+        # With --skip-download we stay fully offline (cache only), so no per-cell network calls.
+        if not skip_download:
+            gap = api_gap_fill(symbol, interval, df["timestamp"].iloc[-1])
+            if len(gap):
+                df = pd.concat([df, gap], ignore_index=True).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
         dfs[interval] = df
 
     return dfs
@@ -777,319 +779,8 @@ def load_full_history(
 # VECTORISED FEATURE ENGINEERING
 # =============================================================================
 
-def _safe(series, fill=0.0):
-    return series.fillna(fill).values.astype(np.float32)
-
-
-def build_feature_matrix(df: pd.DataFrame) -> np.ndarray:
-    """
-    Builds (N, BASE_FEATURES=62) feature matrix for one symbol using
-    fully vectorised pandas_ta operations — no row-by-row loops.
-
-    Feature layout (matches live system):
-      [0-2]   candle body, upper wick, lower wick (scaled)
-      [3]     volume ratio vs 20-bar MA
-      [4]     spread placeholder (0.5)
-      [5-8]   EMA distances (9, 21, 50, 200)
-      [9]     golden cross (ema50 > ema200)
-      [10]    VWAP distance
-      [11]    RSI normalised
-      [12-13] MACD line, MACD hist (normalised)
-      [14]    StochRSI %K
-      [15]    ADX normalised
-      [16]    RSI divergence (binary)
-      [17]    ATR normalised
-      [18-19] BB width, BB %b
-      [20]    Volume momentum (5-bar vs 20-bar MA — was duplicate, now distinct)
-      [21]    OBV slope sign
-      [22-24] Fibonacci position, distance from 50%, range strength
-      [25-34] 10 candlestick pattern flags
-      [35-44] Orderbook slots (0.0 — filled live)
-      [45-48] Regime one-hot (ranging, bull_trend, bear_trend, volatile)
-      [49-52] News slots (0.0 — filled live)
-      [53-56] Macro slots (0.5 neutral — filled live)
-      [57-60] Time cyclical (sin/cos hour, sin/cos weekday)
-      [61]    Regime confidence
-    """
-    assert HAS_PANDAS_TA, "pandas_ta required for vectorised features"
-
-    n   = len(df)
-    out = np.zeros((n, BASE_FEATURES), dtype=np.float32)
-
-    op  = df["open"].values.astype(np.float32)
-    hi  = df["high"].values.astype(np.float32)
-    lo  = df["low"].values.astype(np.float32)
-    cl  = df["close"].values.astype(np.float32)
-    vol = df["volume"].values.astype(np.float32)
-
-    eps = 1e-8
-
-    # [0-2] Candle body / wicks
-    out[:, 0] = np.clip((cl - op) / (op + eps), -0.05, 0.05) * 20.0
-    out[:, 1] = np.clip((hi - op) / (op + eps),  0.0,  0.05) * 20.0
-    out[:, 2] = np.clip((lo - op) / (op + eps), -0.05, 0.0 ) * 20.0
-
-    # [3] Volume ratio (current / 20-bar MA)
-    vol_ma20  = pd.Series(vol).rolling(20, min_periods=1).mean().values
-    out[:, 3] = np.clip(vol / (vol_ma20 + eps), 0, 5) / 5.0
-
-    # [4] Spread placeholder
-    out[:, 4] = 0.5
-
-    # [5-8] EMA distances
-    c_series = df["close"]
-    ema9   = _safe(ta.ema(c_series, length=9))
-    ema21  = _safe(ta.ema(c_series, length=21))
-    ema50  = _safe(ta.ema(c_series, length=50))
-    ema200 = _safe(ta.ema(c_series, length=200))
-
-    out[:, 5] = np.clip((cl - ema9)   / (cl + eps), -0.1, 0.1)
-    out[:, 6] = np.clip((cl - ema21)  / (cl + eps), -0.1, 0.1)
-    out[:, 7] = np.clip((cl - ema50)  / (cl + eps), -0.1, 0.1)
-    out[:, 8] = np.clip((cl - ema200) / (cl + eps), -0.1, 0.1)
-
-    # [9] Golden cross
-    out[:, 9] = (ema50 > ema200).astype(np.float32)
-
-    # [10] VWAP distance (session-level cumulative approximation)
-    typical  = (hi + lo + cl) / 3.0
-    cum_vol  = np.cumsum(vol)
-    cum_tpv  = np.cumsum(typical * vol)
-    vwap     = cum_tpv / (cum_vol + eps)
-    out[:, 10] = np.clip((cl - vwap) / (cl + eps), -0.1, 0.1)
-
-    # [11] RSI
-    rsi = _safe(ta.rsi(c_series, length=14), fill=50.0)
-    out[:, 11] = (rsi - 50.0) / 50.0
-
-    # [12-13] MACD
-    macd_df = ta.macd(c_series)
-    if macd_df is not None and not macd_df.empty:
-        macd_line = _safe(macd_df.iloc[:, 0])
-        macd_hist = _safe(macd_df.iloc[:, 1] if macd_df.shape[1] > 1 else macd_df.iloc[:, 0])
-    else:
-        macd_line = macd_hist = np.zeros(n, dtype=np.float32)
-    out[:, 12] = np.clip(macd_line / (cl + eps) * 100, -1, 1)
-    out[:, 13] = np.clip(macd_hist / (cl + eps) * 100, -1, 1)
-
-    # [14] StochRSI
-    stoch = ta.stochrsi(c_series)
-    if stoch is not None and not stoch.empty:
-        out[:, 14] = _safe(stoch.iloc[:, 0], fill=50.0) / 100.0
-    else:
-        out[:, 14] = 0.5
-
-    # [15] ADX
-    adx_df = ta.adx(df["high"], df["low"], df["close"])
-    if adx_df is not None and not adx_df.empty:
-        out[:, 15] = np.clip(_safe(adx_df.iloc[:, 0]) / 100.0, 0, 1)
-
-    # [16] RSI divergence (sign disagreement: RSI slope vs price slope over 5 bars)
-    rsi_slope   = np.gradient(rsi)
-    price_slope = np.gradient(cl)
-    out[:, 16] = (np.sign(rsi_slope) != np.sign(price_slope)).astype(np.float32)
-
-    # [17] ATR normalised
-    atr = _safe(ta.atr(df["high"], df["low"], df["close"], length=14))
-    out[:, 17] = np.clip(atr / (cl + eps), 0, 0.1) * 10.0
-
-    # [18-19] Bollinger Bands
-    bb = ta.bbands(c_series, length=20)
-    if bb is not None and not bb.empty:
-        bb_upper = _safe(bb.iloc[:, 0])
-        bb_mid   = _safe(bb.iloc[:, 1])
-        bb_lower = _safe(bb.iloc[:, 2])
-        bb_rng   = bb_upper - bb_lower + eps
-        out[:, 18] = np.clip((bb_upper - bb_lower) / (bb_mid + eps), 0, 0.2) * 5.0
-        out[:, 19] = np.clip((cl - bb_lower) / bb_rng, -0.5, 1.5)
-
-    # [20] Volume momentum (5-bar MA vs 20-bar MA — no longer a duplicate)
-    vol_ma5   = pd.Series(vol).rolling(5,  min_periods=1).mean().values
-    out[:, 20] = np.clip(vol_ma5 / (vol_ma20 + eps), 0, 5) / 5.0
-
-    # [21] OBV slope sign
-    obv = _safe(ta.obv(c_series, df["volume"]))
-    out[:, 21] = np.sign(np.gradient(obv)).astype(np.float32)
-
-    # [22-24] Fibonacci
-    win = 50
-    roll_hi = pd.Series(hi).rolling(win, min_periods=win).max().values
-    roll_lo = pd.Series(lo).rolling(win, min_periods=win).min().values
-    fib_rng  = roll_hi - roll_lo + eps
-    fib_50   = roll_lo + fib_rng * 0.5
-    out[:, 22] = np.clip((cl - roll_lo) / fib_rng, 0, 1)
-    out[:, 23] = np.clip(np.abs(cl - fib_50) / fib_rng, 0, 0.5)
-    out[:, 24] = np.clip(fib_rng / (cl + eps), 0, 0.2) * 5.0
-
-    # [25-34] Candlestick patterns (10 binary flags)
-    body       = np.abs(cl - op)
-    rng        = (hi - lo) + eps
-    lower_wick = np.where(cl > op, op - lo, cl - lo)
-    upper_wick = np.where(cl > op, hi - cl, hi - op)
-    cl_s  = pd.Series(cl)
-    op_s  = pd.Series(op)
-    prev_cl = cl_s.shift(1).values
-    prev_op = op_s.shift(1).values
-
-    out[:, 25] = (body / rng < 0.1).astype(np.float32)                                     # doji
-    out[:, 26] = ((cl > op) & (body / rng > 0.6)).astype(np.float32)                       # bull marubozu
-    out[:, 27] = ((cl < op) & (body / rng > 0.6)).astype(np.float32)                       # bear marubozu
-    out[:, 28] = ((lower_wick > 2*body) & (upper_wick < body)).astype(np.float32)          # hammer
-    out[:, 29] = ((upper_wick > 2*body) & (lower_wick < body)).astype(np.float32)          # shooting star
-    out[:, 30] = ((cl_s > cl_s.shift(1)) & (cl_s.shift(1) > cl_s.shift(2))).astype(np.float32).values  # 3 up
-    out[:, 31] = ((cl_s < cl_s.shift(1)) & (cl_s.shift(1) < cl_s.shift(2))).astype(np.float32).values  # 3 down
-    out[:, 32] = ((cl > prev_op) & (op < prev_cl) & (prev_cl < prev_op)).astype(np.float32)  # bull engulf
-    out[:, 33] = ((cl < prev_op) & (op > prev_cl) & (prev_cl > prev_op)).astype(np.float32)  # bear engulf
-    out[:, 34] = 0.0   # spare
-
-    # [35-44] Orderbook — zeros in historical (filled live)
-    out[:, fs.ORDERBOOK] = 0.0   # 8 slots (35:43) — canonical FeatureSpec layout
-
-    # [45-48] Regime — filled by detect_regime()
-    # [49-52] News — zeros (filled live)
-    out[:, fs.NEWS] = 0.0
-
-    # [53-56] Macro — neutral
-    out[:, 53] = 0.5
-    out[:, 54] = 0.5
-    out[:, 55] = 0.0
-    out[:, 56] = 0.0
-
-    # [57-60] Time cyclical
-    ts = df["timestamp"]
-    out[:, 57] = np.sin(2 * np.pi * ts.dt.hour.values / 24.0).astype(np.float32)
-    out[:, 58] = np.cos(2 * np.pi * ts.dt.hour.values / 24.0).astype(np.float32)
-    out[:, 59] = np.sin(2 * np.pi * ts.dt.dayofweek.values / 7.0).astype(np.float32)
-    out[:, 60] = np.cos(2 * np.pi * ts.dt.dayofweek.values / 7.0).astype(np.float32)
-
-    # [61] Regime confidence — filled by detect_regime()
-    out[:, 61] = 0.5
-
-    return out
-
-
-def detect_regime(df: pd.DataFrame, features: np.ndarray) -> np.ndarray:
-    """
-    Classifies each bar into one of 4 regimes using ADX + EMA slope:
-      ranging (0), bull_trend (1), bear_trend (2), volatile (3)
-
-    Writes regime one-hot into features[:, 45:49] and
-    confidence into features[:, 61].  Modifies in-place, returns array.
-    """
-    cl     = df["close"].values.astype(np.float64)
-    ema21  = pd.Series(cl).ewm(span=21, adjust=False).mean().values
-    ema50  = pd.Series(cl).ewm(span=50, adjust=False).mean().values
-    atr14  = _safe(ta.atr(df["high"], df["low"], df["close"], length=14)).astype(np.float64)
-
-    adx_df = ta.adx(df["high"], df["low"], df["close"])
-    adx    = _safe(adx_df.iloc[:, 0]).astype(np.float64) if adx_df is not None else np.zeros(len(df))
-
-    ema_slope    = ema21 - np.roll(ema21, 5)
-    vol_norm     = atr14 / (cl + 1e-8)
-    vol_ma       = pd.Series(vol_norm).rolling(50, min_periods=1).mean().values
-    high_vol_flag = vol_norm > (1.5 * vol_ma)
-
-    trending      = adx > 25
-    bull          = trending & (ema_slope > 0) & (ema21 > ema50)
-    bear          = trending & (ema_slope < 0) & (ema21 < ema50)
-    volatile      = high_vol_flag & ~trending
-    ranging       = ~trending & ~high_vol_flag
-
-    # Clear and write the canonical 6-class regime one-hot (FeatureSpec 43:49).
-    # bull->uptrend, bear->downtrend, ranging->ranging, volatile->high_volatility.
-    # news_driven / low_liquidity are not detectable from OHLCV alone (filled live).
-    features[:, fs.REGIME] = 0.0
-    features[ranging,  fs.regime_index("ranging")] = 1.0
-    features[bull,     fs.regime_index("uptrend")] = 1.0
-    features[bear,     fs.regime_index("downtrend")] = 1.0
-    features[volatile, fs.regime_index("high_volatility")] = 1.0
-
-    # Confidence = normalised ADX (0–1)
-    features[:, fs.REGIME_CONFIDENCE] = np.clip(adx / 50.0, 0, 1).astype(np.float32)
-
-    return features
-
-
-def build_htf_features(df_5m: pd.DataFrame, df_1h: pd.DataFrame, df_4h: pd.DataFrame) -> np.ndarray:
-    """
-    Builds (N_5m, HTF_FEATURES=8) matrix.
-    For each 5m bar, looks up the most recent completed 1h / 4h bar.
-    Strictly backward-looking — no lookahead.
-
-    1h features (4): rsi_norm, ema21_dist, macd_hist_norm, atr_norm
-    4h features (4): rsi_norm, ema21_dist, trend_dir, atr_norm
-    """
-    n = len(df_5m)
-    htf = np.zeros((n, HTF_FEATURES), dtype=np.float32)
-    eps = 1e-8
-
-    def _make_htf_signals(df_htf: pd.DataFrame) -> pd.DataFrame:
-        cl = df_htf["close"]
-        rsi_n    = (_safe(ta.rsi(cl, length=14), 50.0) - 50.0) / 50.0
-        ema21    = _safe(ta.ema(cl, length=21))
-        ema50    = _safe(ta.ema(cl, length=50))
-        cl_v     = cl.values.astype(np.float32)
-        ema21_d  = np.clip((cl_v - ema21) / (cl_v + eps), -0.1, 0.1)
-        macd_df  = ta.macd(cl)
-        if macd_df is not None and not macd_df.empty:
-            mh = _safe(macd_df.iloc[:, 1] if macd_df.shape[1] > 1 else macd_df.iloc[:, 0])
-        else:
-            mh = np.zeros(len(df_htf), np.float32)
-        macd_n   = np.clip(mh / (cl_v + eps) * 100, -1, 1)
-        atr_n    = np.clip(_safe(ta.atr(df_htf["high"], df_htf["low"], cl, length=14)) / (cl_v + eps), 0, 0.1) * 10.0
-        trend    = (ema21 > ema50).astype(np.float32) * 2 - 1  # +1 bull, -1 bear
-
-        return pd.DataFrame({
-            "timestamp": df_htf["timestamp"].values,
-            "rsi_n": rsi_n, "ema21_d": ema21_d,
-            "macd_n": macd_n, "atr_n": atr_n, "trend": trend
-        })
-
-    sig1h = _make_htf_signals(df_1h).set_index("timestamp")
-    sig4h = _make_htf_signals(df_4h).set_index("timestamp")
-
-    ts5m = df_5m["timestamp"].values
-
-    # For each 5m bar, find the last completed HTF bar (strictly before)
-    for i, ts in enumerate(ts5m):
-        # 1h
-        idx1h = sig1h.index.searchsorted(ts, side="left") - 1
-        if idx1h >= 0:
-            row = sig1h.iloc[idx1h]
-            htf[i, 0] = row["rsi_n"]
-            htf[i, 1] = row["ema21_d"]
-            htf[i, 2] = row["macd_n"]
-            htf[i, 3] = row["atr_n"]
-        # 4h
-        idx4h = sig4h.index.searchsorted(ts, side="left") - 1
-        if idx4h >= 0:
-            row = sig4h.iloc[idx4h]
-            htf[i, 4] = row["rsi_n"]
-            htf[i, 5] = row["ema21_d"]
-            htf[i, 6] = row["trend"]
-            htf[i, 7] = row["atr_n"]
-
-    return htf
-
-
-def apply_rolling_zscore(features: np.ndarray, window: int = ZSCORE_WIN, min_periods: int = 50) -> np.ndarray:
-    """
-    Per-feature rolling z-score normalisation.
-    Computes mean/std over a backward window only — zero future leakage.
-    Columns that are clearly binary/one-hot (low variance) are skipped.
-    """
-    df = pd.DataFrame(features.astype(np.float64))
-    stds = df.std()
-    skip_cols = stds[stds < 0.05].index.tolist()  # skip binary/constant columns
-
-    roll_mean = df.rolling(window=window, min_periods=min_periods).mean()
-    roll_std  = df.rolling(window=window, min_periods=min_periods).std()
-
-    normed = (df - roll_mean) / (roll_std + 1e-8)
-    normed[skip_cols] = df[skip_cols]  # restore binary columns as-is
-    normed.fillna(0.0, inplace=True)
-
-    return normed.values.astype(np.float32)
+# build_feature_matrix / detect_regime / build_htf_features / apply_rolling_zscore
+# and the `_safe` helper are imported from backend.features.pipeline (above).
 
 
 # =============================================================================
@@ -1240,64 +931,6 @@ def build_sequences(
     return X_arr, y_arr, R_arr
 
 
-def _build_sequences_to_file(
-    features: np.ndarray,
-    labels: np.ndarray,
-    returns: np.ndarray,
-    out_path: str,
-    seq_len: int = SEQ_LEN,
-    chunk: int = 8192,
-) -> Tuple[np.ndarray, np.ndarray, int]:
-    """RAM-safe sibling of ``build_sequences`` for the ``--mmap`` path.
-
-    ``build_sequences`` materialises the WHOLE symbol as one float32 array
-    (BTCUSDT ≈ 464k × 60 × 86 × 4B ≈ 9.6 GB), then ``np.save`` adds a float16
-    copy on top — peaking ~14 GB and getting OOM-killed on Colab (the spurious
-    "^C" after "Building sequences"). This streams the sliding windows straight
-    into a float16 ``.npy`` memmap on disk in small chunks, so peak RAM is ~one
-    chunk (~0.2 GB) regardless of symbol size.
-
-    Masking, endpoint indexing and X/y/R alignment match ``build_sequences``
-    exactly. Returns ``(y, R, n_seq)``; the X windows live on disk at ``out_path``.
-    """
-    from numpy.lib.stride_tricks import sliding_window_view
-
-    n, feat_dim = features.shape
-    H = labels.shape[1]
-    empty_y = np.empty((0, H), np.int64)
-    empty_r = np.empty((0, returns.shape[1]), np.float32)
-    if n <= seq_len:
-        return empty_y, empty_r, 0
-
-    # Endpoint i in [seq_len, n): window = features[i-seq_len:i], label = labels[i-1].
-    # Drop windows whose label row is masked (-1) — identical to build_sequences.
-    ends   = np.arange(seq_len, n)
-    keep   = ~np.any(labels[ends - 1] == -1, axis=1)
-    ends   = ends[keep]
-    m      = int(ends.shape[0])
-    if m == 0:
-        return empty_y, empty_r, 0
-
-    y = labels[ends - 1].astype(np.int64)
-    R = returns[ends - 1].astype(np.float32)
-
-    feats32 = np.ascontiguousarray(features, dtype=np.float32)
-    # Zero-copy view of every window: swv[j] == features[j:j+seq_len].T  (F, seq_len)
-    swv     = sliding_window_view(feats32, seq_len, axis=0)
-    starts  = ends - seq_len
-
-    Xmm = np.lib.format.open_memmap(
-        out_path, mode="w+", dtype=np.float16, shape=(m, seq_len, feat_dim))
-    for s in range(0, m, chunk):
-        e = min(s + chunk, m)
-        # Gather only this chunk's windows into RAM, then store as float16.
-        block = swv[starts[s:e]]                       # (cs, F, seq_len) float32
-        Xmm[s:e] = block.transpose(0, 2, 1).astype(np.float16)
-    Xmm.flush()
-    del Xmm, swv, feats32
-    return y, R, m
-
-
 # =============================================================================
 # MULTI-SYMBOL DATASET
 # =============================================================================
@@ -1322,37 +955,115 @@ def _recency_weights(timestamps, ref_ts,
 
 
 class _SeqDataset(Dataset):
-    """Fork-safe streaming dataset for the float16 memmap path. ``X`` is either a
-    ``.npy`` PATH (opened lazily inside each DataLoader worker, so the memmap is
-    never pickled/duplicated across workers) or an in-RAM array (tests). Yields one
-    sequence cast to float32 plus its label / future-return / symbol-id / recency
-    weight — a 5-tuple — so RAM stays tiny regardless of dataset size.
+    """Builds each ``(seq_len, F)`` window ON THE FLY from the symbol's feature
+    matrix, rather than reading a pre-expanded window. Consecutive windows overlap
+    by ``seq_len-1`` bars, so storing the matrix instead of every window is
+    ~``seq_len``× smaller (≈1.3 GB vs ≈53 GB for the full 18-symbol set) → the whole
+    dataset fits in RAM cache and training is GPU-bound, not disk-bound. The windows
+    are mathematically identical, so there is no effect on the model.
 
-    ``lo`` lets a train/val split point at a sub-range of the symbol's file while
-    ``y/R/s/w`` are pre-sliced to match (so the per-symbol memmap is reused for
-    both splits without copying)."""
-    def __init__(self, X, y, R, s, w=None, lo: int = 0):
-        self._x_path = str(X) if isinstance(X, (str, os.PathLike)) else None
-        self._X      = None if self._x_path else X
-        self.lo      = int(lo)
+    ``feats`` is a ``.npy`` PATH (opened lazily inside each DataLoader worker, so the
+    memmap isn't pickled/duplicated) or an in-RAM array; ``ends`` are the window END
+    indices (window = ``feats[end-seq_len:end]``). ``y/R/s/w`` are pre-sliced to
+    match ``ends`` for the train/val split, so both splits share the one feature file."""
+    def __init__(self, feats, ends, y, R, s, w=None, seq_len: int = SEQ_LEN):
+        self._fpath  = str(feats) if isinstance(feats, (str, os.PathLike)) else None
+        self._F      = None if self._fpath else np.asarray(feats)
+        self.ends    = np.ascontiguousarray(np.asarray(ends, dtype=np.int64))
+        self.seq_len = int(seq_len)
         self.y = torch.from_numpy(np.ascontiguousarray(y))
         self.R = torch.from_numpy(np.ascontiguousarray(R))
         self.s = torch.from_numpy(np.ascontiguousarray(s))
         if w is None:
-            w = np.ones(len(self.y), dtype=np.float32)
+            w = np.ones(len(self.ends), dtype=np.float32)
         self.w = torch.from_numpy(np.ascontiguousarray(np.asarray(w, dtype=np.float32)))
 
-    def _arr(self):
-        if self._X is None:                      # opened once per worker process
-            self._X = np.load(self._x_path, mmap_mode="r")
-        return self._X
+    def _feats(self):
+        if self._F is None:                      # opened once per worker process
+            self._F = np.load(self._fpath, mmap_mode="r")
+        return self._F
 
     def __len__(self):
-        return len(self.y)
+        return len(self.ends)
 
     def __getitem__(self, i):
-        xi = np.asarray(self._arr()[self.lo + i], dtype=np.float32)
+        e = int(self.ends[i])
+        xi = np.asarray(self._feats()[e - self.seq_len:e], dtype=np.float32)
         return torch.from_numpy(xi), self.y[i], self.R[i], self.s[i], self.w[i]
+
+
+def assemble_feature_matrix(df5m, df1h, df4h, sym: str) -> np.ndarray:
+    """The CANONICAL ``(N, INPUT_SIZE)`` feature matrix — the SINGLE assembly shared by
+    BOTH ``build_dataset`` (training) and ``scripts/backtest.py`` (evaluation), so the
+    two can never drift in width again (the bug that made every backtest symbol SKIP).
+
+    Order MUST match ``backend/signals/feature_spec.py`` exactly:
+        base(62) + htf(8)  →  rolling z-score  →  + news_embed(16)  →  + earnings(4)
+    The news/earnings blocks are appended AFTER z-scoring (raw, matching what the live
+    agent inserts) and are zeros when their ``PRETRAIN_*_ALIGN`` flags are off — but the
+    WIDTH is always ``INPUT_SIZE`` regardless of the flags.
+    """
+    # Build the offline news/earnings alignment matrices (gated behind PRETRAIN_*_ALIGN;
+    # zeros when off), then hand off to the SHARED assembly core in
+    # backend.features.pipeline so offline / backtest / live can never drift in formula
+    # or order again. The live agent calls the same assemble_matrix with its own
+    # per-bar news/earnings matrices.
+    news_mat = build_news_embed_matrix(df5m, sym)
+    earnings_mat = build_earnings_matrix(df5m, sym)
+    return assemble_matrix(df5m, df1h, df4h, news_mat=news_mat, earnings_mat=earnings_mat)
+
+
+def _feature_cache_path(sym: str, start_year: int, start_month: int) -> Path:
+    """Cache key includes everything that changes the bytes: symbol, history start, the layout
+    VERSION, the computation TAG, and the news/earnings align flags (news-on vs news-off yield
+    different matrices)."""
+    news = "1" if os.environ.get("PRETRAIN_NEWS_ALIGN", "0") in ("1", "true", "True") else "0"
+    earn = "1" if os.environ.get("PRETRAIN_EARNINGS_ALIGN", "0") in ("1", "true", "True") else "0"
+    cache_dir = Path(os.environ.get("PRETRAIN_FEATURE_CACHE_DIR", str(FEATURE_CACHE_DIR)))
+    fname = f"{sym}_{start_year}{start_month:02d}_{FEATURE_VERSION}_{FEATURE_CACHE_TAG}_n{news}_e{earn}.npz"
+    return cache_dir / fname
+
+
+def assemble_with_cache(sym: str, start_year: int, start_month: int, skip_download: bool):
+    """Return ``(combined, labels, returns, timestamps)`` for one symbol, using an on-disk cache.
+
+    The ~50s/symbol feature build + label build is the bulk of dataset assembly and is repeated
+    by every separate ``python pretrain.py`` process (each Colab experiment cell). Caching the
+    assembled matrix lets experiment 2/3 and any rerun skip straight to training. The cache
+    validates INPUT_SIZE / HORIZONS / BARRIER_K before use and rebuilds on any mismatch; set
+    ``PRETRAIN_FEATURE_CACHE_DISABLE=1`` to bypass. A cache HIT needs no raw parquet at all."""
+    p = _feature_cache_path(sym, start_year, start_month)
+    disabled = os.environ.get("PRETRAIN_FEATURE_CACHE_DISABLE", "0") in ("1", "true", "True")
+    if p.exists() and not disabled:
+        try:
+            z = np.load(p, allow_pickle=False)
+            if (int(z["input_size"]) == INPUT_SIZE
+                    and list(map(int, z["horizons"])) == list(HORIZONS)
+                    and abs(float(z["barrier_k"]) - float(BARRIER_K)) < 1e-9):
+                log.info("Loaded features from cache (skipping rebuild)", symbol=sym, path=str(p))
+                return z["combined"], z["labels"], z["returns"], z["timestamps"]
+            log.info("Feature cache stale (config changed) → rebuild", symbol=sym)
+        except Exception as e:
+            log.warning("Feature cache unreadable → rebuild", symbol=sym, error=str(e)[:80])
+
+    dfs = load_full_history(sym, start_year, start_month, skip_download)   # raises if no data
+    df5m, df1h, df4h = dfs["5m"], dfs["1h"], dfs["4h"]
+    log.info("Building features (base+htf+news+earnings)", symbol=sym, rows=len(df5m))
+    combined = assemble_feature_matrix(df5m, df1h, df4h, sym)
+    log.info("Building labels (triple-barrier, vol-scaled)", symbol=sym)
+    labels, returns = triple_barrier_labels(df5m, HORIZONS, BARRIER_K)
+    ts = df5m["timestamp"].to_numpy()                                     # datetime64[ns]
+    if not disabled:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(p, combined=combined.astype(np.float32), labels=labels.astype(np.int64),
+                     returns=returns.astype(np.float32), timestamps=ts,
+                     input_size=np.int64(INPUT_SIZE), horizons=np.asarray(HORIZONS, np.int64),
+                     barrier_k=np.float64(BARRIER_K))
+            log.info("Cached features for reuse", symbol=sym, path=str(p))
+        except Exception as e:
+            log.warning("Feature cache write failed (continuing)", symbol=sym, error=str(e)[:80])
+    return combined, labels, returns, ts
 
 
 def build_dataset(
@@ -1394,41 +1105,13 @@ def build_dataset(
         log.info("Processing symbol", symbol=sym)
 
         try:
-            dfs = load_full_history(sym, start_year, start_month, skip_download)
+            # A3: shared cache — skips the ~50s/symbol feature+label build on reruns and across
+            # the separate experiment processes. A cache hit needs no raw parquet at all.
+            combined, labels, returns, timestamps = assemble_with_cache(
+                sym, start_year, start_month, skip_download)
         except RuntimeError as e:
             log.error("Skipping symbol — no data", symbol=sym, error=str(e))
             continue
-
-        df5m = dfs["5m"]
-        df1h = dfs["1h"]
-        df4h = dfs["4h"]
-
-        log.info("Building base features", symbol=sym, rows=len(df5m))
-        base_feats = build_feature_matrix(df5m)           # (N, 62)
-        base_feats = detect_regime(df5m, base_feats)      # fills regime slots
-
-        log.info("Building HTF features", symbol=sym)
-        htf_feats  = build_htf_features(df5m, df1h, df4h) # (N, 8)
-
-        combined   = np.concatenate([base_feats, htf_feats], axis=1)  # (N, 70)
-
-        log.info("Normalising", symbol=sym)
-        combined   = apply_rolling_zscore(combined)
-
-        # Phase 3: append the semantic NEWS_EMBED block AFTER z-scoring, so the
-        # raw L2-normalized embeddings match exactly what the live agent inserts
-        # (the live builder does not z-score the embed block).
-        log.info("Aligning news embeddings", symbol=sym)
-        news_embed = build_news_embed_matrix(df5m, sym)               # (N, 16) raw or zeros
-        combined   = np.concatenate([combined, news_embed], axis=1)   # (N, 86)
-
-        # Cycle 7: earnings-calendar block (stocks only; zeros otherwise) → (N, 90).
-        earnings   = build_earnings_matrix(df5m, sym)                 # (N, 4) raw or zeros
-        combined   = np.concatenate([combined, earnings], axis=1)     # (N, 90)
-
-        log.info("Building labels (triple-barrier, vol-scaled)", symbol=sym)
-        # One pass → matched labels + signed returns (first-touch TP/SL/time barriers).
-        labels, returns = triple_barrier_labels(df5m, HORIZONS, BARRIER_K)
 
         # Recency weight per surviving sample — computed from the SAME valid mask
         # the sequence builders apply (endpoints in [SEQ_LEN, N) whose label row
@@ -1437,23 +1120,26 @@ def build_dataset(
         ends   = np.arange(SEQ_LEN, len(labels))
         keep   = ~np.any(labels[ends - 1] == -1, axis=1)
         ends   = ends[keep]
-        w_rec  = _recency_weights(df5m["timestamp"].to_numpy()[ends - 1], ref_ts)
+        w_rec  = _recency_weights(timestamps[ends - 1], ref_ts)
 
-        log.info("Building sequences", symbol=sym)
+        log.info("Building windows (on-the-fly from feature matrix)", symbol=sym)
         if use_mmap:
-            # RAM-safe: stream this symbol's windows straight to a float16 file
-            # (peak RAM ~one chunk) instead of materialising the whole symbol as
-            # float32 (BTC ≈ 9.6 GB → Colab OOM). The per-symbol file is KEPT and
-            # trained from directly — no 41 GB assembled second copy, so peak disk
-            # is ~½ and the chronological train/val split stays per-symbol.
-            p = os.path.join(mmap_dir, f"_X_{sym}.npy")
-            y, R, n_seq = _build_sequences_to_file(combined, labels, returns, p)
-            if n_seq == 0:
+            # Store the (N, F) feature matrix + the valid window-END indices. Windows
+            # are sliced on the fly at read time (see _SeqDataset), so the on-disk
+            # dataset is ~seq_len× smaller than the expanded windows → it fits in RAM
+            # and training is GPU-bound, not disk-bound. Identical windows, no quality
+            # change. `ends` + `w_rec` were computed above from the same valid mask.
+            if len(ends) == 0:
                 log.warning("No sequences produced", symbol=sym)
                 continue
+            fpath = os.path.join(mmap_dir, f"_F_{sym}.npy")
+            np.save(fpath, combined.astype(np.float16))
+            y = labels[ends - 1].astype(np.int64)
+            R = returns[ends - 1].astype(np.float32)
+            n_seq = int(len(ends))
             assert n_seq == len(w_rec), (sym, n_seq, len(w_rec))   # alignment guard
-            parts.append({"path": p, "n": n_seq, "y": y, "R": R,
-                          "s": np.full(n_seq, sym_id, np.int64), "w": w_rec})
+            parts.append({"feat_path": fpath, "ends": ends.astype(np.int64), "n": n_seq,
+                          "y": y, "R": R, "s": np.full(n_seq, sym_id, np.int64), "w": w_rec})
             log.info("Symbol done", symbol=sym, sequences=n_seq,
                      class_dist_h0=str(np.bincount(y[:, 0])))
         else:
@@ -1468,15 +1154,15 @@ def build_dataset(
                      class_dist_h0=str(np.bincount(y[:, 0])))
 
     # Tagged return so make_split_loaders knows which path to take:
-    #   ("parts", [ {path, n, y, R, s, w} per symbol ])  — low-disk memmap path
-    #   ("array", X, y, R, sym_ids, w)                    — in-RAM path (tests/local)
+    #   ("parts", [ {feat_path, ends, n, y, R, s, w} per symbol ])  — on-the-fly windows
+    #   ("array", X, y, R, sym_ids, w)                              — in-RAM path (tests/local)
     if use_mmap:
         if not parts:
             raise RuntimeError("No symbols produced any sequences")
         total = sum(p["n"] for p in parts)
-        gb    = total * SEQ_LEN * INPUT_SIZE * 2 / 1e9
-        log.info("Dataset ready (per-symbol float16 memmaps — no assembly copy)",
-                 total_sequences=total, approx_gb=round(gb, 2), symbols=len(parts))
+        feat_gb = sum(os.path.getsize(p["feat_path"]) for p in parts) / 1e9
+        log.info("Dataset ready (on-the-fly windows from feature matrices — fits in RAM)",
+                 total_sequences=total, feature_gb=round(feat_gb, 2), symbols=len(parts))
         return ("parts", parts)
     if not all_X:
         raise RuntimeError("No symbols produced any sequences")
@@ -1486,9 +1172,15 @@ def build_dataset(
             np.concatenate(all_sym), np.concatenate(all_w))
 
 
-def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2, embargo: int = None):
-    """Train/val DataLoaders with a PER-SYMBOL chronological split: the last
-    ``val_frac`` of EACH symbol becomes validation. This fixes the old global-tail
+def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2,
+                       test_frac: float = 0.0, embargo: int = None):
+    """Train/val DataLoaders with a PER-SYMBOL chronological split.
+
+    P1a: the LAST ``test_frac`` of each symbol is RESERVED as an untouched hold-out
+    (never trained or selected on — that's what scripts/backtest.py scores). The
+    ``val_frac`` slice immediately *before* the test tail is the selection/early-stop
+    set. ``test_frac=0`` reproduces the old train+val-only behaviour. This fixes the
+    old global-tail
     split (which put the dataset's last rows — entirely the stock symbols — into
     val, leaving crypto unvalidated and leaking symbol order). Every batch is a
     5-tuple ``(X, y, future_returns, symbol_id, recency_weight)``.
@@ -1510,15 +1202,28 @@ def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2, embarg
 
     if kind == "parts":
         for pt in build_out[1]:
-            n = pt["n"]; cut = max(1, min(n - 1, int(n * (1.0 - val_frac))))
-            tr_hi = max(1, cut - embargo)         # purge label-overlap rows at the boundary
-            # One float16 file feeds BOTH splits via the `lo` offset (no copy).
-            train_sets.append(_SeqDataset(pt["path"], pt["y"][:tr_hi], pt["R"][:tr_hi],
-                                          pt["s"][:tr_hi], pt["w"][:tr_hi], lo=0))
-            val_sets.append(_SeqDataset(pt["path"], pt["y"][cut:], pt["R"][cut:],
-                                        pt["s"][cut:], pt["w"][cut:], lo=cut))
+            n = pt["n"]
+            te  = max(2, min(n, int(n * (1.0 - test_frac))))                  # test = [te:] (reserved, untouched)
+            cut = max(1, min(te - 1, int(n * (1.0 - test_frac - val_frac))))  # val  = [cut:te]
+            tr_hi = max(1, cut - embargo)                                     # train = [:tr_hi] (label-overlap purged)
+            # One feature file feeds the splits; the sliced `ends` select each split's
+            # windows (built on the fly in _SeqDataset). The last `test_frac` is never
+            # used for training/selection → it's the honest hold-out the backtest scores.
+            train_sets.append(_SeqDataset(pt["feat_path"], pt["ends"][:tr_hi], pt["y"][:tr_hi],
+                                          pt["R"][:tr_hi], pt["s"][:tr_hi], pt["w"][:tr_hi]))
+            val_sets.append(_SeqDataset(pt["feat_path"], pt["ends"][cut:te], pt["y"][cut:te],
+                                        pt["R"][cut:te], pt["s"][cut:te], pt["w"][cut:te]))
             y_tr_blocks.append(pt["y"][:tr_hi])
-        num_workers = 2
+        # More workers parallelise the random memmap reads (the bottleneck at
+        # 18-symbol / ~50 GB scale where the dataset doesn't fit in RAM cache).
+        _env = os.environ.get("PRETRAIN_NUM_WORKERS")
+        if _env is not None:
+            try:
+                num_workers = max(0, int(_env))
+            except (ValueError, TypeError):
+                num_workers = 0
+        else:
+            num_workers = min(8, max(2, os.cpu_count() or 2))
     elif kind == "array":
         _, X, y, R, s, w = build_out
 
@@ -1532,11 +1237,12 @@ def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2, embarg
             )
 
         for sid in np.unique(s):
-            idx = np.where(s == sid)[0]
-            cut = max(1, min(len(idx) - 1, int(len(idx) * (1.0 - val_frac))))
+            idx = np.where(s == sid)[0]; ni = len(idx)
+            te  = max(2, min(ni, int(ni * (1.0 - test_frac))))                 # reserved test tail [te:]
+            cut = max(1, min(te - 1, int(ni * (1.0 - test_frac - val_frac))))  # val [cut:te]
             tr_hi = max(1, cut - embargo)
             train_sets.append(_tensor_ds(idx[:tr_hi]))
-            val_sets.append(_tensor_ds(idx[cut:]))
+            val_sets.append(_tensor_ds(idx[cut:te]))
             y_tr_blocks.append(y[idx[:tr_hi]])
         num_workers = 0
     else:
@@ -1546,12 +1252,13 @@ def make_split_loaders(build_out, batch_size: int, val_frac: float = 0.2, embarg
     val_ds   = ConcatDataset(val_sets)
     y_train  = np.concatenate(y_tr_blocks, axis=0)
     persist  = num_workers > 0          # keep workers (+ their lazy memmaps) across epochs
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                              pin_memory=True, num_workers=num_workers,
-                              persistent_workers=persist)
-    val_loader   = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
-                              pin_memory=True, num_workers=num_workers,
-                              persistent_workers=persist)
+    dl_kwargs = dict(batch_size=batch_size, pin_memory=True, num_workers=num_workers,
+                     persistent_workers=persist)
+    if num_workers > 0:
+        dl_kwargs["prefetch_factor"] = 4   # each worker stages 4 batches ahead → hides disk latency
+    log.info("DataLoaders ready", num_workers=num_workers, batch_size=batch_size)
+    train_loader = DataLoader(train_ds, shuffle=True, **dl_kwargs)
+    val_loader   = DataLoader(val_ds, shuffle=False, **dl_kwargs)
     return train_loader, val_loader, y_train, len(train_ds), len(val_ds)
 
 
@@ -1570,7 +1277,9 @@ def make_weighted_loss(y_train: np.ndarray, *, per_sample: bool = True) -> List[
         labels_h = y_train[:, h]
         counts   = np.bincount(labels_h, minlength=NUM_CLASSES).astype(np.float64)
         counts   = np.where(counts == 0, 1, counts)
-        weights  = 1.0 / counts
+        # Tier 2: temper the inverse-frequency weights toward uniform (α<1) so 'hold'
+        # isn't crushed → the model trades less and more selectively.
+        weights  = np.power(1.0 / counts, CLASS_WEIGHT_POWER)
         weights /= weights.sum()
         w_tensor = torch.FloatTensor(weights)
         # A4 anti-overfit: label smoothing softens the hard targets.
@@ -1628,8 +1337,9 @@ def train_epoch(model, loader, optimizer, loss_fns, device, scaler=None, use_amp
                 med   = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
                 w_pnl = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0)
                 w     = w_pnl * bw                      # … × calendar recency weight
-                loss  = loss + _apply_horizon_loss(loss_fn_d, logits, by[:, h_idx], w)
-            loss = loss / len(HORIZONS)
+                # Tier 1a: per-horizon weight so the noisy H+3 head barely drives the trunk.
+                loss  = loss + HORIZON_LOSS_WEIGHTS[h_idx] * _apply_horizon_loss(loss_fn_d, logits, by[:, h_idx], w)
+            loss = loss / _HW_SUM                        # weighted-mean over horizons
 
         if use_amp and scaler is not None:
             scaler.scale(loss).backward()
@@ -1653,9 +1363,10 @@ def eval_epoch(model, loader, loss_fns, device, use_amp=False):
     model.eval()
     total_loss = 0.0
     n_batches  = 0
-    all_preds  = [[] for _ in HORIZONS]
-    all_labels = [[] for _ in HORIZONS]
-    all_probs  = [[] for _ in HORIZONS]
+    all_preds   = [[] for _ in HORIZONS]
+    all_labels  = [[] for _ in HORIZONS]
+    all_probs   = [[] for _ in HORIZONS]
+    all_returns = [[] for _ in HORIZONS]   # realized signed returns → cost-aware net-alpha selection
 
     for batch in loader:
         bx, by, br, bs, bw = batch
@@ -1672,12 +1383,13 @@ def eval_epoch(model, loader, loss_fns, device, use_amp=False):
                 abs_r = br[:, h_idx].abs()
                 med   = abs_r[abs_r > 0].median() if (abs_r > 0).any() else torch.tensor(1e-4, device=device)
                 w     = torch.clamp(abs_r / (med + 1e-8), 0.25, 4.0) * bw
-                loss  = loss + _apply_horizon_loss(loss_fn.to(device), logits, by[:, h_idx], w)
+                loss  = loss + HORIZON_LOSS_WEIGHTS[h_idx] * _apply_horizon_loss(loss_fn.to(device), logits, by[:, h_idx], w)
                 all_preds[h_idx].extend(logits.argmax(dim=1).cpu().numpy())
                 all_labels[h_idx].extend(by[:, h_idx].cpu().numpy())
                 all_probs[h_idx].extend(probs.float().cpu().numpy())   # .float(): AMP-safe
+                all_returns[h_idx].extend(br[:, h_idx].float().cpu().numpy())
 
-        total_loss += (loss / len(HORIZONS)).item()
+        total_loss += (loss / _HW_SUM).item()
         n_batches  += 1
 
     return (
@@ -1685,11 +1397,29 @@ def eval_epoch(model, loader, loss_fns, device, use_amp=False):
         [np.array(p) for p in all_preds],
         [np.array(l) for l in all_labels],
         [np.array(p) for p in all_probs],
+        [np.array(r) for r in all_returns],
     )
 
 
+def _trading_score(preds: np.ndarray, labels: np.ndarray, probs: np.ndarray):
+    """Lightweight (no-print) trading proxy for ONE horizon — drives checkpoint selection
+    (Tier 1b) so we keep the best val TRADING epoch, not the best cross-entropy one.
+    Returns (expectancy, sharpe_proxy); holds (class 2) count as no-trade."""
+    conf     = np.max(probs, axis=1)
+    is_trade = (preds != 2)
+    correct  = (preds == labels) & is_trade
+    wrong    = (preds != labels) & is_trade
+    win_rate = correct.sum() / (is_trade.sum() + 1e-8)
+    win_conf = conf[correct].mean() if correct.any() else 0.0
+    loss_conf= conf[wrong].mean()   if wrong.any()   else 0.0
+    expectancy = float(win_rate * win_conf - (1 - win_rate) * loss_conf)
+    r = np.where(correct, 1.0, np.where(wrong, -1.0, 0.0))
+    sharpe = float(r.mean() / (r.std() + 1e-8) * np.sqrt(252))
+    return expectancy, sharpe
+
+
 def compute_metrics(preds: np.ndarray, labels: np.ndarray, probs: np.ndarray, horizon: int):
-    """Prints accuracy, classification report, expectancy and a Sharpe proxy."""
+    """Prints accuracy, classification report, expectancy and a Sharpe proxy; returns a dict."""
     acc = (preds == labels).mean()
     log.info(f"\n=== Horizon +{horizon} candles === Accuracy: {acc:.4f}")
     print(classification_report(labels, preds, target_names=["long", "short", "hold"], zero_division=0))
@@ -1711,21 +1441,26 @@ def compute_metrics(preds: np.ndarray, labels: np.ndarray, probs: np.ndarray, ho
 
     log.info(f"Expectancy: {expectancy:.4f}  |  Sharpe proxy: {sharpe:.4f}  |  "
              f"Win rate: {win_rate:.4f}  |  Trade pct: {is_trade.mean():.4f}")
+    return {"accuracy": float(acc), "expectancy": float(expectancy), "sharpe": float(sharpe),
+            "win_rate": float(win_rate), "trade_pct": float(is_trade.mean())}
 
 
 # =============================================================================
 # CHECKPOINT
 # =============================================================================
 
-def save_checkpoint(model, optimizer, epoch, val_loss, path: Path, label="checkpoint"):
+def save_checkpoint(model, optimizer, epoch, val_loss, path: Path, label="checkpoint", score=None):
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     torch.save({
         "epoch":                epoch,
         "model_state_dict":     model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "val_loss":             val_loss,
+        "selection_score":      score,          # Tier 1b: val trading-score this ckpt was kept on
         "feature_version":      FEATURE_VERSION,
         "input_size":           INPUT_SIZE,
+        "hidden_size":          HIDDEN_SIZE,      # P1c: architecture recorded so a stale-shape
+        "num_layers":           NUM_LSTM_LAYERS,  #      checkpoint can be detected on load
         "seq_len":              SEQ_LEN,
         "horizons":             HORIZONS,
         "symbols":              SYMBOLS,
@@ -1797,9 +1532,10 @@ def main():
     # ── per-symbol chronological split + 5-tuple recency-weighted loaders ─────
     use_amp = bool(getattr(args, "amp", False)) and device.type == "cuda"
     train_loader, val_loader, y_tr, n_tr, n_va = make_split_loaders(
-        build_out, args.batch_size, val_frac=0.2,
+        build_out, args.batch_size, val_frac=VAL_FRAC, test_frac=TEST_FRAC,
     )
-    log.info("Split sizes", train=n_tr, val=n_va, amp=use_amp)
+    log.info("Split sizes", train=n_tr, val=n_va, amp=use_amp, val_frac=VAL_FRAC,
+             test_frac=TEST_FRAC, note="last TEST_FRAC is the untouched hold-out the backtest scores")
     for hi, h in enumerate(HORIZONS):
         log.info(f"H+{h} train class dist: {np.bincount(y_tr[:, hi])}")
 
@@ -1849,42 +1585,55 @@ def main():
     latest_path = MODELS_DIR / f"trading_lstm_latest{tag}.pt"
 
     # ── training loop ────────────────────────────────────────────────────────
+    best_score       = -float("inf")   # Tier 1b: keep the best val TRADING epoch, not the best CE-loss one
     best_val_loss    = float("inf")
     patience_counter = 0
+    sel_h            = HORIZONS[SELECT_HORIZON_IDX]
 
     for epoch in range(1, args.epochs + 1):
         t0         = time.time()
         train_loss = train_epoch(model, train_loader, optimizer, loss_fns, device,
                                  scaler=scaler, use_amp=use_amp)
-        val_loss, preds_list, labels_list, probs_list = eval_epoch(
+        val_loss, preds_list, labels_list, probs_list, returns_list = eval_epoch(
             model, val_loader, loss_fns, device, use_amp=use_amp
         )
         scheduler.step(val_loss)
         elapsed = time.time() - t0
 
-        # Primary horizon accuracy for quick read
         h0_acc = (preds_list[0] == labels_list[0]).mean()
+        # Selection drives on a COST-AWARE NET-ALPHA score at the traded horizon (default
+        # H+12): probs→gated signal, charged round-trip cost against the realized return.
+        # This is far closer to money than the old win-rate×confidence proxy (which ignored
+        # both magnitude and fees). _trading_score is kept only for context in the log.
+        probs_sel = probs_list[SELECT_HORIZON_IDX]
+        sel_alpha = net_alpha_score(
+            probs_sel[:, 0], probs_sel[:, 1], returns_list[SELECT_HORIZON_IDX],
+            min_confidence=0.45, min_edge=0.05)
+        sel_exp, sel_sharpe = _trading_score(
+            preds_list[SELECT_HORIZON_IDX], labels_list[SELECT_HORIZON_IDX], probs_list[SELECT_HORIZON_IDX])
 
         log.info(
             f"Epoch {epoch:03d}/{args.epochs} | "
-            f"train={train_loss:.4f}  val={val_loss:.4f}  "
-            f"h0_acc={h0_acc:.4f}  lr={optimizer.param_groups[0]['lr']:.2e}  "
-            f"t={elapsed:.1f}s"
+            f"train={train_loss:.4f}  val={val_loss:.4f}  h0_acc={h0_acc:.4f}  "
+            f"selH{sel_h}_netAlpha={sel_alpha:+.3f}  (sharpe={sel_sharpe:+.3f} exp={sel_exp:+.4f})  "
+            f"lr={optimizer.param_groups[0]['lr']:.2e}  t={elapsed:.1f}s"
         )
 
-        if val_loss < best_val_loss:
+        # Select + early-stop on net alpha (higher = better), not val loss or win-rate.
+        if sel_alpha > best_score + 1e-9:
+            best_score       = sel_alpha
             best_val_loss    = val_loss
             patience_counter = 0
-            save_checkpoint(model, optimizer, epoch, val_loss, best_path, label="best")
+            save_checkpoint(model, optimizer, epoch, val_loss, best_path, label="best", score=sel_alpha)
         else:
             patience_counter += 1
             if patience_counter >= args.patience:
-                log.info("Early stopping triggered", patience=args.patience)
+                log.info("Early stopping triggered", patience=args.patience, best_score=f"{best_score:+.3f}")
                 break
 
     # ── final metrics on validation set ──────────────────────────────────────
     log.info("\n===== FINAL VALIDATION METRICS =====")
-    _, preds_list, labels_list, probs_list = eval_epoch(
+    _, preds_list, labels_list, probs_list, _ = eval_epoch(
         model, val_loader, loss_fns, device, use_amp=use_amp
     )
     for hi, h in enumerate(HORIZONS):
@@ -1893,7 +1642,8 @@ def main():
     # ── promote best to latest ───────────────────────────────────────────────
     shutil.copy(best_path, latest_path)
     log.info("Best checkpoint promoted to latest", path=str(latest_path))
-    log.info("Pretraining complete", best_val_loss=f"{best_val_loss:.4f}")
+    log.info("Pretraining complete", best_val_loss=f"{best_val_loss:.4f}",
+             best_select_net_alpha=f"{best_score:+.3f}", select_horizon=f"H+{sel_h}")
 
 
 if __name__ == "__main__":

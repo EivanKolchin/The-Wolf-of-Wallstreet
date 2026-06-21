@@ -24,10 +24,11 @@ fakeredis
 requests             # used by scripts/pretrain.py Alpaca historical fetch (Phase 7b) + news API (Phase 3)
 python-dotenv        # tiny .env loader, fallback for pretrain.py
 psutil               # Workstream B: hardware-aware thread budget (cores/RAM detection)
-# Phase 3 news embeddings: OPTIONAL semantic backend. Without it the embedder
-# falls back to a deterministic hashing embedding (no download, no heavy deps).
-# Install to enable NN_NEWS_EMBED_BACKEND=transformer (all-MiniLM-L6-v2, ~90MB).
-# sentence-transformers
+sentence-transformers  # Phase 3 news embeddings: HARD dependency (all-MiniLM-L6-v2, ~90MB)
 # Phase 4 extended-hours DATA add-on: OPTIONAL free pre/after-hours quotes.
 # Without it the feed falls back to Finnhub (FINNHUB_API_KEY) or returns None.
 # yfinance
+lightgbm>=4.0  # Phase 2 hybrid GBM co-model (native API; no sklearn dep)
+pyarrow>=15.0  # parquet engine for the OHLCV feature cache
+scikit-learn>=1.4  # signal_audit baseline AUC (HistGradientBoosting)
+statsmodels>=0.14  # cointegration (Engle-Granger) for stat-arb pair selection

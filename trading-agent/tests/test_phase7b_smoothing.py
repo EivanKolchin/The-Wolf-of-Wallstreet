@@ -95,7 +95,7 @@ def test_load_full_history_dispatches_to_alpaca_for_stocks(monkeypatch):
 
     called = {"alpaca": 0, "binance": 0}
     monkeypatch.setattr(p, "load_alpaca_history",
-                         lambda s, y, m: (called.__setitem__("alpaca", 1) or {"5m": None, "1h": None, "4h": None}))
+                         lambda s, y, m, sk=False: (called.__setitem__("alpaca", 1) or {"5m": None, "1h": None, "4h": None}))
     monkeypatch.setattr(p, "load_or_download",
                          lambda *a, **kw: called.__setitem__("binance", 1) or None)
 

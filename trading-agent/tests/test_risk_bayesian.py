@@ -17,17 +17,43 @@ def test_kelly_size_shrinks_with_uncertainty():
     rm = RiskManager()
     confident = rm.kelly_size(edge_mean=0.2, edge_std=0.01)
     uncertain = rm.kelly_size(edge_mean=0.2, edge_std=0.40)
-    assert confident is not None and uncertain is not None
-    assert confident >= uncertain  # higher uncertainty -> smaller (or floor) bet
+    assert confident is not None
+    # IR = 0.2/0.4 = 0.5 < 1.5 gate -> should return None
+    assert uncertain is None
     max_pct = rm.limits["max_single_position_pct"] / 100.0
-    assert 0.02 <= uncertain <= max_pct
-    assert 0.02 <= confident <= max_pct
+    assert 0.0 <= confident <= max_pct
 
 
 def test_kelly_disabled_returns_none(monkeypatch):
     monkeypatch.setattr(cfg.settings, "NN_KELLY_FRACTION", 0.0)
     rm = RiskManager()
     assert rm.kelly_size(0.2, 0.01) is None
+
+
+def test_kelly_no_edge_returns_none():
+    rm = RiskManager()
+    # IR = 0.0/0.1 = 0.0 < 1.5 -> None (no information ratio, no bet)
+    assert rm.kelly_size(0.0, 0.1) is None
+    # weak edge: IR = 0.05/0.1 = 0.5 < 1.5 -> None (not robust enough)
+    assert rm.kelly_size(-0.05, 0.1) is None
+
+
+def test_kelly_strong_negative_edge_sizes_a_short():
+    # kelly_size returns a position MAGNITUDE; direction is decided upstream. A confident
+    # negative edge (IR = 0.1/0.05 = 2.0) is a valid SHORT and should be sized, not skipped.
+    rm = RiskManager()
+    sz = rm.kelly_size(-0.1, 0.05)
+    assert sz is not None and sz > 0
+
+
+def test_kelly_low_ir_gate():
+    rm = RiskManager()
+    # IR = 0.03/0.02 = 1.5 -> exactly at gate, should return size
+    at_gate = rm.kelly_size(0.03, 0.02)
+    assert at_gate is not None
+    # IR = 0.029/0.02 = 1.45 < 1.5 -> None
+    below_gate = rm.kelly_size(0.029, 0.02)
+    assert below_gate is None
 
 
 def test_monte_carlo_cvar_positive_on_losses():

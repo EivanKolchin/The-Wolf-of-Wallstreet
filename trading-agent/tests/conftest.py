@@ -1,3 +1,10 @@
+import os
+# The live model now REFUSES to cold-start on random weights (a deliberate safety guard:
+# never trade an untrained net live). The test suite, by design, constructs untrained
+# models with random weights, so it explicitly opts into the unsafe path. This keeps the
+# production safety check intact while letting tests build fresh models.
+os.environ.setdefault("FORCE_UNSAFE_START", "true")
+
 import pytest
 import pandas as pd
 import numpy as np

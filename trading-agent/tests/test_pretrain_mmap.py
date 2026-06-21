@@ -1,10 +1,6 @@
-"""Test the float16 memmap streaming dataset (low-RAM / low-disk Colab path).
-
-After the disk refactor, `_SeqDataset` is fork-safe: it accepts EITHER an in-RAM
-array OR a .npy PATH (opened lazily per worker), supports a `lo` offset so one
-per-symbol file feeds both the train and val split, and yields a 5-tuple that
-includes the recency weight.
-"""
+"""On-the-fly windowing dataset (low-RAM / low-disk path). `_SeqDataset` slices each
+(seq_len, F) window from the stored feature MATRIX at read time, instead of reading
+a pre-expanded window — so the dataset is ~seq_len× smaller and fits in RAM."""
 import importlib.util
 import sys
 from pathlib import Path
@@ -22,54 +18,40 @@ pt = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pt)
 
 
-def _make_file(tmp_path, M):
-    """A float16 .npy where row r is filled with the value r (so we can assert the
-    dataset reads the correct row, including through a `lo` offset)."""
-    T, F = pt.SEQ_LEN, pt.INPUT_SIZE
-    xp = tmp_path / "X.npy"
-    Xmm = np.lib.format.open_memmap(str(xp), mode="w+", dtype=np.float16, shape=(M, T, F))
-    for r in range(M):
-        Xmm[r] = np.float16(r)
-    Xmm.flush()
-    return str(xp), T, F
+def _meta(n_ends):
+    H = len(pt.HORIZONS)
+    return (np.zeros((n_ends, H), np.int64), np.zeros((n_ends, H), np.float32),
+            np.zeros(n_ends, np.int64), np.ones(n_ends, np.float32))
 
 
-def test_seqdataset_array_input_yields_float32_5tuple(tmp_path):
-    M = 12
-    xp, T, F = _make_file(tmp_path, M)
-    Xr = np.load(xp, mmap_mode="r")
-    assert Xr.dtype == np.float16
-    y = np.zeros((M, 3), np.int64)
-    R = np.zeros((M, 3), np.float32)
-    s = np.zeros(M, np.int64)
+def test_window_built_on_the_fly_from_feature_path(tmp_path):
+    N, F, T = 200, pt.INPUT_SIZE, pt.SEQ_LEN
+    feats = np.arange(N * F, dtype=np.float32).reshape(N, F)
+    fp = tmp_path / "_F.npy"
+    np.save(fp, feats.astype(np.float16))
+    ends = np.arange(T, N)                         # every valid endpoint
+    y, R, s, w = _meta(len(ends))
 
-    ds = pt._SeqDataset(Xr, y, R, s)              # w defaults to ones
-    assert len(ds) == M
-    xi, yi, ri, si, wi = ds[0]                    # 5-tuple now
+    ds = pt._SeqDataset(str(fp), ends, y, R, s, w)
+    assert len(ds) == len(ends)
+    xi, yi, ri, si, wi = ds[0]
     assert xi.dtype == torch.float32 and tuple(xi.shape) == (T, F)
-    assert float(wi) == 1.0
+    # window for ends[0]=T is feats[0:T] (float16 round-trip)
+    assert np.allclose(xi.numpy(), feats[0:T].astype(np.float16).astype(np.float32))
+    e = int(ends[-1])
+    xl = ds[len(ds) - 1][0].numpy()
+    assert np.allclose(xl, feats[e - T:e].astype(np.float16).astype(np.float32))
 
     bx, by, br, bs, bw = next(iter(DataLoader(ds, batch_size=4)))
-    assert bx.shape == (4, T, F) and bx.dtype == torch.float32
-    assert bw.shape == (4,)
+    assert bx.shape == (4, T, F) and bw.shape == (4,)
 
 
-def test_seqdataset_path_input_is_lazy_and_offset_correct(tmp_path):
-    M, cut = 10, 7
-    xp, T, F = _make_file(tmp_path, M)
-    n_val = M - cut
-    y = np.zeros((n_val, 3), np.int64)
-    R = np.zeros((n_val, 3), np.float32)
-    s = np.zeros(n_val, np.int64)
-    w = np.full(n_val, 0.5, np.float32)
-
-    # PATH input + lo=cut → item i must read file row (cut + i).
-    ds = pt._SeqDataset(xp, y, R, s, w=w, lo=cut)
-    assert ds._X is None                          # not opened until first access
-    xi, yi, ri, si, wi = ds[0]
-    assert ds._X is not None                       # opened lazily (fork-safe)
-    assert float(xi.mean()) == float(cut)          # row `cut`
-    assert float(wi) == 0.5
-    xi2, *_ = ds[2]
-    assert float(xi2.mean()) == float(cut + 2)
-    assert len(ds) == n_val
+def test_feature_file_opened_lazily(tmp_path):
+    N, F, T = 100, pt.INPUT_SIZE, pt.SEQ_LEN
+    fp = tmp_path / "_F.npy"
+    np.save(fp, np.random.default_rng(0).standard_normal((N, F)).astype(np.float16))
+    ends = np.arange(T, N)
+    ds = pt._SeqDataset(str(fp), ends, *_meta(len(ends)))
+    assert ds._F is None        # not opened until first access (fork-safe)
+    _ = ds[0]
+    assert ds._F is not None

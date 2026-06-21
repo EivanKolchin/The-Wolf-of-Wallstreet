@@ -189,8 +189,10 @@ def test_kelly_size_shrinks_under_high_vol():
     high = rm.kelly_size(edge_mean, edge_std, atr_pct=0.06)
     assert low is not None and high is not None
     assert high < low, f"high-vol size {high} should be smaller than low-vol size {low}"
-    # Sanity: both inside the configured envelope.
-    assert 0.02 <= high <= 1.0 and 0.02 <= low <= 1.0
+    # Sanity: both inside the configured envelope. (The old 0.02 hard floor was removed —
+    # Kelly now sizes proportionally to conviction and the min-notional gate filters dust —
+    # so a small-but-positive size is valid.)
+    assert 0.0 < high <= 1.0 and 0.0 < low <= 1.0
     # The shrink should be material (≥3x ratio) — variance grew ~12x with atr.
     assert low / high > 3.0, f"low/high = {low/high:.2f}x — expected ≥3x"
 

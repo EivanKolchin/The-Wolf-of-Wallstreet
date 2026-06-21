@@ -9,7 +9,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from backend.backtest.engine import (  # noqa: E402
-    run_backtest, compute_metrics, directional_signal, _max_drawdown,
+    run_backtest, compute_metrics, directional_signal, _max_drawdown, BARS_PER_YEAR_5M,
 )
 
 
@@ -76,6 +76,65 @@ def test_sharpe_and_sortino_positive_for_upward_drift():
     assert (r.net_returns < 0).any()                # downside exists → Sortino defined
     assert r.metrics["sharpe"] > 0 and r.metrics["sortino"] > 0
     assert r.metrics["max_drawdown"] <= 0.0
+
+
+# ──────────── Sharpe annualization (regression for the "Sharpe=1.3e12" bug) ────────────
+def test_sharpe_equals_manual_annualized_formula():
+    """Sharpe MUST be mean/std × sqrt(bars/yr) — independent of the equity magnitude.
+    (The bug overwrote the sqrt(bars/yr) factor with the annualized RETURN.)"""
+    rng = np.random.default_rng(1)
+    net = rng.standard_normal(500) * 0.001 + 0.0003
+    equity = np.cumprod(1.0 + net)
+    m = compute_metrics(net, equity, trades=[], bars_per_year=BARS_PER_YEAR_5M)
+    expect = net.mean() / net.std(ddof=1) * np.sqrt(BARS_PER_YEAR_5M)
+    assert abs(m["sharpe"] - expect) < 1e-6
+
+
+def test_huge_compounded_equity_keeps_sharpe_bounded():
+    """A long run of tiny positive returns compounds to an astronomical equity, but
+    Sharpe must stay sane — the old bug multiplied Sharpe by that exploding equity."""
+    rng = np.random.default_rng(2)
+    net = rng.standard_normal(40000) * 0.001 + 0.0005   # positive drift → equity blows up
+    equity = np.cumprod(1.0 + net)
+    m = compute_metrics(net, equity, trades=[], bars_per_year=BARS_PER_YEAR_5M)
+    assert equity[-1] > 1e3                              # equity really did explode
+    assert np.isfinite(m["sharpe"]) and m["sharpe"] < 1e4   # would have been ~1e11 with the bug
+
+
+def test_random_signal_after_costs_has_no_astronomical_sharpe():
+    """End-to-end: a random signal on a random walk has no real edge — Sharpe must be
+    modest and finite, never the millions/trillions the corrupted metric reported."""
+    rng = np.random.default_rng(3)
+    close = 100 * np.cumprod(1 + rng.standard_normal(5000) * 0.005)
+    sig = rng.choice([-1.0, 0.0, 1.0], size=5000)
+    r = run_backtest(close, sig, fee_bps=10, slippage_bps=5)
+    # Cost drag makes this consistently (modestly) negative; the point is it's a SANE
+    # magnitude — never the 1e9–1e12 the shadowing bug produced.
+    assert np.isfinite(r.metrics["sharpe"]) and abs(r.metrics["sharpe"]) < 1000
+
+
+# ───────────────────────── alpha vs beta (skill vs market) ────────────────────
+def test_buy_and_hold_has_high_sharpe_but_zero_alpha():
+    """The trap these backtests fell into: a long-biased strategy in a rising window has a
+    big Sharpe that is ENTIRELY market beta. Always-long == the benchmark → alpha ≈ 0."""
+    rng = np.random.default_rng(4)
+    close = 100 * np.cumprod(1 + rng.standard_normal(4000) * 0.003 + 0.0006)   # steady uptrend
+    r = run_backtest(close, np.ones(4000), fee_bps=0, slippage_bps=0)          # always long
+    assert r.metrics["bench_sharpe"] > 1.0                # holding the uptrend looks great…
+    assert abs(r.metrics["excess_sharpe"]) < 1e-6         # …but adds NO skill over buy-and-hold
+
+
+def test_market_timing_shows_positive_alpha():
+    """A signal that actually times the market (flat on down-bars) beats buy-and-hold →
+    positive excess Sharpe. This is what a real edge looks like in the metric."""
+    rng = np.random.default_rng(7)
+    bar = rng.standard_normal(4000) * 0.004                # zero-drift random walk (no beta to ride)
+    close = 100 * np.cumprod(1 + bar)
+    sig = np.zeros(4000)
+    sig[:-1] = (bar[1:] > 0).astype(float)                 # long only into up-bars (skillful timing)
+    r = run_backtest(close, sig, fee_bps=0, slippage_bps=0)
+    assert r.metrics["excess_sharpe"] > 1.0                # genuine alpha
+    assert r.metrics["excess_sharpe"] > r.metrics["bench_sharpe"]   # skill, not beta
 
 
 # ───────────────────────── directional_signal gate ───────────────────────────

@@ -22,6 +22,7 @@ from backend.core.config import settings
 from backend.training.backbone import TrainingBackbone, map_asset_to_symbol
 from backend.agents.improved_model import SYMBOL_TO_ID, HORIZONS
 from backend.signals import feature_spec as fs
+from backend.features.store import FeatureStore
 from backend.signals.news_embedding import NewsEmbedder, get_embedder
 from backend.execution.position_monitor import PositionMonitor
 from backend.agents.attention_controller import AttentionController, Attention
@@ -116,6 +117,11 @@ class NNTradingAgent:
         self.feature_sequences: dict[str, deque] = {
             sym: deque(maxlen=self.model.SEQUENCE_LENGTH) for sym in self.symbols
         }
+        # Train/serve unification: build the model input through the SAME offline
+        # pipeline (backend.features) so live features == training features. The
+        # legacy deque above is kept for the prediction-viz path; the trading
+        # decision uses this FeatureStore sequence when FEATURE_STORE_LIVE is on.
+        self.feature_store = FeatureStore(seq_len=self.model.SEQUENCE_LENGTH)
         self.open_trades: dict[str, Trade] = {}
         
         self.current_news_impact: NewsImpact | None = None
@@ -154,6 +160,30 @@ class NNTradingAgent:
 
     def _symbol_id(self, symbol: str) -> int:
         return SYMBOL_TO_ID.get(str(symbol).upper(), 0)
+
+    def _featurestore_sequence(self, symbol: str, df) -> np.ndarray | None:
+        """Build the model's (SEQ_LEN, INPUT) input via the SHARED offline pipeline
+        (backend.features.FeatureStore) so the live tensor == the training tensor.
+
+        - 1h/4h HTF are resampled from the 5m buffer (offline uses native bars; a
+          complete 5m series reproduces them up to bar-boundary rounding).
+        - news_embed / earnings blocks are left as zeros — matching the news-off
+          offline checkpoint; orderbook / macro / news-scalar slots are the same
+          offline stubs build_feature_matrix writes (the model never trained on the
+          live values, so injecting them would be skew).
+        Returns None (→ caller falls back to the legacy sequence) if the buffer is
+        too short for the rolling z-score to match offline, or on any error."""
+        try:
+            need = self.feature_store.zscore_window + self.feature_store.seq_len
+            if df is None or len(df) < need:
+                logger.debug("featurestore_buffer_warmup", symbol=symbol,
+                             have=0 if df is None else len(df), need=need)
+                return None
+            df1h, df4h = FeatureStore.resample_htf(df)
+            return self.feature_store.build_sequence(df, df1h, df4h)
+        except Exception as e:
+            logger.warning("featurestore_sequence_failed", symbol=symbol, error=str(e))
+            return None
 
     def _extend_with_htf(self, base_vec: np.ndarray, symbol: str | None = None) -> np.ndarray:
         """Extend a 62-feature BASE vector to the model's full INPUT-wide input.
@@ -617,8 +647,17 @@ class NNTradingAgent:
             logger.debug("agent_warming_up", symbol=symbol, remaining_seconds=300 - (time.time() - self.started_at))
             return None
 
+        # The legacy per-cycle deque feeds the prediction-viz path. The TRADING
+        # decision uses the FeatureStore sequence (train==serve) when enabled and
+        # the OHLCV buffer is deep enough; otherwise it falls back to the deque.
+        sequence = np.stack(self.feature_sequences[symbol])
+        if bool(getattr(settings, "FEATURE_STORE_LIVE", True)):
+            fs_seq = self._featurestore_sequence(symbol, df)
+            if fs_seq is not None:
+                sequence = fs_seq
+
         return {
-            "sequence": np.stack(self.feature_sequences[symbol]),
+            "sequence": sequence,
             "df": df,
             "regime_name": regime_name,
             "news": symbol_news_impact,
@@ -951,9 +990,12 @@ class NNTradingAgent:
                 except Exception:
                     pass
 
-                # 4. Anti-inaction: ramp idle pressure the longer we go without trading
-                idle_pressure = min(self.cycles_since_trade / max(int(settings.NN_IDLE_PATIENCE), 1), 1.0)
-                if hasattr(self.model, "set_idle_pressure"):
+                # 4. Anti-inaction: ramp idle pressure the longer we go without trading.
+                # OFF by default — forcing trades when flat is fee-burn for a thin-edge
+                # directional strategy. Opt in via NN_IDLE_HOLD_ENABLED. When disabled we
+                # leave idle_pressure at 0 so the decay guards in the model are inert.
+                if bool(getattr(settings, "NN_IDLE_HOLD_ENABLED", False)) and hasattr(self.model, "set_idle_pressure"):
+                    idle_pressure = min(self.cycles_since_trade / max(int(settings.NN_IDLE_PATIENCE), 1), 1.0)
                     self.model.set_idle_pressure(idle_pressure)
 
                 # 5. Process all symbols in parallel (Cycle 20).
