@@ -62,6 +62,13 @@ class Strategy(ABC):
         [-1, 1]. Must be causal: ``position[t]`` uses only data[:t+1]."""
         raise NotImplementedError
 
+    def generate_returns(self, data: Dict[str, pd.DataFrame]):
+        """Optional override for strategies whose PnL is NOT ``position × price-return`` —
+        e.g. carry (funding accrual on a delta-neutral book) or any externally-priced sleeve.
+        Return a single per-bar NET return series (np.ndarray) for the whole strategy, or
+        None (default) to let the backtester compute returns from ``generate_positions``."""
+        return None
+
     # ----- shared helpers for subclasses (all causal) -----
     @staticmethod
     def _safe_positions(pos: np.ndarray, n: int) -> np.ndarray:

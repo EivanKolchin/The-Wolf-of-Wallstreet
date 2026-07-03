@@ -187,6 +187,19 @@ class RiskManager:
         self.peak_portfolio_value = self.portfolio_value_usd
         logger.info("trading_halt_manually_reset")
 
+    def reset_all(self, initial_portfolio_value: float) -> None:
+        now = datetime.utcnow()
+        self.portfolio_value_usd = float(initial_portfolio_value)
+        self.peak_portfolio_value = float(initial_portfolio_value)
+        self.daily_pnl_usd = 0.0
+        self.trades_this_hour = 0
+        self.last_hour_reset = now.replace(minute=0, second=0, microsecond=0)
+        self.last_day_reset = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        self.is_halted = False
+        self.recent_returns.clear()
+        self.last_cvar_pct = 0.0
+        logger.info("risk_state_reset", portfolio_value_usd=self.portfolio_value_usd)
+
     def get_status(self) -> dict:
         current_drawdown_pct = 0.0
         if self.peak_portfolio_value > 0:

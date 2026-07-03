@@ -39,6 +39,11 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
+# Redis (via Docker) — required for cross-process state (news overlay, queues, heartbeats)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "[Redis] Ensuring Redis is up via Docker..."
+bash "$SCRIPT_DIR/redis_up.sh" || echo "[Redis] Could not start Redis automatically — start it manually before live trading."
+
 # Trap terminal exits to gracefully kill backgrounded frontend process
 trap 'echo "Stopping processes..."; kill 0; exit' SIGINT SIGTERM EXIT
 

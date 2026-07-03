@@ -106,8 +106,26 @@ def run_nn_agent(severe_flag):
         regime_detector = RegimeDetector()
         
         global _model_instance
-        _model_instance = PersistentTradingModel()
-        
+        # The NN policy net trades only when (a) it's enabled AND (b) a compatible checkpoint
+        # loads. NN_AGENT_ENABLED=false skips it outright — the right state until a FULL training
+        # run exists, because a stale random-init checkpoint would otherwise load and trade
+        # noise. Either way the rule-based StrategyAgent sleeve book below still runs (it needs
+        # no model), so `start.bat` brings up a valid PAPER book with or without a trained NN.
+        _model_instance = None
+        nn_ok = False
+        if bool(getattr(settings, "NN_AGENT_ENABLED", True)):
+            try:
+                _model_instance = PersistentTradingModel()
+                nn_ok = True
+            except Exception as _model_err:
+                logger.warning("nn_agent_disabled_no_trained_model", reason=str(_model_err)[:160],
+                               note="StrategyAgent still runs (paper). Run scripts/pretrain.py, "
+                                    "then set NN_AGENT_ENABLED=true.")
+        else:
+            logger.warning("nn_agent_disabled_by_config",
+                           note="NN_AGENT_ENABLED=false — running the rule-based StrategyAgent "
+                                "book only. Set true after a full training run.")
+
         # The breaker measures drawdown against ``peak_portfolio_value``, which
         # seeds from this initial value. It MUST match the agent's actual starting
         # cash (INITIAL_USDC_AMOUNT) — otherwise a default 10k peak vs a 1k real
@@ -181,18 +199,20 @@ def run_nn_agent(severe_flag):
             pass
 
         news_queue = PriorityNewsQueue(redis_session)
-        
-        agent = NNTradingAgent(
-            market_feed=market_feed,
-            feature_builder=feature_builder,
-            regime_detector=regime_detector,
-            model=_model_instance,
-            risk_manager=risk_manager,
-            execution_engine=exec_engine,
-            news_queue=news_queue,
-            severe_flag=severe_flag,
-            symbols=trading_symbols
-        )
+
+        agent = None
+        if nn_ok:
+            agent = NNTradingAgent(
+                market_feed=market_feed,
+                feature_builder=feature_builder,
+                regime_detector=regime_detector,
+                model=_model_instance,
+                risk_manager=risk_manager,
+                execution_engine=exec_engine,
+                news_queue=news_queue,
+                severe_flag=severe_flag,
+                symbols=trading_symbols
+            )
 
         # Phase 14: macro/derivatives feed populates the macro feature slots
         # (fear_greed, btc_dominance, funding_rate, oi_change) that previously
@@ -201,7 +221,107 @@ def run_nn_agent(severe_flag):
         macro_feed = MacroFeed(redis_session, symbols=trading_symbols)
         asyncio.create_task(macro_feed.run())
 
-        await agent.run()
+        # Optional L1 quote logger — accumulates the training corpus a future RL execution agent
+        # needs (must start capturing long before the model is justified). Off by default, passive.
+        if bool(getattr(settings, "TICK_LOGGER_ENABLED", False)):
+            try:
+                from backend.data.tick_logger import TickLogger
+                _ticks = str(getattr(settings, "STRATEGY_AGENT_TS_SYMBOLS", "")).split() \
+                    or ["BTCUSDT", "ETHUSDT"]
+                asyncio.create_task(TickLogger(_ticks).run())
+                logger.warning("tick_logger_launched", symbols=_ticks)
+            except Exception as e:
+                logger.warning("tick_logger_launch_failed", error=str(e)[:120])
+
+        # Phase F: optional managed-beta SHADOW book (daily trend + vol-target + macro de-risk),
+        # PAPER-only, run concurrently alongside the NN agent. Off unless STRATEGY_AGENT_ENABLED;
+        # never routes real orders (live routing is intentionally not auto-wired).
+        if bool(getattr(settings, "STRATEGY_AGENT_ENABLED", False)):
+            try:
+                from backend.agents.strategy_agent import StrategyAgent, DailyBarProvider, PaperBook
+                from backend.strategies.managed_beta import ManagedBetaParams
+                from backend.strategies.ts_momentum import TSMomentumParams
+
+                equity = float(settings.STRATEGY_AGENT_EQUITY)
+                ts_syms = str(getattr(settings, "STRATEGY_AGENT_TS_SYMBOLS", "")).split()
+
+                # optional 2nd sleeve: 4h TS-momentum (Binance perps)
+                ts_provider = None
+                if ts_syms:
+                    from backend.agents.live_providers import Binance4hBarProvider
+                    ts_provider = Binance4hBarProvider()
+
+                # optional directional news overlay (+ optional LLM cross-check)
+                news_provider = news_verifier = entity_graph = None
+                if bool(getattr(settings, "STRATEGY_AGENT_NEWS_OVERLAY", True)):
+                    from backend.agents.live_providers import RedisNewsProvider
+                    from backend.signals.entity_graph import EntityGraph
+                    news_provider = RedisNewsProvider(redis_session)
+                    entity_graph = EntityGraph()   # cross-asset propagation, corr-validated edges
+                    try:   # merge previously LLM-discovered edges (priors only — weights are
+                           # still earned via the correlation validator on every refresh)
+                        from backend.agents.graph_discovery import GraphDiscoveryAgent
+                        GraphDiscoveryAgent(None).apply_to(entity_graph)
+                    except Exception as e:
+                        logger.warning("discovered_edges_merge_failed", error=str(e)[:100])
+                    if bool(getattr(settings, "STRATEGY_AGENT_NEWS_LLM_VERIFY", False)):
+                        from backend.agents.risk_agent import NewsRiskVerifier
+                        from backend.agents.skills import SkillBook
+                        news_verifier = NewsRiskVerifier(
+                            llm_service=LLMService(provider=settings.AI_PROVIDER,
+                                                   anthropic_key=settings.ANTHROPIC_API_KEY,
+                                                   gemini_key=settings.GEMINI_API_KEY),
+                            skill_book=SkillBook("risk_agent"))
+
+                # PAPER unless the master switch is off AND a venue is actually live-enabled
+                paper = bool(settings.PAPER_TRADING) or not settings.any_live_enabled()
+                live_router = None
+                if not paper:
+                    from backend.execution.live_router import make_live_router
+                    live_router = make_live_router(
+                        equity=equity, perp_symbols=set(ts_syms),
+                        max_order_notional=float(settings.STRATEGY_AGENT_MAX_ORDER_USD))
+                    if live_router is None:           # no venue live → stay paper (fail safe)
+                        paper = True
+
+                overlay_gate = None
+                try:
+                    from backend.models.overlay_gate import make_overlay_gate
+                    overlay_gate = make_overlay_gate(settings)   # None unless flag + checkpoints
+                except Exception as e:
+                    logger.warning("overlay_gate_build_failed", error=str(e)[:120])
+
+                strat_agent = StrategyAgent(
+                    universe=str(settings.STRATEGY_AGENT_SYMBOLS).split(),
+                    bar_provider=DailyBarProvider(),
+                    portfolio=PaperBook(equity=equity),
+                    risk_manager=risk_manager,
+                    params=ManagedBetaParams(trend_ema=int(settings.STRATEGY_AGENT_TREND_EMA)),
+                    target_vol=float(settings.STRATEGY_AGENT_TARGET_VOL),
+                    rebalance_seconds=float(settings.STRATEGY_AGENT_REBALANCE_SECONDS),
+                    ts_bar_provider=ts_provider, ts_universe=ts_syms, ts_params=TSMomentumParams(),
+                    w_managed=float(settings.STRATEGY_AGENT_W_MANAGED),
+                    w_ts=float(settings.STRATEGY_AGENT_W_TS),
+                    news_provider=news_provider, news_verifier=news_verifier,
+                    entity_graph=entity_graph, overlay_gate=overlay_gate,
+                    paper=paper, live_router=live_router,
+                )
+                asyncio.create_task(strat_agent.run())
+                logger.warning("strategy_agent_launched", symbols=strat_agent.universe,
+                               ts_symbols=ts_syms, sleeves=("2" if ts_syms else "1"),
+                               news=news_provider is not None, llm_verify=news_verifier is not None,
+                               overlay=overlay_gate is not None,
+                               mode=("LIVE" if not paper else "PAPER"))
+            except Exception as e:
+                logger.warning("strategy_agent_launch_failed", error=str(e))
+
+        if agent is not None:
+            await agent.run()                     # NN trader blocks here (trained model present)
+        else:
+            # No NN trader (untrained). Keep this process alive so the StrategyAgent + macro/
+            # tick background tasks launched above keep running as the paper book.
+            logger.warning("running_strategy_book_only_no_nn_agent")
+            await asyncio.Event().wait()
 
     try:
         asyncio.run(_run())

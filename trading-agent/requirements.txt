@@ -32,3 +32,4 @@ lightgbm>=4.0  # Phase 2 hybrid GBM co-model (native API; no sklearn dep)
 pyarrow>=15.0  # parquet engine for the OHLCV feature cache
 scikit-learn>=1.4  # signal_audit baseline AUC (HistGradientBoosting)
 statsmodels>=0.14  # cointegration (Engle-Granger) for stat-arb pair selection
+yfinance>=0.2  # long-history daily EOD for the broad factor-research universe (research only)

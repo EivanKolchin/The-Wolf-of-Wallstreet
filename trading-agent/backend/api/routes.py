@@ -10,9 +10,12 @@ from sqlalchemy import select, desc, func
 from backend.memory.database import AsyncSessionLocal as async_session_maker, Trade, NewsPrediction, AgentEvent, TradeStatus
 from backend.memory.redis_client import FeatureCache, HeartbeatClient, get_redis
 from backend.core.config import settings
+from backend.agents import news_feedback
 from backend.api.market_routes import router as market_router
 from backend.api.risk_routes import router as risk_router
 from backend.api.stats_routes import router as stats_router
+from backend.api.strategy_routes import router as strategy_router
+from backend.core.ledger import TRANSACTIONS_CSV, TRANSACTIONS_JSONL
 import structlog
 import os
 import signal
@@ -25,6 +28,7 @@ router = APIRouter()
 router.include_router(market_router)
 router.include_router(risk_router)
 router.include_router(stats_router)
+router.include_router(strategy_router)
 
 SENSITIVE_SETUP_KEYS = {
     "ANTHROPIC_API_KEY",
@@ -40,6 +44,9 @@ SENSITIVE_SETUP_KEYS = {
     "TELEGRAM_API_HASH",
     "FINNHUB_API_KEY",
     "TWELVEDATA_API_KEY",
+    # Live-trading venue secrets (Binance USD-M futures)
+    "BINANCE_FUTURES_API_KEY",
+    "BINANCE_FUTURES_SECRET",
 }
 
 SETUP_ALLOWED_KEYS = {
@@ -81,13 +88,34 @@ SETUP_ALLOWED_KEYS = {
     "ONRAMP_PROVIDER",
     "RAMP_HOST_API_KEY",
     "ONRAMP_DEFAULT_PAYMENT_METHOD",
+    # ── Live trading: master switch + Binance futures venue + 2-sleeve StrategyAgent ──
+    "PAPER_TRADING",
+    "BINANCE_FUTURES_API_KEY",
+    "BINANCE_FUTURES_SECRET",
+    "BINANCE_FUTURES_TESTNET",
+    "BINANCE_FUTURES_LEVERAGE",
+    "STRATEGY_AGENT_ENABLED",
+    "STRATEGY_AGENT_SYMBOLS",
+    "STRATEGY_AGENT_TS_SYMBOLS",
+    "STRATEGY_AGENT_W_MANAGED",
+    "STRATEGY_AGENT_W_TS",
+    "STRATEGY_AGENT_NEWS_OVERLAY",
+    "STRATEGY_AGENT_NEWS_LLM_VERIFY",
+    "STRATEGY_AGENT_MAX_ORDER_USD",
+    "STRATEGY_AGENT_EQUITY",
 }
 
 
 def _require_admin(x_admin_key: str = Header(default=None)) -> str:
-    if x_admin_key != settings.ADMIN_KEY:
-        raise HTTPException(status_code=401, detail="Invalid admin key")
-    return x_admin_key
+    """Admin gate — intentionally permissive.
+
+    Cycle 24: the settings surface no longer requires an admin key (this is a
+    localhost, single-owner app; the gate only added friction and made the setup
+    modal / dashboard config fetches 401 silently). Kept as a dependency so the
+    header still threads through and can be re-armed here if the app is ever
+    exposed beyond localhost.
+    """
+    return x_admin_key or ""
 
 
 def _sanitize_env_value(value: Any) -> str:
@@ -372,12 +400,74 @@ async def get_agent_status():
 class StopResumeRequest(BaseModel):
     halt: bool
 
+
+class PaperResetRequest(BaseModel):
+    confirm: bool = True
+
 @router.post("/api/agent/stop")
 async def toggle_agent_stop(req: StopResumeRequest):
     redis_client = await get_redis()
     val = "true" if req.halt else "false"
     await redis_client.set("agent_force_stopped", val)
     return {"status": "success", "is_halted": req.halt}
+
+
+@router.post("/api/trading/reset-paper")
+async def reset_paper_trading(req: PaperResetRequest, _: str = Depends(_require_admin)):
+    if not req.confirm:
+        return {"status": "ignored"}
+
+    redis_client = await get_redis()
+    await redis_client.set("agent_force_stopped", "false")
+    await redis_client.set("paper:reset_requested", "true", ex=60)
+    await redis_client.set("risk:reset_requested", "true", ex=60)
+    await redis_client.delete("portfolio:live_state", "risk:status", "attention:state", "attention:overrides", "agent_visual_predictions")
+    try:
+        async for key in redis_client.scan_iter(match="agent_visual_predictions:*"):
+            await redis_client.delete(key)
+    except Exception:
+        pass
+    try:
+        async for key in redis_client.scan_iter(match="entry_price:*"):
+            await redis_client.delete(key)
+    except Exception:
+        pass
+
+    initial_usdc = float(settings.INITIAL_USDC_AMOUNT)
+    live_state = {
+        "unrealized_pnl": 0.0,
+        "total_value_locked": 0.0,
+        "positions": [],
+        "_initial_usdc": initial_usdc,
+        "_realized_pnl": 0.0,
+        "available_usdc": initial_usdc,
+        "available_cash": initial_usdc,
+    }
+    await redis_client.set("portfolio:live_state", json.dumps(live_state))
+
+    deleted_trades = 0
+    try:
+        from sqlalchemy import delete
+        async with async_session_maker() as session:
+            result = await session.execute(delete(Trade))
+            deleted_trades = int(result.rowcount or 0)
+            await session.commit()
+    except Exception as e:
+        logger.warning("paper_trade_table_reset_failed", error=str(e))
+
+    for path in (TRANSACTIONS_CSV, TRANSACTIONS_JSONL):
+        try:
+            if path.exists():
+                path.unlink()
+        except Exception as e:
+            logger.warning("paper_statement_reset_failed", path=str(path), error=str(e))
+
+    return {
+        "status": "ok",
+        "paper_mode": True,
+        "initial_usdc": initial_usdc,
+        "deleted_trades": deleted_trades,
+    }
 
 @router.get("/api/portfolio")
 async def get_portfolio(symbol: Optional[str] = None):
@@ -619,6 +709,21 @@ async def get_setup_config(reveal: bool = False, _: str = Depends(_require_admin
         "IBKR_ACCOUNT_ID": env_vars.get("IBKR_ACCOUNT_ID", ""),
         "FINNHUB_API_KEY": env_vars.get("FINNHUB_API_KEY", ""),
         "TWELVEDATA_API_KEY": env_vars.get("TWELVEDATA_API_KEY", ""),
+        # Live trading master switch + Binance futures venue + 2-sleeve StrategyAgent
+        "PAPER_TRADING": env_vars.get("PAPER_TRADING", "true"),
+        "BINANCE_FUTURES_API_KEY": env_vars.get("BINANCE_FUTURES_API_KEY", ""),
+        "BINANCE_FUTURES_SECRET": env_vars.get("BINANCE_FUTURES_SECRET", ""),
+        "BINANCE_FUTURES_TESTNET": env_vars.get("BINANCE_FUTURES_TESTNET", "true"),
+        "BINANCE_FUTURES_LEVERAGE": env_vars.get("BINANCE_FUTURES_LEVERAGE", "2"),
+        "STRATEGY_AGENT_ENABLED": env_vars.get("STRATEGY_AGENT_ENABLED", "false"),
+        "STRATEGY_AGENT_SYMBOLS": env_vars.get("STRATEGY_AGENT_SYMBOLS", "SPY QQQ TQQQ TLT GLD BTC-USD ETH-USD"),
+        "STRATEGY_AGENT_TS_SYMBOLS": env_vars.get("STRATEGY_AGENT_TS_SYMBOLS", ""),
+        "STRATEGY_AGENT_W_MANAGED": env_vars.get("STRATEGY_AGENT_W_MANAGED", "0.5"),
+        "STRATEGY_AGENT_W_TS": env_vars.get("STRATEGY_AGENT_W_TS", "0.5"),
+        "STRATEGY_AGENT_NEWS_OVERLAY": env_vars.get("STRATEGY_AGENT_NEWS_OVERLAY", "true"),
+        "STRATEGY_AGENT_NEWS_LLM_VERIFY": env_vars.get("STRATEGY_AGENT_NEWS_LLM_VERIFY", "false"),
+        "STRATEGY_AGENT_MAX_ORDER_USD": env_vars.get("STRATEGY_AGENT_MAX_ORDER_USD", "5000.0"),
+        "STRATEGY_AGENT_EQUITY": env_vars.get("STRATEGY_AGENT_EQUITY", "100000.0"),
     }
     for key in SENSITIVE_SETUP_KEYS:
         payload[f"{key}_IS_SET"] = bool(payload.get(key, ""))
@@ -808,12 +913,43 @@ async def get_latest_signals():
         return data
     return {}
 
+def _serialize_news_prediction(row: NewsPrediction) -> dict[str, Any]:
+    """Stable JSON DTO for frontend widgets and the Intelligence page."""
+    sev = row.severity.value if hasattr(row.severity, "value") else str(row.severity)
+    direction = row.direction.value if hasattr(row.direction, "value") else str(row.direction)
+    return {
+        "id": str(row.id),
+        "headline": row.headline,
+        "source_domain": row.source_domain,
+        "article_hash": row.article_hash,
+        "severity": sev,
+        "asset": row.asset,
+        "direction": direction,
+        "magnitude_pct_low": row.magnitude_pct_low,
+        "magnitude_pct_high": row.magnitude_pct_high,
+        "confidence": row.confidence,
+        "t_min_minutes": row.t_min_minutes,
+        "t_max_minutes": row.t_max_minutes,
+        "rationale": row.rationale,
+        "trust_score": row.trust_score_at_time,
+        "trust_score_at_time": row.trust_score_at_time,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
 @router.get("/api/news/recent")
 async def get_news_recent(limit: int = 20):
     async with async_session_maker() as session:
         stmt = select(NewsPrediction).order_by(desc(NewsPrediction.created_at)).limit(limit)
         result = await session.execute(stmt)
-        return result.scalars().all()
+        rows = result.scalars().all()
+        return [_serialize_news_prediction(r) for r in rows]
+
+
+@router.get("/api/news")
+async def get_news(limit: int = 20):
+    """Compatibility alias for the Intelligence page."""
+    return await get_news_recent(limit=limit)
 
 @router.get("/api/news/raw")
 async def get_raw_news():
@@ -841,6 +977,307 @@ async def get_raw_news():
                 pass
                 
     return valid_news
+
+
+class NewsFeedbackRequest(BaseModel):
+    feedback_type: str
+    rating: int
+    selected_value: str | int | None = None
+    headline: str | None = None
+    source_domain: str | None = None
+    article_hash: str | None = None
+    prediction_id: str | None = None
+    asset: str | None = None
+    severity: str | None = None
+
+
+@router.post("/api/news/feedback")
+async def submit_news_feedback(req: NewsFeedbackRequest):
+    """Record scanner/severity feedback and update the news-agent feedback profile."""
+    headline = req.headline
+    source = req.source_domain
+    asset = req.asset
+    severity = req.severity
+
+    if req.prediction_id:
+        try:
+            import uuid
+            pid = uuid.UUID(str(req.prediction_id))
+            async with async_session_maker() as session:
+                pred = await session.get(NewsPrediction, pid)
+                if pred is not None:
+                    headline = headline or pred.headline
+                    source = source or pred.source_domain
+                    asset = asset or pred.asset
+                    sev = pred.severity.value if hasattr(pred.severity, "value") else str(pred.severity)
+                    severity = severity or sev
+        except Exception:
+            pass
+
+    try:
+        summary = news_feedback.record_feedback(
+            feedback_type=req.feedback_type,
+            rating=req.rating,
+            selected_value=req.selected_value,
+            headline=headline,
+            source_domain=source,
+            asset=asset,
+            severity=severity,
+            article_hash=req.article_hash,
+            prediction_id=req.prediction_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    keys = news_feedback.rating_keys(
+        article_hash=req.article_hash,
+        prediction_id=req.prediction_id,
+        headline=headline,
+        source_domain=source,
+    )
+    selected_value = req.selected_value if req.selected_value not in (None, "") else (1 if int(req.rating or 0) > 0 else -1)
+    return {"ok": True, "summary": summary, "keys": keys, "selected_value": selected_value}
+
+
+@router.get("/api/news/feedback/ratings")
+async def get_news_feedback_ratings():
+    """Hydrate thumbs-up/down UI after page reload."""
+    return {"ratings": news_feedback.get_rating_map()}
+
+
+class AgentChatRequest(BaseModel):
+    message: str
+    symbol: str | None = None
+    history: list[dict[str, str]] | None = None
+
+
+def _json_safe(obj: Any) -> Any:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if hasattr(obj, "value"):
+        return obj.value
+    return obj
+
+
+def _extract_chat_symbols(message: str, fallback: str | None = None) -> list[str]:
+    import re
+    from backend.core import universe as _universe
+    text = f" {message.upper()} "
+    symbols: list[str] = []
+    candidates = list(_universe.CRYPTO_SYMBOLS) + list(_universe.STOCK_UNDERLYINGS)
+    for sym in candidates:
+        base = sym.replace("USDT", "")
+        if re.search(rf"(?<![A-Z0-9]){re.escape(sym)}(?![A-Z0-9])", text) or re.search(rf"(?<![A-Z0-9]){re.escape(base)}(?![A-Z0-9])", text):
+            symbols.append(sym)
+    if fallback:
+        fs = fallback.upper()
+        if fs not in symbols:
+            symbols.insert(0, fs)
+    return list(dict.fromkeys(symbols))[:4]
+
+
+async def _chat_market_summary(symbol: str) -> dict[str, Any]:
+    from backend.api import market_routes
+    bars_payload = await market_routes.get_market_klines(symbol=symbol, interval="1d", limit=90)
+    bars = bars_payload if isinstance(bars_payload, list) else (bars_payload or {}).get("bars", [])
+    quote = await market_routes.get_market_quote(symbol)
+    closes = []
+    for row in bars or []:
+        try:
+            closes.append((int(row[0]), float(row[4])))
+        except Exception:
+            continue
+    summary: dict[str, Any] = {
+        "symbol": symbol.upper(),
+        "quote": quote,
+        "bars": len(closes),
+    }
+    if closes:
+        first_ts, first = closes[0]
+        last_ts, last = closes[-1]
+        change_pct = ((last - first) / first * 100.0) if first > 0 else 0.0
+        summary.update({
+            "first_date": datetime.utcfromtimestamp(first_ts / 1000.0).date().isoformat(),
+            "last_date": datetime.utcfromtimestamp(last_ts / 1000.0).date().isoformat(),
+            "last_close": round(last, 6),
+            "change_pct_over_bars": round(change_pct, 3),
+        })
+    return summary
+
+
+async def _chat_earnings_summary(symbols: list[str]) -> dict[str, Any]:
+    from backend.core import universe as _universe
+    stocks = [s for s in symbols if _universe.asset_class_of(s) == "us_stock"]
+    if not stocks:
+        return {}
+    if not getattr(settings, "FINNHUB_API_KEY", ""):
+        return {s: {"available": False, "reason": "FINNHUB_API_KEY not configured"} for s in stocks}
+    import asyncio as _asyncio
+    from datetime import timedelta
+    from backend.signals.earnings import fetch_finnhub_earnings
+    start = (datetime.utcnow() - timedelta(days=30)).date().isoformat()
+    end = (datetime.utcnow() + timedelta(days=180)).date().isoformat()
+    out: dict[str, Any] = {}
+    for sym in stocks:
+        events = await _asyncio.to_thread(
+            fetch_finnhub_earnings,
+            sym,
+            start,
+            end,
+            getattr(settings, "FINNHUB_API_KEY", ""),
+        )
+        future = [e for e in events if str(e.get("dt"))[:10] >= datetime.utcnow().date().isoformat()]
+        out[sym] = {
+            "available": True,
+            "next": _json_safe(future[0]) if future else None,
+            "events_returned": len(events),
+        }
+    return out
+
+
+async def _build_agent_chat_context(message: str, symbol: str | None) -> dict[str, Any]:
+    from backend.core import universe as _universe
+    redis = await get_redis()
+    hb = HeartbeatClient(redis)
+    symbols = _extract_chat_symbols(message, symbol)
+    market = await asyncio.gather(*[_chat_market_summary(s) for s in symbols], return_exceptions=True)
+    market_rows = [m for m in market if isinstance(m, dict)]
+
+    live_state: dict[str, Any] = {}
+    agent_status: dict[str, Any] = {}
+    risk_status: dict[str, Any] = {}
+    try:
+        raw = await redis.get("portfolio:live_state")
+        live_state = json.loads(raw if isinstance(raw, str) else raw.decode()) if raw else {}
+    except Exception:
+        live_state = {}
+    try:
+        raw = await redis.get("agent_frontend_status")
+        agent_status = json.loads(raw if isinstance(raw, str) else raw.decode()) if raw else {}
+    except Exception:
+        agent_status = {}
+    try:
+        raw = await redis.get("risk:status")
+        risk_status = json.loads(raw if isinstance(raw, str) else raw.decode()) if raw else {}
+    except Exception:
+        risk_status = {}
+
+    async with async_session_maker() as session:
+        closed_stmt = select(Trade).where(Trade.status == TradeStatus.closed)
+        open_stmt = select(Trade).where(Trade.status == TradeStatus.open).order_by(desc(Trade.opened_at)).limit(20)
+        recent_news_stmt = select(NewsPrediction).order_by(desc(NewsPrediction.created_at)).limit(5)
+        closed = list((await session.execute(closed_stmt)).scalars().all())
+        open_trades = list((await session.execute(open_stmt)).scalars().all())
+        recent_news = list((await session.execute(recent_news_stmt)).scalars().all())
+
+    pnl_usd = sum(float(t.pnl_usd or 0.0) for t in closed)
+    context = {
+        "now_utc": datetime.utcnow().isoformat(),
+        "mode": {
+            "paper_trading": bool(settings.PAPER_TRADING),
+            "alpaca_live_enabled": bool(settings.alpaca_live_enabled()),
+            "binance_futures_live_enabled": bool(settings.binance_futures_live_enabled()),
+            "any_live_enabled": bool(settings.any_live_enabled()),
+        },
+        "universe": _universe.as_dict(),
+        "requested_symbols": symbols,
+        "market": market_rows,
+        "earnings": await _chat_earnings_summary(symbols),
+        "portfolio": {
+            "closed_trades": len(closed),
+            "open_trades": len(open_trades),
+            "realized_pnl_usd": round(pnl_usd, 2),
+            "live_state": live_state,
+            "open_trade_rows": [_json_safe({
+                "asset": t.asset,
+                "direction": t.direction,
+                "size_usd": t.size_usd,
+                "entry_price": t.entry_price,
+                "opened_at": t.opened_at,
+                "broker": t.broker,
+                "asset_class": t.asset_class,
+            }) for t in open_trades],
+        },
+        "agents": {
+            "nn_trading_agent_alive": await hb.check_alive("nn_trading_agent"),
+            "llm_news_agent_alive": await hb.check_alive("llm_news_agent"),
+            "frontend_status": agent_status,
+            "risk_status": risk_status,
+        },
+        "recent_news": [_json_safe({
+            "headline": n.headline,
+            "source_domain": n.source_domain,
+            "severity": n.severity,
+            "asset": n.asset,
+            "direction": n.direction,
+            "created_at": n.created_at,
+            "rationale": n.rationale,
+        }) for n in recent_news],
+    }
+    return context
+
+
+@router.post("/api/agent/chat")
+async def agent_chat(req: AgentChatRequest):
+    message = (req.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+    context = await _build_agent_chat_context(message, req.symbol)
+    from backend.agents.llm import LLMService
+    from backend.agents.web_search import build_search_query, search_web
+
+    search_query = build_search_query(message, context)
+    web_results: list[dict[str, str]] = []
+    if search_query:
+        try:
+            web_results = await asyncio.to_thread(search_web, search_query, 5)
+        except Exception as e:
+            logger.warning("agent_chat_web_search_failed", error=str(e)[:200])
+
+    llm = LLMService(
+        settings.AI_PROVIDER,
+        settings.ANTHROPIC_API_KEY,
+        settings.GEMINI_API_KEY,
+        settings.OLLAMA_MODEL,
+    )
+    history = req.history or []
+    history_text = "\n".join(
+        f"{str(h.get('role', 'user'))[:12]}: {str(h.get('content', ''))[:800]}"
+        for h in history[-6:]
+    )
+    web_block = (
+        f"Web search query: {search_query}\n"
+        f"Web search results:\n{json.dumps(web_results, indent=2)[:6000]}\n\n"
+        if web_results
+        else (
+            f"Web search was not run (query would have been: {search_query!r}).\n\n"
+            if search_query
+            else "Web search was not triggered for this question.\n\n"
+        )
+    )
+    prompt = (
+        "You are the local trading-agent copilot for this app. Answer directly. "
+        "Prefer internal context for portfolio state, open trades, agent heartbeats, "
+        "paper/live mode, and prices already fetched from the app's market APIs. "
+        "Use web search results for external facts (earnings dates, breaking news, "
+        "troubleshooting hints) when internal context does not contain the answer. "
+        "If neither source has the data, say exactly what is missing. "
+        "Do not invent prices, earnings dates, profits, or agent state. "
+        "Keep the answer concise but useful.\n\n"
+        f"Internal context JSON:\n{json.dumps(_json_safe(context), indent=2)[:12000]}\n\n"
+        f"{web_block}"
+        f"Recent chat:\n{history_text or 'none'}\n\n"
+        f"User question: {message}"
+    )
+    answer = await llm.generate_text(prompt, tier="haiku", max_tokens=800, json_mode=False)
+    return {
+        "answer": answer.strip() or "The configured LLM did not return a response.",
+        "context": context,
+        "web_search": {"query": search_query, "results": web_results} if search_query else None,
+    }
 
 @router.get("/api/universe")
 async def get_universe():

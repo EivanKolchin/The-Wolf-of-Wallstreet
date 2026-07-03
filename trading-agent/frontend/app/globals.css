@@ -3,13 +3,44 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
+  /* Charcoal-monochrome system (Cycle 24). One restrained neutral accent; colour
+     is reserved for financial semantics only (P&L, long/short, engine on/off). */
+  --background: #000000;
+  --foreground: #ededed;
+
+  --surface-1: #0a0a0a;         /* cards */
+  --surface-2: #0e0e10;         /* inset panels / inputs */
+  --surface-3: #141416;         /* hover / raised */
+  --border-subtle: #1a1a1c;
+  --border-strong: #262629;
+
+  --accent: #f4f4f5;            /* near-white — primary interactive accent */
+  --pos: #34d399;               /* emerald — gains / long / active */
+  --neg: #fb7185;               /* rose — losses / short / halted */
 }
+
+html { color-scheme: dark; }
 
 body {
   color: var(--foreground);
   background: var(--background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Selection + keyboard focus — subtle neutral, not a colour pop. */
+::selection { background: rgba(244, 244, 245, 0.18); color: #ffffff; }
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(244, 244, 245, 0.35);
+}
+
+/* Smooth interactive feedback (scoped to controls — avoids global-transition jank). */
+button, a, input, select, textarea {
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease,
+              box-shadow .15s ease, transform .15s ease, opacity .15s ease;
 }
 
 /* Modern minimalist scrollbar */
@@ -48,5 +79,5 @@ table tr:last-child td a { display: none !important; }
 }
 .chart-skeleton-bar {
   animation: chartSkeletonPulse 1.2s ease-in-out infinite;
-  background: linear-gradient(180deg, rgba(167,139,250,0.18) 0%, rgba(167,139,250,0.05) 100%);
+  background: linear-gradient(180deg, rgba(244,244,245,0.10) 0%, rgba(244,244,245,0.02) 100%);
 }

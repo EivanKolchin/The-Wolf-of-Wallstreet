@@ -84,7 +84,7 @@ class LLMService:
                 }, f)
         except Exception: pass
 
-    async def _call_ollama(self, prompt: str) -> str:
+    async def _call_ollama(self, prompt: str, json_mode: bool = True) -> str:
         """Call local Ollama instance with auto-downgrade failover protection if hardware gets overloaded."""
         import time
         url = "http://localhost:11434/api/generate"
@@ -100,7 +100,9 @@ class LLMService:
                 self.downgrade_time = 0
                 self._sync_llm_state()
 
-        safe_prompt = prompt + "\n\nIMPORTANT: Provide ONLY valid JSON. No conversational text."
+        safe_prompt = prompt
+        if json_mode:
+            safe_prompt += "\n\nIMPORTANT: Provide ONLY valid JSON. No conversational text."
         
         def build_request():
             data = {
@@ -208,7 +210,7 @@ class LLMService:
         keep_end = max_chars // 2
         return prompt[:keep_start] + "\n\n...[TRUNCATED DATA]...\n\n" + prompt[-keep_end:]
 
-    async def generate_text(self, prompt: str, tier: str = "haiku", max_tokens: int = 300) -> str:
+    async def generate_text(self, prompt: str, tier: str = "haiku", max_tokens: int = 300, json_mode: bool = True) -> str:
         prompt = self._compress_context(prompt)
         
         # Determine routing based on provider
@@ -230,9 +232,9 @@ class LLMService:
             use_claude = True
 
         if use_ollama:
-            res = await self._call_ollama(prompt)
+            res = await self._call_ollama(prompt, json_mode=json_mode)
             # Basic validation check for JSON
-            if "{" in res and "}" in res:
+            if not json_mode or ("{" in res and "}" in res):
                 return res
             # If Ollama failed completely or returned garbage, fallback if hybrid
             if self.provider == "hybrid_gemini":
@@ -259,7 +261,7 @@ class LLMService:
                 if "429" in str(e):
                     logger.error("Gemini Rate Limit Exceeded")
                     if "hybrid" in self.provider:
-                         return await self._call_ollama(prompt)
+                         return await self._call_ollama(prompt, json_mode=json_mode)
                     return ""
                 raise e
         elif use_claude and self.anthropic_client:
@@ -273,4 +275,4 @@ class LLMService:
             return response.content[0].text
         else:
             # Fallback natively to OLLAMA when all other keys are missing or invalid
-            return await self._call_ollama(prompt)
+            return await self._call_ollama(prompt, json_mode=json_mode)

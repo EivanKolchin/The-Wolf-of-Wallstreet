@@ -13,6 +13,7 @@ from backend.agents.credibility import CredibilityEngine
 from backend.memory.redis_client import PriorityNewsQueue, NewsImpact, HeartbeatClient
 from backend.memory.database import NewsPrediction, Severity, Direction, KeywordWeight, SeverityCalibration
 from backend.training.backbone import map_asset_to_symbol, extract_symbol_relevance, CRYPTO_KEYWORD_BANK
+from backend.agents import news_feedback
 
 logger = structlog.get_logger(__name__)
 
@@ -22,9 +23,13 @@ Classify the market impact of this news article.
 Article headline: {headline}
 Article body (first 500 chars): {body}
 Source trust score: {trust_score}
+User feedback calibration:
+{feedback_guidance}
 
 Severity rules:
 - NEUTRAL: routine news, confidence < 0.5, magnitude < 1%, or unrelated to markets
+- MILD: minor market-relevant headline, confidence 0.4-0.6, magnitude 0.3-1%,
+        worth logging but not an urgent trading catalyst
 - SIGNIFICANT: clear directional catalyst, confidence > 0.6, magnitude 1-10%, 
                no systemic risk, does NOT require immediate position closure
 - SEVERE: systemic risk event — exchange collapse, regulatory ban, protocol exploit, 
@@ -77,7 +82,8 @@ class LLMNewsAgent:
         prompt = SEVERITY_CLASSIFICATION_PROMPT.format(
             headline=article.headline,
             body=article.body[:500],
-            trust_score=trust_score
+            trust_score=trust_score,
+            feedback_guidance=news_feedback.guidance_text(),
         )
 
         try:
@@ -88,6 +94,24 @@ class LLMNewsAgent:
             return None
 
         severity_str = data.get("severity", "NEUTRAL").upper()
+        if severity_str not in {"NEUTRAL", "MILD", "SIGNIFICANT", "SEVERE"}:
+            severity_str = "NEUTRAL"
+        if severity_str != "NEUTRAL":
+            bias = news_feedback.severity_bias(
+                article.headline,
+                article.source_domain,
+                str(data.get("asset", "") or ""),
+            )
+            adjusted = news_feedback.adjust_severity(severity_str, bias)
+            if adjusted != severity_str:
+                logger.info(
+                    "news_severity_feedback_adjusted",
+                    from_severity=severity_str,
+                    to_severity=adjusted,
+                    bias=round(bias, 3),
+                    headline=article.headline[:120],
+                )
+            severity_str = adjusted
         if severity_str == "NEUTRAL":
             return None
 
@@ -167,7 +191,8 @@ class LLMNewsAgent:
                     raw_dict = {
                         "headline": article.headline,
                         "source": article.source_domain,
-                        "time": datetime.utcnow().isoformat()
+                        "time": datetime.utcnow().isoformat(),
+                        "article_hash": article.article_hash,
                     }
                     raw_data = json.dumps(raw_dict)
                     
@@ -192,12 +217,36 @@ class LLMNewsAgent:
                     logger.warning("failed_to_push_raw_news", error=str(e))
 
                 trust_score, is_fast = await self.credibility_engine.score_article(article)
-                if trust_score < self.min_trust_to_analyse:
+                interest = news_feedback.article_interest_score(
+                    f"{article.headline}\n{article.body[:500]}",
+                    article.source_domain,
+                )
+                threshold = self.min_trust_to_analyse
+                if interest > 0:
+                    threshold = max(0.05, threshold - min(0.25, interest * 0.08))
+                elif interest < 0:
+                    threshold = min(0.95, threshold + min(0.35, abs(interest) * 0.12))
+                if interest <= -1.5 and trust_score < 0.85:
+                    logger.info(
+                        "news_skipped_by_user_feedback",
+                        headline=article.headline[:120],
+                        source=article.source_domain,
+                        interest=round(interest, 3),
+                    )
                     continue
+                if trust_score < threshold:
+                    continue
+                trust_score = max(0.0, min(1.0, trust_score + interest * 0.03))
                 
                 impact = await self.analyse_article(article, trust_score)
                 if impact is not None:
                     await self.news_queue.put(impact)
+                    # also publish to the recent-news window the StrategyAgent's risk overlay reads
+                    try:
+                        from backend.agents.live_providers import RedisNewsProvider
+                        await RedisNewsProvider.publish(self.news_queue.redis, impact)
+                    except Exception:
+                        pass
                     logger.info("news_impact_detected", impact=impact.to_json() if hasattr(impact, 'to_json') else str(impact))
             except Exception as e:
                 import traceback

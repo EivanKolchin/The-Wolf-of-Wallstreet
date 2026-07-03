@@ -110,15 +110,11 @@ export default function Navbar() {
 
         {/* Currency Switcher */}
         <div className="relative" ref={currencyDropRef}>
-          <button 
+          <button
             onClick={() => setShowCurrencyDrop(!showCurrencyDrop)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-800 bg-[#121214] text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[#1f1f22] bg-[#0e0e10] text-zinc-300 hover:border-[#2a2a2e] hover:text-zinc-100 transition-colors"
           >
-            <div className="flex items-center -space-x-1">
-              <DollarSign size={14} className="text-zinc-400 z-10 bg-[#121214] rounded-full" />
-              <PoundSterling size={14} className="text-zinc-600" />
-            </div>
-            <span className="text-[12px] font-medium tracking-wide">{currency}</span>
+            <span className="text-[12px] font-medium tracking-wide tabular-nums">{currency}</span>
             <ChevronDown size={14} className={`text-zinc-500 transition-transform ${showCurrencyDrop ? 'rotate-180' : ''}`} />
           </button>
 
@@ -150,7 +146,7 @@ export default function Navbar() {
         </div>
 
         {status?.paper_mode && (
-          <Link href="/settings" className="flex items-center space-x-2 px-3 py-1 rounded bg-[#FACC15]/10 border border-[#FACC15]/20 text-[#FACC15] transition-all cursor-pointer">
+          <Link href="/settings" className="flex items-center rounded-md border border-[#1f1f22] bg-[#0e0e10] px-3 py-1.5 text-zinc-400 transition-colors hover:border-[#2a2a2e] hover:text-zinc-200 cursor-pointer">
             <span className="text-[11px] font-medium uppercase tracking-widest">Paper Mode</span>
           </Link>
         )}

@@ -14,11 +14,11 @@ export function WalletConnectModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xl p-4"
+      className="fixed inset-0 z-[9999] flex items-start justify-end bg-black/60 backdrop-blur-xl p-4 pt-6 pr-6"
       onClick={onClose}
     >
       <div
-        className="bg-[#0C0C0E] border border-neutral-800/60 rounded-2xl max-w-sm w-full p-5 shadow-2xl"
+        className="w-full max-w-sm rounded-2xl border border-neutral-800/60 bg-[#0C0C0E] p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">

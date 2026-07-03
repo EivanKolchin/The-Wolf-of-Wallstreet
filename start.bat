@@ -56,6 +56,11 @@ if not exist ".env" (
     )
 )
 
+:: Redis (via Docker) — required for cross-process state (news overlay, queues, heartbeats)
+echo [Redis] Ensuring Redis is up via Docker...
+call "%~dp0redis_up.bat"
+if errorlevel 1 echo [Redis] Could not start Redis automatically — start it manually before live trading.
+
 :: Frontend
 echo [Frontend] Starting...
 pushd frontend

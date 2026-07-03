@@ -118,13 +118,13 @@ export default function PerformancePage() {
       {data?.meta && <RuntimeBanner meta={data.meta} lastFetched={lastFetched} />}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-zinc-800">
+      <div className="flex items-center gap-1 border-b border-[#171717]">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-xs transition-colors ${
-              tab === t ? "text-white border-b-2 border-violet-400" : "text-zinc-500 hover:text-zinc-300"
+              tab === t ? "text-white border-b-2 border-zinc-100" : "text-zinc-500 hover:text-zinc-300"
             }`}
           >
             {t}
@@ -171,9 +171,9 @@ function Stat({ label, value, icon, tone = "neutral" }: { label: string; value: 
     tone === "ok" ? "border-emerald-500/20 text-emerald-400" :
     tone === "bad" ? "border-red-500/20 text-red-400" :
     tone === "warn" ? "border-amber-500/20 text-amber-400" :
-    "border-zinc-800 text-zinc-200";
+    "border-[#171717] text-zinc-200";
   return (
-    <div className={`flex flex-col px-3 py-2 rounded border bg-zinc-900/50 ${toneClass}`}>
+    <div className={`flex flex-col px-3 py-2 rounded border bg-[#0e0e10] ${toneClass}`}>
       <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">{icon}{label}</span>
       <span className="font-mono mt-0.5 text-sm">{value}</span>
     </div>
@@ -210,12 +210,12 @@ function TradeStatsGrid({ title, s }: { title: string; s: any }) {
       </div>
 
       {s.exit_reasons && Object.keys(s.exit_reasons).length > 0 && (
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+        <div className="bg-[#0e0e10] border border-[#171717] rounded-xl p-4">
           <h3 className="text-xs uppercase tracking-wider text-zinc-400 mb-2">Exit reasons</h3>
           <div className="flex flex-wrap gap-3">
             {Object.entries(s.exit_reasons as Record<string, number>).map(([k, n]) => (
               <span key={k} className="px-3 py-1 rounded bg-zinc-800/60 text-xs text-zinc-200">
-                {k}: <span className="font-mono text-violet-400">{n}</span>
+                {k}: <span className="font-mono text-zinc-200">{n}</span>
               </span>
             ))}
           </div>
@@ -231,7 +231,7 @@ function BigCard({ title, value, sub, tone = "neutral" }: { title: string; value
     tone === "bad" ? "text-red-400" :
     "text-white";
   return (
-    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-3">
+    <div className="bg-[#0e0e10] border border-[#171717] rounded-xl p-3">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{title}</div>
       <div className={`text-lg font-semibold font-mono mt-0.5 ${valueClass}`}>{value}</div>
       {sub && <div className="text-[11px] text-zinc-500 mt-0.5">{sub}</div>}
@@ -245,10 +245,10 @@ function PerSymbolView({ per }: { per: Record<string, any> }) {
   return (
     <section className="space-y-3">
       <h2 className="text-sm uppercase tracking-wider text-zinc-400">By asset</h2>
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="bg-[#0e0e10] border border-[#171717] rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="uppercase tracking-wider border-b border-zinc-800 bg-zinc-950/50 text-zinc-400">
+            <thead className="uppercase tracking-wider border-b border-[#171717] bg-black/40 text-zinc-400">
               <tr>
                 <th className="px-4 py-3">Asset</th>
                 <th className="px-4 py-3">Total</th>
@@ -320,7 +320,7 @@ function ModelAndNews({ meta, news }: { meta: any; news: any }) {
         <h2 className="text-sm uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
           <Activity size={14} /> Live attention
         </h2>
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+        <div className="bg-[#0e0e10] border border-[#171717] rounded-xl p-4">
           {meta?.attention_state && Object.keys(meta.attention_state).length ? (
             <div className="flex flex-wrap gap-3 text-xs">
               {Object.entries(meta.attention_state as Record<string, string>).map(([sym, lvl]) => (
@@ -351,9 +351,9 @@ function LatencyView({ lat }: { lat: any }) {
         <BigCard title="Errors" value={`${totals.errors || 0}`} tone={totals.errors ? "bad" : "ok"} />
         <BigCard title="Error rate" value={`${((totals.error_rate || 0) * 100).toFixed(2)}%`} tone={(totals.error_rate || 0) > 0.05 ? "bad" : "ok"} />
       </div>
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+      <div className="bg-[#0e0e10] border border-[#171717] rounded-xl overflow-hidden">
         <table className="w-full text-left text-xs whitespace-nowrap">
-          <thead className="uppercase tracking-wider border-b border-zinc-800 bg-zinc-950/50 text-zinc-400">
+          <thead className="uppercase tracking-wider border-b border-[#171717] bg-black/40 text-zinc-400">
             <tr>
               <th className="px-4 py-3">Provider</th>
               <th className="px-4 py-3">Calls</th>

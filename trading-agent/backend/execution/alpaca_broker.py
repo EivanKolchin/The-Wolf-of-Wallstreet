@@ -76,6 +76,49 @@ class AlpacaBroker(BrokerInterface):
         return self._open
 
     # ---------------------------------------------------------------- execution
+    @staticmethod
+    def normalize_symbol(symbol: str) -> str:
+        """yfinance-style crypto ('BTC-USD') → Alpaca crypto ('BTC/USD'); stocks pass through."""
+        s = str(symbol).upper()
+        if s.endswith("-USD"):
+            return s[:-4] + "/USD"
+        return s
+
+    async def submit_notional(self, symbol: str, notional_usd: float, *, reduce_only: bool = False):
+        """Market order of |notional_usd| (buy if >0, sell if <0) for the target-weight book.
+        Routes a REAL order only when settings.alpaca_live_enabled(); otherwise logs + simulated ack
+        (never a real fill). Regular-hours market/notional only — off-hours rebalances are skipped."""
+        if abs(notional_usd) < 1.0:
+            return {"status": "skipped", "reason": "below $1 notional"}
+        sym = self.normalize_symbol(symbol)
+        side = "buy" if notional_usd > 0 else "sell"
+        if not settings.alpaca_live_enabled():
+            logger.info("alpaca_paper_order", symbol=sym, side=side, notional=round(notional_usd, 2))
+            return {"status": "paper", "symbol": sym, "side": side, "notional": notional_usd}
+        from backend.core.market_hours import us_session_state
+        is_crypto = "/" in sym
+        if not is_crypto and us_session_state() != "regular":
+            logger.info("alpaca_offhours_skip", symbol=sym)
+            return {"status": "skipped", "reason": "off-hours"}
+        payload = {"symbol": sym, "notional": f"{abs(notional_usd):.2f}", "side": side,
+                   "type": "market", "time_in_force": "gtc" if is_crypto else "day"}
+        url = f"{self.base}/orders"
+        t0 = time.monotonic()
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+                async with s.post(url, headers=self._headers(), json=payload) as r:
+                    body = await r.text()
+                    ok = r.status in (200, 201)
+                    ledger.log_api_call("alpaca", "POST", url, status=r.status, ok=ok,
+                                        latency_ms=(time.monotonic() - t0) * 1000)
+                    if not ok:
+                        logger.error("alpaca_notional_rejected", status=r.status, body=body[:300])
+                        return {"status": "error", "reason": body[:120]}
+                    return {"status": "live", "symbol": sym, "side": side}
+        except Exception as e:
+            logger.error("alpaca_notional_failed", symbol=sym, error=str(e)[:120])
+            return {"status": "error", "reason": str(e)[:120]}
+
     async def execute(self, decision, portfolio_state: dict):
         if not self.is_available():
             logger.warning("alpaca_unavailable_skip_execute")

@@ -61,6 +61,21 @@ class NewsIngestionPipeline:
 
     def filter_relevant(self, article: NewsArticle) -> bool:
         headline_lower = article.headline.lower()
+        body_lower = (article.body or "").lower()[:500]
+        combined = f"{headline_lower} {body_lower}"
+
+        # User feedback keywords override the static list when present.
+        try:
+            from backend.agents import news_feedback
+            for kw in news_feedback.suppressed_keywords():
+                if kw in combined:
+                    return False
+            for kw in news_feedback.boosted_keywords():
+                if kw in combined:
+                    return True
+        except Exception:
+            pass
+
         for kw in KEYWORDS:
             if kw in headline_lower:
                 return True

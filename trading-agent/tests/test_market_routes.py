@@ -53,15 +53,15 @@ async def test_klines_stock_path_without_alpaca_credentials_returns_empty_bars(m
     assert res.get("bars") == []
 
 
-def test_alpaca_start_iso_returns_well_formed_iso_strings():
-    from backend.api.market_routes import _alpaca_start_iso
-    start, end = _alpaca_start_iso("5Min", None)
+def test_alpaca_window_iso_returns_well_formed_iso_strings():
+    from backend.api.market_routes import _alpaca_window_iso
+    start, end, sort = _alpaca_window_iso("5Min", None, None, limit=100)
     assert start.endswith("Z") and "T" in start
-    # With no end_ms, we fix start but leave end unspecified.
-    assert end is None
-    start2, end2 = _alpaca_start_iso("1Day", 1716000000000)
+    assert end and end.endswith("Z")
+    assert sort == "desc"
+    start2, end2, sort2 = _alpaca_window_iso("1Day", 1716000000000, None, limit=100)
     assert start2.endswith("Z") and end2 and end2.endswith("Z")
-    assert start2 < end2
+    assert sort2 == "desc"
 
 
 def test_stocks_websocket_route_is_registered():

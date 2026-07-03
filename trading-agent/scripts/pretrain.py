@@ -74,6 +74,12 @@ from backend.features.pipeline import (  # canonical feature math (single source
     build_feature_matrix, detect_regime, build_htf_features, apply_rolling_zscore,
     assemble_matrix,
 )
+# THE model + symbol registry are imported from the LIVE module — the duplicated
+# offline copy is gone, so offline/live can never drift again (the duplicate had
+# already drifted: no TCN trunk support + an 18-vs-22 symbol registry mismatch).
+from backend.agents.improved_model import (  # noqa: F401 — re-exported for tests/backtest.py
+    ImprovedTradingLSTM, AttentionLayer, SYMBOLS, SYMBOL_TO_ID,
+)
 # Cost-aware net-alpha selection metric (replaces the win-rate×confidence proxy) — lives in
 # the leaf engine module so importing it here can't create a cycle with scripts/evaluate.py.
 from backend.backtest.engine import net_alpha_score
@@ -106,20 +112,9 @@ NUM_CLASSES      = 3              # 0=long, 1=short, 2=hold
 VAL_FRAC  = 0.15
 TEST_FRAC = 0.20
 
-# Phase 7b: stock underlyings appended to the crypto list. Order MUST match the
-# live `backend.agents.improved_model.SYMBOLS` exactly so embedding-table IDs
-# stay aligned between offline pretraining and live inference.
-SYMBOLS = [
-    # ---- crypto (ids 0..7) ----
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "AAVEUSDT",
-    "XLMUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT",
-    # ---- US stocks (ids 8..12) — fetched from Alpaca ----
-    "SNDK", "AMD", "MU", "AXTI", "BE",
-    # ---- Cycle 6 additions (ids 13..17) — APPENDED so existing ids stay stable ----
-    "RENDERUSDT", "NEARUSDT",          # crypto (Render = ex-RNDR; Near) — Binance
-    "NVDA", "TSM", "SMCI",             # AI-chip stocks — help the model learn the AMD/MU sector
-]
-SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
+# Symbol registry: imported from backend.agents.improved_model above — the live
+# module is the single source of truth, so embedding-table IDs can never drift
+# between offline pretraining and live inference again.
 
 DATA_DIR    = ROOT / "training_data" / "raw"
 FEATURE_CACHE_DIR = ROOT / "training_data" / "features"   # A3: prebuilt feature/label cache
@@ -185,153 +180,16 @@ VOL_WINDOW = 20   # rolling window (bars) for the 1-bar return vol that scales b
 BV_BASE = "https://data.binance.vision/data/spot/monthly/klines"
 
 # =============================================================================
-# IMPROVED MODEL
-# =============================================================================
-
-class AttentionLayer(nn.Module):
-    """Additive (Bahdanau-style) attention over LSTM sequence."""
-
-    def __init__(self, hidden_size: int):
-        super().__init__()
-        self.score = nn.Linear(hidden_size, 1, bias=False)
-
-    def forward(self, lstm_out: torch.Tensor):
-        # lstm_out: (B, T, H)
-        weights = self.score(lstm_out)          # (B, T, 1)
-        weights = F.softmax(weights, dim=1)
-        context = (weights * lstm_out).sum(1)   # (B, H)
-        return context, weights.squeeze(-1)     # (B, H), (B, T)
-
-
-class ImprovedTradingLSTM(nn.Module):
-    """
-    Architecture:
-      ┌─ Symbol embedding ─┐
-      │  (B, embed_dim)    │
-      └──────┬─────────────┘
-             cat with features → (B, T, INPUT_SIZE + embed_dim)
-             ↓
-        3-layer LSTM  (hidden=256, causal)
-             ↓
-        LayerNorm
-             ↓
-        Dot-product Attention → context (B, 256)
-             ↓
-        Dropout
-             ↓
-        Shared FC: 256→128→ReLU→Dropout→64→ReLU
-             ↓
-      ┌──────┴──────────┐
-      │  Per-horizon    │   Size head
-      │  direction heads│   64→32→ReLU→1→Sigmoid
-      │  64→3 (logits)  │
-      └─────────────────┘
-    """
-
-    def __init__(
-        self,
-        input_size:      int = INPUT_SIZE,
-        hidden_size:     int = HIDDEN_SIZE,
-        num_layers:      int = NUM_LSTM_LAYERS,
-        dropout:         float = DROPOUT,
-        num_symbols:     int = len(SYMBOLS),
-        symbol_embed_dim: int = SYMBOL_EMBED_DIM,
-        num_horizons:    int = len(HORIZONS),
-        num_classes:     int = NUM_CLASSES,
-    ):
-        super().__init__()
-        self.num_horizons = num_horizons
-        self.symbol_embedding = nn.Embedding(num_symbols, symbol_embed_dim)
-
-        # A4: keep this in lock-step with backend/agents/improved_model.py so
-        # offline-trained checkpoints load into the live model. dropout + RNN
-        # core type are config-driven (gru = fewer params, faster, less overfit).
-        try:
-            from backend.core.config import settings as _s
-            dropout = float(getattr(_s, "NN_DROPOUT", dropout))
-            rnn_type = str(getattr(_s, "NN_RNN_TYPE", "lstm")).lower()
-        except Exception:
-            rnn_type = "lstm"
-        self.rnn_type = rnn_type
-
-        lstm_in = input_size + symbol_embed_dim
-        _rnn = nn.GRU if rnn_type == "gru" else nn.LSTM
-        self.lstm = _rnn(
-            input_size=lstm_in,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
-            batch_first=True,
-            bidirectional=False,   # causal — no future peek
-        )
-        self.layer_norm = nn.LayerNorm(hidden_size)
-        self.attention  = AttentionLayer(hidden_size)
-        self.dropout    = nn.Dropout(dropout)
-
-        self.shared = nn.Sequential(
-            nn.Linear(hidden_size, 128),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-        )
-
-        # One direction head per horizon — multi-task learning
-        self.direction_heads = nn.ModuleList(
-            [nn.Linear(64, num_classes) for _ in range(num_horizons)]
-        )
-
-        # Position sizing (shared across horizons)
-        self.size_head = nn.Sequential(
-            nn.Linear(64, 32), nn.ReLU(),
-            nn.Linear(32, 1),  nn.Sigmoid(),
-        )
-
-        # Learnable temperature for calibration
-        self.temperature = nn.Parameter(torch.ones(1))
-
-        self._init_weights()
-
-    def _init_weights(self):
-        for name, p in self.named_parameters():
-            if "weight_ih" in name:
-                nn.init.xavier_uniform_(p)
-            elif "weight_hh" in name:
-                nn.init.orthogonal_(p)
-            elif "bias" in name:
-                nn.init.zeros_(p)
-
-    def forward(
-        self,
-        x: torch.Tensor,           # (B, T, INPUT_SIZE)
-        symbol_ids: torch.Tensor,  # (B,)
-    ):
-        B, T, _ = x.shape
-        emb = self.symbol_embedding(symbol_ids)          # (B, embed_dim)
-        emb = emb.unsqueeze(1).expand(-1, T, -1)         # (B, T, embed_dim)
-        x   = torch.cat([x, emb], dim=-1)                # (B, T, lstm_in)
-
-        lstm_out, _ = self.lstm(x)                        # (B, T, H)
-        lstm_out    = self.layer_norm(lstm_out)
-        context, attn_w = self.attention(lstm_out)        # (B, H), (B, T)
-        context = self.dropout(context)
-
-        shared = self.shared(context)                     # (B, 64)
-
-        logits_list = [h(shared) / self.temperature for h in self.direction_heads]
-        probs_list  = [F.softmax(lg, dim=-1) for lg in logits_list]
-        size        = self.size_head(shared)              # (B, 1)
-
-        return logits_list, probs_list, size, attn_w
-
-    def predict(self, x: torch.Tensor, symbol_ids: torch.Tensor, horizon_idx: int = 0):
-        """Convenience for live inference — returns probs + size for one horizon."""
-        self.eval()
-        with torch.no_grad():
-            _, probs_list, size, _ = self(x, symbol_ids)
-        return probs_list[horizon_idx], size
-
-
+# MODEL — imported from backend.agents.improved_model (see import block above).
+#
+# The old duplicated offline copy is deleted: it could not build the TCN trunk
+# (NN_TRUNK="tcn" was live-only) and its symbol registry had drifted to 18 names
+# while live had 22 — so a TCN checkpoint was untrainable and the Cycle-24 names
+# (TSLA/MSTR/COIN/PLTR) were untrainable. The live class's forward returns a
+# 5-tuple (logits, probs, size, exits, attn) vs the old 4-tuple; train/eval below
+# only index out[0]/out[1], so both shapes work. The exit/next-candle heads get
+# no gradient offline (loss reads logits only) and are saved as fresh inits —
+# identical to the live loader's old "missing exit keys → fresh init" behaviour.
 # =============================================================================
 # DATA DOWNLOAD — data.binance.vision + API gap-fill
 # =============================================================================
@@ -399,6 +257,15 @@ def load_or_download(
     if cache_path.exists():
         log.info("Loading from cache", path=str(cache_path))
         return pd.read_parquet(cache_path)
+    # The exact key embeds end=(now − 1 month), which rolls forward monthly and would
+    # strand every previously built cache. Fall back to the FRESHEST cache with the same
+    # symbol/interval/start — offline research keeps working; an online run still
+    # gap-fills the missing tail from the API afterwards.
+    stale = sorted(DATA_DIR.glob(f"{symbol}_{interval}_{start_year}{start_month:02d}_*.parquet"))
+    if stale:
+        log.info("Loading freshest available cache (end-month key rolled forward)",
+                 path=str(stale[-1]))
+        return pd.read_parquet(stale[-1])
     # No cache present. --skip-download means "stay offline" → fail loudly instead of downloading.
     if skip_download:
         raise RuntimeError(
@@ -483,8 +350,11 @@ def api_gap_fill(symbol: str, interval: str, after_ts: pd.Timestamp) -> pd.DataF
 _ALPACA_DATA_BASE = "https://data.alpaca.markets/v2"
 _ALPACA_TF = {"5m": "5Min", "1h": "1Hour", "4h": "4Hour"}
 
-# Symbol classification — mirror backend/core/universe.STOCK_UNDERLYINGS.
-_STOCK_SYMBOLS = {"SNDK", "AMD", "MU", "AXTI", "BE", "NVDA", "TSM", "SMCI"}
+# Symbol classification — DERIVED from the registry (crypto pairs all end in
+# "USDT") instead of a hand-mirrored set. The old hard-coded set had drifted:
+# it lacked TSLA/MSTR/COIN/PLTR, which would have been routed to Binance (404s)
+# instead of Alpaca.
+_STOCK_SYMBOLS = {s for s in SYMBOLS if not s.upper().endswith("USDT")}
 
 
 def _extra_stocks() -> set:
@@ -1503,7 +1373,19 @@ def main():
     parser.add_argument("--seed", type=int, default=42,
                         help="RNG seed. Train several seeds (0,1,2,…) for an ensemble; "
                              "non-default seeds save to seed-tagged checkpoints.")
+    parser.add_argument("--trunk", choices=["lstm", "tcn"], default=None,
+                        help="Temporal core override. Sets settings.NN_TRUNK before the model is "
+                             "built, so a TCN checkpoint can be trained offline (previously "
+                             "live-only). Omit to use the configured NN_TRUNK (.env).")
     args = parser.parse_args()
+
+    # ── trunk override (must happen BEFORE the model is constructed — the class
+    #    reads settings.NN_TRUNK in __init__) ──────────────────────────────────
+    if args.trunk:
+        from backend.core.config import settings as _live_settings
+        _live_settings.NN_TRUNK = args.trunk
+        os.environ["NN_TRUNK"] = args.trunk     # visible to any child process too
+        log.info("Trunk override", trunk=args.trunk)
 
     # ── reproducibility ──────────────────────────────────────────────────────
     torch.manual_seed(args.seed)

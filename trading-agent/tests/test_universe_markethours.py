@@ -16,8 +16,10 @@ def test_universe_membership():
     assert U.asset_class_of("AMD") == "us_stock"
     assert U.asset_class_of("BTCUSDT") == "crypto"
     assert U.asset_class_of("ZZZ") == "unknown"
-    for s in ("SNDK", "AMD", "MU", "AXTI", "BE"):
+    for s in ("SNDK", "AMD", "MU", "BE", "TSLA", "MSTR", "COIN", "PLTR"):
         assert s in U.STOCK_UNDERLYINGS
+    # Cycle 24: AXTI retired from the tradable set (kept in the model vocabulary only).
+    assert "AXTI" not in U.STOCK_UNDERLYINGS
 
 
 def test_etp_routing_rules():

@@ -6,9 +6,10 @@ import { createChart, IChartApi, ISeriesApi, ColorType, IPriceLine, LineStyle } 
 import { Search, Pencil, Type, Activity, MousePointer2, Slash, Settings, Trash2, ListMinus, X, Ruler, ArrowRightToLine, Palette, Undo, Redo, Eraser, Plus, Minus, Brain, ChevronDown } from "lucide-react";
 import { subscribeToLiveWs, API_BASE } from "@/lib/api";
 
-// Restricted stock universe (mirrors backend/core/universe.py STOCK_UNDERLYINGS).
-// Anything else is treated as crypto by the chart's data-source selection.
-const STOCK_UNDERLYINGS = ["SNDK", "AMD", "MU", "AXTI", "BE"];
+// Fallback stock universe (mirrors backend/core/universe.py STOCK_UNDERLYINGS).
+// The live universe is fetched from /api/market/universe; this only covers
+// offline/error startup so newer stocks do not accidentally go down Binance paths.
+const STOCK_UNDERLYINGS = ["SNDK", "AMD", "MU", "BE", "NVDA", "TSM", "SMCI", "TSLA", "MSTR", "COIN", "PLTR"];
 const isStockSymbol = (s: string) => STOCK_UNDERLYINGS.includes((s || "").toUpperCase());
 
 const TIMEFRAMES = [
@@ -237,6 +238,16 @@ export default function TradingChart({
     const chartDataRef = useRef<any[]>([]);
     const isSwitchingTfRef = useRef(false);
 
+    // Reset historical cursor when switching symbols so stale date windows
+    // don't pin stock charts to old months.
+    useEffect(() => {
+        setCursorDate(null);
+        setChartData([]);
+        chartDataRef.current = [];
+        hasMoreHistory.current = true;
+        isFetchingHistory.current = false;
+    }, [symbol]);
+
     // UI Panels
     const [showDatePanel, setShowDatePanel] = useState(false);
     const [showFibMenu, setShowFibMenu] = useState(false);
@@ -317,7 +328,8 @@ export default function TradingChart({
 
         // Stocks: connect to the backend's Alpaca WS proxy for per-trade ticks
         // (smooth, no polling). Backend holds the Alpaca auth + multiplexes.
-        if (isStockSymbol(symbol)) {
+        const knownStocks = universe.stocks.length ? universe.stocks : STOCK_UNDERLYINGS;
+        if (isStockSymbol(symbol) || knownStocks.includes(symbol.toUpperCase())) {
             // Derive the WS URL from API_BASE so it works on whatever host the
             // backend is bound to (and switches scheme if API_BASE ever becomes https).
             const apiUrl = new URL(API_BASE);
@@ -375,7 +387,31 @@ export default function TradingChart({
                 ws.onerror = () => { try { ws?.close(); } catch {} };
             };
             open();
-            return () => { reconnect = false; try { ws?.close(); } catch {} };
+            const refreshTimer = setInterval(() => {
+                const p = new URLSearchParams({
+                    symbol, interval: fetchTimeframe, limit: "1000",
+                    endTime: String(Date.now()),
+                });
+                fetch(`${API_BASE}/market/klines?${p.toString()}`)
+                    .then(r => r.json())
+                    .then((data: any) => {
+                        const rows: any[] = Array.isArray(data) ? data : (data?.bars || []);
+                        if (!rows.length) return;
+                        const formatted = rows.map((d: any) => ({
+                            time: d[0] / 1000,
+                            open: parseFloat(d[1]) * currencyRate,
+                            high: parseFloat(d[2]) * currencyRate,
+                            low: parseFloat(d[3]) * currencyRate,
+                            close: parseFloat(d[4]) * currencyRate,
+                            volume: d[5] ? parseFloat(d[5]) : 0,
+                        })).filter((c: any) => Number.isFinite(c.time) && Number.isFinite(c.close) && c.close > 0);
+                        const uniqueData = formatted.filter((v: any, i: number, a: any[]) => a.findIndex((t: any) => (t.time === v.time)) === i);
+                        chartDataRef.current = uniqueData;
+                        setChartData(uniqueData);
+                    })
+                    .catch(() => {});
+            }, 60_000);
+            return () => { reconnect = false; clearInterval(refreshTimer); try { ws?.close(); } catch {} };
         }
 
         const safeSymbol = symbol.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -474,7 +510,7 @@ export default function TradingChart({
         };
 
         return () => ws.close();
-    }, [symbol, timeframe, cursorDate, config.ema9.show, config.ema21.show, currencyRate]);
+    }, [symbol, timeframe, cursorDate, config.ema9.show, config.ema21.show, currencyRate, universe.stocks]);
 
     // Backend Live Updates for Predictions
     useEffect(() => {
@@ -706,7 +742,11 @@ export default function TradingChart({
         const params = new URLSearchParams({
             symbol, interval: fetchTimeframe, limit: "1000",
         });
-        if (cursorDate) params.set("startTime", String(cursorDate));
+        if (cursorDate) {
+            params.set("startTime", String(cursorDate));
+        } else {
+            params.set("endTime", String(Date.now()));
+        }
         const url = `${API_BASE}/market/klines?${params.toString()}`;
 
         fetch(url)
@@ -846,7 +886,7 @@ export default function TradingChart({
             width: chartContainerRef.current.clientWidth,
             height: chartContainerRef.current.clientHeight,
             localization: {
-                priceFormatter: price => `${currencyPrefix}${price.toFixed(2)}`
+                priceFormatter: (price: number) => `${currencyPrefix}${price.toFixed(2)}`
             },
             crosshair: { mode: 1, vertLine: { width: 1, color: '#404040', style: 3 }, horzLine: { width: 1, color: '#404040', style: 3 } },
             timeScale: {
@@ -1125,20 +1165,21 @@ if (config.ema9.show) {
     useEffect(() => {
         const handleWinMove = (e: MouseEvent) => {
             if (!dragCtx || !chartRef.current || !seriesRef.current || !chartContainerRef.current) return;
+            const chart = chartRef.current, series = seriesRef.current;   // non-null inside this closure
             const rect = chartContainerRef.current.getBoundingClientRect();
             
             setDrawings(prev => prev.map(d => {
                 if (d.id !== dragCtx.id) return d;
                 
                 const currPath = d.path || [];
-                const curLogicalX = chartRef.current.timeScale().coordinateToLogical(e.clientX - rect.left) || 0;
-                const curPriceY = seriesRef.current.coordinateToPrice(e.clientY - rect.top) || 0;
+                const curLogicalX = (chart.timeScale().coordinateToLogical(e.clientX - rect.left) as number) || 0;
+                const curPriceY = (series.coordinateToPrice(e.clientY - rect.top) as number) || 0;
 
                 let newData = { ...d };
 
                 if (dragCtx.type === 'move') {
                     const initMapped = handleMapToChart(dragCtx.initMouseX, dragCtx.initMouseY);
-                    if (!initMapped || initMapped.logical === null) return d;
+                    if (!initMapped || initMapped.logical === null || initMapped.price === null) return d;
 
                     const deltaL = curLogicalX - initMapped.logical;
                     const deltaP = curPriceY - initMapped.price;
@@ -1162,8 +1203,8 @@ if (config.ema9.show) {
                     newData.p2 = curPriceY;
                 } else if (dragCtx.type === 'rotate' && dragCtx.startDrawing.type === 'text') {
                     // For rotate, we can compute angle
-                    const c1 = chartRef.current.timeScale().logicalToCoordinate(newData.l1 as any) || 0;
-                    const c2 = seriesRef.current.priceToCoordinate(newData.p1 as any) || 0;
+                    const c1 = (chart.timeScale().logicalToCoordinate(newData.l1 as any) as number) || 0;
+                    const c2 = (series.priceToCoordinate(newData.p1 as any) as number) || 0;
                     const dx = e.clientX - rect.left - c1;
                     const dy = e.clientY - rect.top - c2;
                     newData.angle = Math.atan2(dy, dx) * (180 / Math.PI);
@@ -1210,11 +1251,11 @@ if (config.ema9.show) {
             return;
         }
 
-        let startL1 = mapped.logical;
-        let startP1 = mapped.price;
+        let startL1: number = mapped.logical as number;
+        let startP1: number = (mapped.price as number) ?? 0;
 
         if (activeTool === 'measure') {
-            const snapped = getSnappedValue(mapped.logical, mapped.price);
+            const snapped = getSnappedValue(mapped.logical as number, (mapped.price as number) ?? 0);
             startL1 = snapped.logical;
             startP1 = snapped.price;
         }
@@ -1235,7 +1276,7 @@ if (config.ema9.show) {
         if (currentDrawing.type === 'pencil' || currentDrawing.type === 'patterns') {
             setCurrentDrawing({ ...currentDrawing, path: [...currentDrawing.path, {l: mapped.logical, p: mapped.price}] });
         } else if (currentDrawing.type === 'measure') {
-            const snapped = getSnappedValue(mapped.logical, mapped.price);
+            const snapped = getSnappedValue(mapped.logical as number, (mapped.price as number) ?? 0);
             setCurrentDrawing({ ...currentDrawing, l2: snapped.logical, p2: snapped.price });
         } else {
             setCurrentDrawing({ ...currentDrawing, l2: mapped.logical, p2: mapped.price });
@@ -1273,8 +1314,13 @@ if (config.ema9.show) {
     return (
         <div className="w-full relative border border-[#171717] rounded-xl overflow-visible bg-[#000000] flex flex-col" style={{ minHeight: '600px' }}>
             {dataError && (
-                <div className="absolute top-12 left-0 right-0 z-40 mx-3 mt-1 px-3 py-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-mono pointer-events-none">
-                    {dataError}
+                <div className="absolute top-12 left-0 right-0 z-40 mx-3 mt-1 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300/90 text-[11px] flex items-center gap-2 pointer-events-none">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                    <span>
+                        {/(fetch|network|failed to fetch)/i.test(dataError)
+                            ? "Waiting for the trading engine — chart data loads once the backend is running on :8000."
+                            : dataError}
+                    </span>
                 </div>
             )}
             {/* Cycle 22.3: skeleton overlay during symbol/timeframe switch so

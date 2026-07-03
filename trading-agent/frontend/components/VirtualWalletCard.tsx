@@ -177,8 +177,8 @@ export function VirtualWalletCard({ viewedSymbol }: { viewedSymbol?: string } = 
         </div>
 
         {/* Agent Thought Banner */}
-        <div className="mt-6 p-4 rounded-lg bg-blue-500/5 border border-blue-500/20 flex flex-col gap-1">
-           <span className="text-[12px] tracking-wide text-blue-400">Agent's Current Thought</span>
+        <div className="mt-6 flex flex-col gap-1 rounded-lg border border-[#1f1f22] bg-[#0e0e10] p-4">
+           <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">Agent&apos;s Current Thought</span>
            <p className="text-sm text-zinc-300 tracking-tight leading-relaxed">
              {convertThoughtCurrency(data.agent_thought, currency, currencySymbol, rate)}
            </p>

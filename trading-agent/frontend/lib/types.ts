@@ -17,7 +17,7 @@ export interface Trade {
 }
 
 export interface NewsImpact {
-    severity: "NEUTRAL" | "SIGNIFICANT" | "SEVERE";
+    severity: "NEUTRAL" | "MILD" | "SIGNIFICANT" | "SEVERE";
     asset: string;
     direction: "up" | "down" | "neutral";
     magnitude_pct_low: number;

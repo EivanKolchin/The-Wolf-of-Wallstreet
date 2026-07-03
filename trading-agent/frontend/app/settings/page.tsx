@@ -1,58 +1,65 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Save, Eye, EyeOff, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Save } from "lucide-react";
 import Link from "next/link";
 import { WalletPanel } from "@/components/WalletPanel";
+import { Field, TextInput, SecretInput, SelectInput, Toggle, ControlRow, Section, Divider } from "@/components/ui/field";
+
+// Secret env keys we prefill from the .env and never overwrite with a blank
+// value on save — leaving one of these fields empty means "leave it as-is",
+// so switching providers can't silently wipe another provider's key.
+const SECRET_KEYS = [
+  "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "AGENT_PRIVATE_KEY", "RAMP_HOST_API_KEY",
+  "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "X_API_KEY", "X_API_SECRET",
+  "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET", "TELEGRAM_API_ID", "TELEGRAM_API_HASH",
+  "BINANCE_FUTURES_API_KEY", "BINANCE_FUTURES_SECRET",
+];
 
 export default function SettingsPage() {
-  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
-  const [adminKey, setAdminKey] = useState("");
 
   const [provider, setProvider] = useState("gemini");
   const [ollamaModel, setOllamaModel] = useState("llama3");
-  
-  // Separate keys for each LLM provider
-  const [geminiKey, setGeminiKey] = useState("");
-  const [geminiKeyLocked, setGeminiKeyLocked] = useState(false);
-  const [showGeminiKey, setShowGeminiKey] = useState(false);
 
+  const [geminiKey, setGeminiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
-  const [anthropicKeyLocked, setAnthropicKeyLocked] = useState(false);
-  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
-  
+
   // DeFi / App Config
   const [arbitrumRpcUrl, setArbitrumRpcUrl] = useState("");
   const [agentPrivateKey, setAgentPrivateKey] = useState("");
-  const [agPkLocked, setAgPkLocked] = useState(false);
-  const [showAgPk, setShowAgPk] = useState(false);
   const [agentWalletAddress, setAgentWalletAddress] = useState("");
   const [paperMode, setPaperMode] = useState(true);
+
+  // ── Live trading: master switch + Binance futures venue + 2-sleeve StrategyAgent ──
+  const [paperTrading, setPaperTrading] = useState(true);
+  const [binanceKey, setBinanceKey] = useState("");
+  const [binanceSecret, setBinanceSecret] = useState("");
+  const [binanceTestnet, setBinanceTestnet] = useState(true);
+  const [binanceLeverage, setBinanceLeverage] = useState("2");
+  const [strategyEnabled, setStrategyEnabled] = useState(false);
+  const [strategySymbols, setStrategySymbols] = useState("SPY QQQ TQQQ TLT GLD BTC-USD ETH-USD");
+  const [tsSymbols, setTsSymbols] = useState("");
+  const [wManaged, setWManaged] = useState("0.5");
+  const [wTs, setWTs] = useState("0.5");
+  const [newsOverlay, setNewsOverlay] = useState(true);
+  const [newsLlmVerify, setNewsLlmVerify] = useState(false);
+  const [maxOrderUsd, setMaxOrderUsd] = useState("5000.0");
 
   // Funding: WalletConnect projectId + Ramp on-ramp key (Workstreams D/E).
   const [walletConnectProjectId, setWalletConnectProjectId] = useState("");
   const [rampHostApiKey, setRampHostApiKey] = useState("");
-  const [showRampKey, setShowRampKey] = useState(false);
 
   // Other Brokers / Social Services
   const [alpacaApiKey, setAlpacaApiKey] = useState("");
   const [alpacaSecretKey, setAlpacaSecretKey] = useState("");
-  const [showAlpacaSecret, setShowAlpacaSecret] = useState(false);
-  
   const [xApiKey, setXApiKey] = useState("");
   const [xApiSecret, setXApiSecret] = useState("");
-  const [showXSecret, setShowXSecret] = useState(false);
-  
   const [xAccessToken, setXAccessToken] = useState("");
-  const [showXToken, setShowXToken] = useState(false);
-  
   const [xAccessTokenSecret, setXAccessTokenSecret] = useState("");
-  const [showXTokenSecret, setShowXTokenSecret] = useState(false);
-
   const [telegramApiId, setTelegramApiId] = useState("");
   const [telegramApiHash, setTelegramApiHash] = useState("");
 
@@ -69,22 +76,19 @@ export default function SettingsPage() {
 
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [installState, setInstallState] = useState<any>({
-    status: "idle",
-    pct: 0,
-    model: "",
-    total_mb: 0,
-    comp_mb: 0,
-    speed_mb: 0,
-    rem_time: 0,
-    error_msg: ""
+    status: "idle", pct: 0, model: "", total_mb: 0, comp_mb: 0, speed_mb: 0, rem_time: 0, error_msg: "",
   });
+  const [resettingPaper, setResettingPaper] = useState(false);
+
+  // Which LLM credential fields are relevant to the selected provider.
+  const needsGemini = provider === "gemini" || provider === "hybrid_gemini";
+  const needsClaude = provider === "anthropic" || provider === "hybrid_claude";
+  const needsOllama = provider.includes("ollama") || provider.includes("hybrid");
 
   const startPollingProgress = () => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/setup/ollama-progress?t=${Date.now()}`, {
-          headers: { "x-admin-key": adminKey },
-        });
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/ollama-progress?t=${Date.now()}`);
         if (res.ok) {
           const st = await res.json();
           setInstallState(st);
@@ -99,49 +103,51 @@ export default function SettingsPage() {
       } catch (err) {
         // Backend restarted maybe? If so, we're likely done.
         clearInterval(interval);
-        setTimeout(() => {
-          window.location.href = "/dashboard";
-        }, 1500);
+        setTimeout(() => { window.location.href = "/dashboard"; }, 1500);
       }
     }, 500);
   };
 
   useEffect(() => {
-    if (!adminKey) {
-      setLoading(false);
-      return;
-    }
     const fetchConfig = async (retries = 3) => {
       try {
-        // G5: reveal=1 returns the real (unredacted) .env values so the existing
-        // password-style eye toggles can actually show the keys on click,
-        // instead of empty fields. Admin-key gated; localhost personal app.
-        const res = await fetch(`http://127.0.0.1:8000/api/setup/config?reveal=1&t=${Date.now()}`, {
-          headers: { "x-admin-key": adminKey },
-        });
+        // reveal=1 returns the real (unredacted) .env values so the password-style
+        // fields prefill with the actual keys (shown as dots, peekable via the eye).
+        // Localhost, single-owner app — no admin key required.
+        const res = await fetch(`http://127.0.0.1:8000/api/setup/config?reveal=1&t=${Date.now()}`);
         if (!res.ok) throw new Error("Backend not reachable");
         const cfg = await res.json();
-        
+
         setProvider(cfg.AI_PROVIDER || "gemini");
         setOllamaModel(cfg.OLLAMA_MODEL || "llama3");
-        
-        const isRealKey = (k: string) => !!(k && k.length > 5 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000") && !k.includes("*"));
+
+        // Keep obvious placeholders out of the fields, but keep any real value
+        // (reveal=1 already returns the true secret).
+        const isRealKey = (k: string) => !!(k && k.length > 3 && !k.toLowerCase().includes("your_") && !k.toLowerCase().includes("0x000") && !k.includes("*"));
         const sanitize = (k: string) => isRealKey(k) ? k : "";
 
-        const gKey = sanitize(cfg.GEMINI_API_KEY || "");
-        const aKey = sanitize(cfg.ANTHROPIC_API_KEY || "");
-        
-        setGeminiKey(gKey);
-        if (cfg.GEMINI_API_KEY_IS_SET || isRealKey(gKey)) setGeminiKeyLocked(true);
-        
-        setAnthropicKey(aKey);
-        if (cfg.ANTHROPIC_API_KEY_IS_SET || isRealKey(aKey)) setAnthropicKeyLocked(true);
-        
+        setGeminiKey(sanitize(cfg.GEMINI_API_KEY || ""));
+        setAnthropicKey(sanitize(cfg.ANTHROPIC_API_KEY || ""));
         setPaperMode(cfg.PAPER_MODE === "true" || cfg.PAPER_MODE === true);
 
+        // Live trading + strategy book
+        const asBool = (v: any, d: boolean) => v === undefined || v === null ? d : (v === true || String(v).toLowerCase() === "true");
+        setPaperTrading(asBool(cfg.PAPER_TRADING, true));
+        setBinanceKey(sanitize(cfg.BINANCE_FUTURES_API_KEY || ""));
+        setBinanceSecret(sanitize(cfg.BINANCE_FUTURES_SECRET || ""));
+        setBinanceTestnet(asBool(cfg.BINANCE_FUTURES_TESTNET, true));
+        if (cfg.BINANCE_FUTURES_LEVERAGE) setBinanceLeverage(String(cfg.BINANCE_FUTURES_LEVERAGE));
+        setStrategyEnabled(asBool(cfg.STRATEGY_AGENT_ENABLED, false));
+        if (cfg.STRATEGY_AGENT_SYMBOLS) setStrategySymbols(String(cfg.STRATEGY_AGENT_SYMBOLS));
+        setTsSymbols(String(cfg.STRATEGY_AGENT_TS_SYMBOLS || ""));
+        if (cfg.STRATEGY_AGENT_W_MANAGED) setWManaged(String(cfg.STRATEGY_AGENT_W_MANAGED));
+        if (cfg.STRATEGY_AGENT_W_TS) setWTs(String(cfg.STRATEGY_AGENT_W_TS));
+        setNewsOverlay(asBool(cfg.STRATEGY_AGENT_NEWS_OVERLAY, true));
+        setNewsLlmVerify(asBool(cfg.STRATEGY_AGENT_NEWS_LLM_VERIFY, false));
+        if (cfg.STRATEGY_AGENT_MAX_ORDER_USD) setMaxOrderUsd(String(cfg.STRATEGY_AGENT_MAX_ORDER_USD));
+
+        setArbitrumRpcUrl(cfg.ARBITRUM_RPC_URL || "");
         setAgentPrivateKey(sanitize(cfg.AGENT_PRIVATE_KEY || ""));
-        if (cfg.AGENT_PRIVATE_KEY_IS_SET || isRealKey(cfg.AGENT_PRIVATE_KEY || "")) setAgPkLocked(true);
-        
         setAgentWalletAddress(sanitize(cfg.AGENT_WALLET_ADDRESS || ""));
 
         setWalletConnectProjectId(cfg.WALLETCONNECT_PROJECT_ID || cfg._extra?.WALLETCONNECT_PROJECT_ID || "");
@@ -149,12 +155,10 @@ export default function SettingsPage() {
 
         setAlpacaApiKey(sanitize(cfg.ALPACA_API_KEY || ""));
         setAlpacaSecretKey(sanitize(cfg.ALPACA_SECRET_KEY || ""));
-        
         setXApiKey(sanitize(cfg.X_API_KEY || ""));
         setXApiSecret(sanitize(cfg.X_API_SECRET || ""));
         setXAccessToken(sanitize(cfg.X_ACCESS_TOKEN || ""));
         setXAccessTokenSecret(sanitize(cfg.X_ACCESS_TOKEN_SECRET || ""));
-        
         setTelegramApiId(sanitize(cfg.TELEGRAM_API_ID || ""));
         setTelegramApiHash(sanitize(cfg.TELEGRAM_API_HASH || ""));
 
@@ -172,17 +176,14 @@ export default function SettingsPage() {
           setTimeout(() => fetchConfig(retries - 1), 1000);
         } else {
           console.error("Failed to fetch setup config", err);
+          setError("Couldn't load your saved configuration from the backend. Make sure it's running — the values below are defaults, so saving now may overwrite your .env.");
           setLoading(false);
         }
       }
     };
-    
-    fetchConfig();
-  }, [adminKey]);
 
-  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setProvider(e.target.value);
-  };
+    fetchConfig();
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,9 +191,9 @@ export default function SettingsPage() {
     setErrorDetails(null);
 
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         AI_PROVIDER: provider,
-        OLLAMA_MODEL: provider.includes("ollama") || provider.includes("hybrid") ? ollamaModel : undefined,
+        OLLAMA_MODEL: needsOllama ? ollamaModel : undefined,
         GEMINI_API_KEY: geminiKey,
         ANTHROPIC_API_KEY: anthropicKey,
         PAPER_MODE: paperMode ? "true" : "false",
@@ -216,16 +217,33 @@ export default function SettingsPage() {
         RISK_CVAR_LIMIT_PCT: riskCvarLimit,
         NN_KELLY_FRACTION: kellyFraction,
         NN_TRUNK: nnTrunk,
+        // Live trading + 2-sleeve strategy book
+        PAPER_TRADING: paperTrading ? "true" : "false",
+        BINANCE_FUTURES_API_KEY: binanceKey,
+        BINANCE_FUTURES_SECRET: binanceSecret,
+        BINANCE_FUTURES_TESTNET: binanceTestnet ? "true" : "false",
+        BINANCE_FUTURES_LEVERAGE: binanceLeverage,
+        STRATEGY_AGENT_ENABLED: strategyEnabled ? "true" : "false",
+        STRATEGY_AGENT_SYMBOLS: strategySymbols,
+        STRATEGY_AGENT_TS_SYMBOLS: tsSymbols,
+        STRATEGY_AGENT_W_MANAGED: wManaged,
+        STRATEGY_AGENT_W_TS: wTs,
+        STRATEGY_AGENT_NEWS_OVERLAY: newsOverlay ? "true" : "false",
+        STRATEGY_AGENT_NEWS_LLM_VERIFY: newsLlmVerify ? "true" : "false",
+        STRATEGY_AGENT_MAX_ORDER_USD: maxOrderUsd,
       };
-      if (geminiKeyLocked && geminiKey === "") delete (payload as any).GEMINI_API_KEY;
-      if (anthropicKeyLocked && anthropicKey === "") delete (payload as any).ANTHROPIC_API_KEY;
-      if (agPkLocked && agentPrivateKey === "") delete (payload as any).AGENT_PRIVATE_KEY;
+
+      // Never overwrite a stored secret with a blank field. Empty here means
+      // "unchanged", so provider switches don't wipe unrelated credentials.
+      for (const k of SECRET_KEYS) {
+        if (!payload[k]) delete payload[k];
+      }
 
       let successMsg = "Settings saved successfully. The backend will reboot with new keys.";
       try {
         const res = await fetch("http://127.0.0.1:8000/api/setup/save", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
@@ -233,18 +251,15 @@ export default function SettingsPage() {
           const errText = await res.text();
           throw new Error(`Server returned ${res.status}: ${errText}`);
         }
-        
+
         const data = await res.json();
-        
+
         if (data.installing_model) {
           setInstallModalOpen(true);
           startPollingProgress();
           return; // Wait for background download to finish before resolving settings page.
         }
-
-        if (data.message) {
-          successMsg = data.message;
-        }
+        if (data.message) successMsg = data.message;
       } catch (fetchErr: any) {
         const msg = (fetchErr?.message || "").toLowerCase();
         // Browser network disconnects happen because saving .env auto-restarts the backend instantly.
@@ -256,7 +271,7 @@ export default function SettingsPage() {
       }
 
       alert(successMsg);
-      localStorage.removeItem("setupSkipped"); 
+      localStorage.removeItem("setupSkipped");
       window.location.href = "/dashboard";
     } catch (err: any) {
       setError("Network or server error while saving settings.");
@@ -265,541 +280,332 @@ export default function SettingsPage() {
     }
   };
 
+  const handleResetPaper = async () => {
+    if (!paperMode) return;
+    if (!window.confirm("Reset paper trading? This will delete paper trades, clear paper statements, and restore the starting balance.")) return;
+    setResettingPaper(true);
+    setError(null);
+    setErrorDetails(null);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/trading/reset-paper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      alert("Paper trading reset. Starting balance restored and trades cleared.");
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      setError("Failed to reset paper trading.");
+      setErrorDetails(err?.message || err.toString());
+      setResettingPaper(false);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-transparent text-neutral-500">
-        <div className="inline-block animate-pulse">Initializing Interface...</div>
+      <div className="flex flex-1 items-center justify-center bg-transparent text-zinc-500">
+        <div className="flex items-center gap-3">
+          <span className="h-2 w-2 animate-ping rounded-full bg-zinc-400" />
+          <span className="animate-pulse text-sm tracking-wide">Initializing interface…</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-white p-8 md:p-12 font-sans overflow-y-auto">
-      <div className="max-w-3xl mx-auto mt-4 relative">
+    <div className="min-h-screen overflow-y-auto bg-transparent p-6 font-sans text-white md:p-10">
+      <div className="relative mx-auto mt-2 max-w-2xl">
         {/* Decorative background flare */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-neutral-800/5 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="pointer-events-none absolute -top-10 right-0 h-80 w-80 rounded-full bg-white/[0.03] blur-[120px]" />
 
-        <Link href="/dashboard" className="inline-flex items-center text-xs text-neutral-500 hover:text-neutral-200 transition-colors uppercase tracking-widest mb-8">
+        <Link href="/dashboard" className="mb-8 inline-flex items-center text-xs uppercase tracking-widest text-zinc-500 transition-colors hover:text-zinc-200">
           <ArrowLeft size={14} className="mr-2" /> Return to Dashboard
         </Link>
-        
-        <h1 className="text-3xl font-medium tracking-tight mb-2">System Configuration</h1>
-        <p className="text-sm text-neutral-500 mb-10 w-2/3 leading-relaxed">
-          Manage your intelligence providers and execution credentials. Updates to these parameters will trigger an automatic core reboot.
+
+        <h1 className="mb-2 text-3xl font-semibold tracking-tight">System Configuration</h1>
+        <p className="mb-10 max-w-lg text-sm leading-relaxed text-zinc-500">
+          Manage your intelligence providers and execution credentials. Saving these parameters triggers an automatic core reboot.
         </p>
-        <div className="max-w-xl mb-6">
-          <label className="block text-[13px] font-medium text-neutral-400 mb-2">Admin Key</label>
-          <input
-            type="password"
-            value={adminKey}
-            onChange={(e) => {
-              setLoading(true);
-              setAdminKey(e.target.value);
-            }}
-            className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all font-mono"
-            placeholder="Required for setup API access"
-          />
-        </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-4 rounded-lg mb-8 backdrop-blur-sm">
+          <div className="mb-8 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
             <div className="font-semibold">{error}</div>
             {errorDetails && (
-               <details className="mt-2 text-xs text-red-400/80 cursor-pointer outline-none">
-                 <summary className="hover:text-red-300 transition-colors uppercase tracking-widest font-semibold flex items-center">
-                   Show Full Error
-                 </summary>
-                 <pre className="mt-4 whitespace-pre-wrap font-mono p-3 bg-[#0A0A0A] rounded-lg border border-red-500/20 text-[11px] leading-relaxed">
-                   {errorDetails}
-                 </pre>
-               </details>
+              <details className="mt-2 cursor-pointer text-xs text-red-400/80 outline-none">
+                <summary className="flex items-center font-semibold uppercase tracking-widest transition-colors hover:text-red-300">Show full error</summary>
+                <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-red-500/20 bg-black/40 p-3 font-mono text-[11px] leading-relaxed">{errorDetails}</pre>
+              </details>
             )}
           </div>
         )}
 
-        <form onSubmit={handleSave} className="space-y-8 relative z-10 w-full max-w-xl">
-          
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-neutral-800/80 mr-2"></div>
-                AI Trading Engine
-              </h3>
-              <div className="relative group">
-                <button 
-                  type="button"
-                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
-                >
-                  <Info size={16} />
-                </button>
-                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                  <div className="font-semibold text-neutral-100 mb-2">AI Trading Engine</div>
-                  The AI interprets real-time news severity and extracts trade sentiment.<br/><br/>
-                  <span className="text-neutral-400">Gemini/Claude:</span> Highest accuracy, uses external API. Best for production.<br/><br/>
-                  <span className="text-neutral-400">Ollama:</span> Runs locally. Zero API cost, requires strong hardware.<br/><br/>
-                  <span className="text-neutral-400">Hybrid:</span> Local Ollama for routine processing, overrides to Gemini/Claude for complex tasks.
-                </div>
-              </div>
-            </div>
-            
+        <form onSubmit={handleSave} className="space-y-6">
+
+          {/* ── AI Trading Engine ── */}
+          <Section
+            title="AI Trading Engine"
+            dotColor="bg-zinc-600"
+            info={
+              <>
+                <div className="mb-2 font-semibold text-zinc-100">AI Trading Engine</div>
+                The AI interprets real-time news severity and extracts trade sentiment.<br /><br />
+                <span className="text-zinc-400">Gemini / Claude:</span> highest accuracy, external API. Best for production.<br /><br />
+                <span className="text-zinc-400">Ollama:</span> runs locally. Zero API cost, needs strong hardware.<br /><br />
+                <span className="text-zinc-400">Hybrid:</span> local Ollama for routine work, escalates to Gemini/Claude for hard calls.
+              </>
+            }
+          >
             <div className="space-y-5">
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">LLM Provider</label>
-                <select
-                  value={provider}
-                  onChange={handleProviderChange}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all appearance-none"
-                >
+              <Field label="LLM Provider" htmlFor="provider">
+                <SelectInput id="provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
                   <option value="gemini">Gemini Only</option>
                   <option value="anthropic">Claude Only</option>
                   <option value="ollama">Ollama Only (Local)</option>
                   <option value="hybrid_gemini">Hybrid: Ollama + Gemini (Recommended)</option>
                   <option value="hybrid_claude">Hybrid: Ollama + Claude</option>
-                </select>
-              </div>
+                </SelectInput>
+              </Field>
 
-              {(provider.includes("ollama") || provider.includes("hybrid")) && (
-                <div>
-                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Ollama Model</label>
-                  <select
-                    value={ollamaModel}
-                    onChange={(e) => setOllamaModel(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-neutral-500/50 transition-all appearance-none"
-                  >
+              {needsOllama && (
+                <Field
+                  label="Ollama Model"
+                  htmlFor="ollama-model"
+                  hint="If the selected model isn't installed locally, the backend pulls it automatically."
+                >
+                  <SelectInput id="ollama-model" value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
                     <option value="llama3">llama3 (Default - 8B)</option>
                     <option value="llama3.1">llama3.1 (Latest 8B)</option>
                     <option value="llama3.2">llama3.2 (Latest 3B - Fast)</option>
                     <option value="llama3:70b">llama3:70b (Requires 40GB+ VRAM)</option>
                     <option value="llama4">llama4 (Latest Generation)</option>
                     <option value="mistral">mistral (7B)</option>
-                  </select>
-                  <p className="text-[11px] text-neutral-500 mt-2">
-                    If the selected model is not installed locally, the backend will automatically pull it.
-                  </p>
-                </div>
+                  </SelectInput>
+                </Field>
               )}
-              
-              <div>
-                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Gemini API Key</label>
-                  <div className="flex gap-3">
-                    <div className="relative w-full">
-                      <input
-                        type={showGeminiKey ? "text" : "password"}
-                        value={geminiKey}
-                        onChange={(e) => !geminiKeyLocked && setGeminiKey(e.target.value)}
-                        disabled={geminiKeyLocked}
-                        className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${geminiKeyLocked ? "pr-10 text-neutral-500 opacity-70" : "text-neutral-200"} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
-                        placeholder="AIza..."
-                      />
-                      {geminiKeyLocked && (
-                        <button
-                          type="button"
-                          onClick={() => setShowGeminiKey(!showGeminiKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                        >
-                          {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      )}
-                    </div>
-                    {geminiKeyLocked ? (
-                      <button
-                        type="button"
-                        onClick={() => { setGeminiKeyLocked(false); setGeminiKey(""); setShowGeminiKey(false); }}
-                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
-                      >
-                        Update Key
-                      </button>
-                    ) : (
-                      geminiKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
-                    )}
-                  </div>
-                </div>
 
-                <div>
-                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Claude API Key (Anthropic)</label>
-                  <div className="flex gap-3">
-                    <div className="relative w-full">
-                      <input
-                        type={showAnthropicKey ? "text" : "password"}
-                        value={anthropicKey}
-                        onChange={(e) => !anthropicKeyLocked && setAnthropicKey(e.target.value)}
-                        disabled={anthropicKeyLocked}
-                        className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${anthropicKeyLocked ? "pr-10 text-neutral-500 opacity-70" : "text-neutral-200"} text-[14px] focus:outline-none focus:border-neutral-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
-                        placeholder="sk-ant-..."
-                      />
-                      {anthropicKeyLocked && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAnthropicKey(!showAnthropicKey)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                        >
-                          {showAnthropicKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                        </button>
-                      )}
-                    </div>
-                    {anthropicKeyLocked ? (
-                      <button
-                        type="button"
-                        onClick={() => { setAnthropicKeyLocked(false); setAnthropicKey(""); setShowAnthropicKey(false); }}
-                        className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
-                      >
-                        Update Key
-                      </button>
-                    ) : (
-                      anthropicKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
-                    )}
-                  </div>
-                </div>
+              {needsGemini && (
+                <Field label="Gemini API Key" htmlFor="gemini-key">
+                  <SecretInput id="gemini-key" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIza…" />
+                </Field>
+              )}
+
+              {needsClaude && (
+                <Field label="Claude API Key (Anthropic)" htmlFor="anthropic-key">
+                  <SecretInput id="anthropic-key" value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} placeholder="sk-ant-…" />
+                </Field>
+              )}
             </div>
-          </div>
+          </Section>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500/80 mr-2"></div>
-                Trading Mode
-              </h3>
-              <div className="relative group">
-                <button 
-                  type="button"
-                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
-                >
-                  <Info size={16} />
-                </button>
-                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                  <div className="font-semibold text-neutral-100 mb-2">Trading Mode</div>
-                  Choose whether the AI places actual financial trades or simulates them.<br/><br/>
-                  <span className="text-neutral-400">Paper Trading:</span> Safe test mode. Virtual funds, no real risk.<br/><br/>
-                  <span className="text-neutral-400">Live Trading:</span> Sends real capital to Arbitrum network blocks. Requires USDC balance.
-                </div>
-              </div>
-            </div>
-
+          {/* ── Trading Mode (DeFi/Web3 execution) ── */}
+          <Section
+            title="Trading Mode"
+            dotColor="bg-zinc-600"
+            info={
+              <>
+                <div className="mb-2 font-semibold text-zinc-100">Trading Mode</div>
+                Whether the on-chain (Arbitrum) engine places real swaps or simulates them.<br /><br />
+                <span className="text-zinc-400">Paper:</span> virtual funds, no real risk.<br /><br />
+                <span className="text-zinc-400">Live:</span> real capital on Arbitrum. Requires a funded agent wallet.
+              </>
+            }
+          >
             <div className="space-y-4">
-              <div className="flex items-center justify-between bg-[#161616] border border-[#333336] rounded-lg p-4">
-                <div>
-                  <h4 className="text-[14px] text-neutral-200 font-medium">Safe Test Mode (Paper)</h4>
-                  <p className="text-[12px] text-neutral-500 mt-1">Simulate trades without using real funds.</p>
-                </div>
+              <ControlRow
+                title="Safe Test Mode (Paper)"
+                description="Simulate on-chain trades without using real funds."
+              >
+                <Toggle checked={paperMode} onChange={() => setPaperMode(!paperMode)} />
+              </ControlRow>
+              {paperMode && (
                 <button
                   type="button"
-                  onClick={() => setPaperMode(!paperMode)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paperMode ? 'bg-[#FACC15]' : 'bg-neutral-600'} shrink-0`}
+                  onClick={handleResetPaper}
+                  disabled={resettingPaper}
+                  className="inline-flex items-center rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[12px] font-semibold uppercase tracking-widest text-amber-300 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${paperMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                  {resettingPaper ? "Resetting…" : "Reset Paper Trading"}
                 </button>
-              </div>
+              )}
               {!paperMode && (
-                <div className="p-3 rounded bg-red-500/10 border border-red-500/20 text-red-500 text-[12px] font-medium">
-                  WARNING: Live trading is active. Real swaps will be executed on Arbitrum. Ensure your agent wallet has sufficient USDC balance and gas.
+                <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-[12px] font-medium text-red-400">
+                  WARNING: Live on-chain trading is active. Real swaps execute on Arbitrum. Ensure the agent wallet holds sufficient USDC and gas.
                 </div>
               )}
             </div>
-          </div>
+          </Section>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-500/80 mr-2"></div>
-                Trading Wallets (Web3)
-              </h3>
-              <div className="relative group">
-                <button 
-                  type="button"
-                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
-                >
-                  <Info size={16} />
-                </button>
-                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                  <div className="font-semibold text-neutral-100 mb-2">Trading Wallets</div>
-                  Configures where your AI stores and uses its capital.<br/><br/>
-                  <span className="text-neutral-400">RPC URL:</span> The gateway node to talk with the Ethereum/Arbitrum blockchain.<br/><br/>
-                  <span className="text-neutral-400">Private Key:</span> The AI's secret signature allowing it to buy/sell directly. Do not share.
+          {/* ── Live Trading & Strategy Book ── */}
+          <Section title="Live Trading & Strategy Book" dotColor={paperTrading ? "bg-emerald-500" : "bg-red-500"}>
+            <div className="space-y-5">
+              <ControlRow
+                title="Paper Trading (master switch)"
+                description={<>ON = simulated, no real orders. OFF = route real orders <span className="text-zinc-400">where valid broker keys exist</span>.</>}
+              >
+                <Toggle checked={paperTrading} onChange={() => setPaperTrading(!paperTrading)} tone="safety" />
+              </ControlRow>
+              {!paperTrading && (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-[12px] font-medium text-red-400">
+                  LIVE TRADING ARMED. Real orders route on any venue with valid keys (Alpaca for ETFs/crypto-spot; Binance USD-M futures for perps). Each venue stays paper until its keys are present; Binance also needs Testnet OFF below.
                 </div>
+              )}
+
+              <ControlRow
+                title="Run the Strategy Book"
+                description="Managed-beta + optional 4h TS-momentum sleeve, alongside the NN agent."
+              >
+                <Toggle checked={strategyEnabled} onChange={() => setStrategyEnabled(!strategyEnabled)} />
+              </ControlRow>
+
+              {strategyEnabled && (
+                <div className="space-y-5">
+                  <Field label="Managed-beta universe (daily)" htmlFor="strat-symbols">
+                    <TextInput id="strat-symbols" mono value={strategySymbols} onChange={(e) => setStrategySymbols(e.target.value)} placeholder="SPY QQQ TQQQ TLT GLD BTC-USD ETH-USD" />
+                  </Field>
+                  <Field
+                    label={<>TS-momentum sleeve (Binance perps, 4h) <span className="text-zinc-600">— blank = managed-only</span></>}
+                    htmlFor="ts-symbols"
+                  >
+                    <TextInput id="ts-symbols" mono value={tsSymbols} onChange={(e) => setTsSymbols(e.target.value)} placeholder="BTCUSDT ETHUSDT SOLUSDT XRPUSDT ADAUSDT" />
+                  </Field>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: "Managed weight", val: wManaged, set: setWManaged, ph: "0.5" },
+                      { label: "TS weight", val: wTs, set: setWTs, ph: "0.5" },
+                      { label: "Max order ($)", val: maxOrderUsd, set: setMaxOrderUsd, ph: "5000" },
+                    ].map((f) => (
+                      <Field key={f.label} label={<span className="text-[12px]">{f.label}</span>}>
+                        <TextInput type="number" step="0.05" mono value={f.val} onChange={(e) => f.set(e.target.value)} placeholder={f.ph} className="px-3 py-2" />
+                      </Field>
+                    ))}
+                  </div>
+                  <ControlRow title="News risk overlay" description="Directional news can veto / de-gear / halt an asset.">
+                    <Toggle checked={newsOverlay} onChange={() => setNewsOverlay(!newsOverlay)} />
+                  </ControlRow>
+                  <ControlRow title="LLM RiskAgent cross-check" description="Adds an LLM veto (tighten-only). Needs an LLM key.">
+                    <Toggle checked={newsLlmVerify} onChange={() => setNewsLlmVerify(!newsLlmVerify)} />
+                  </ControlRow>
+                </div>
+              )}
+
+              <Divider className="my-1" />
+              <div>
+                <h4 className="text-sm font-medium text-zinc-300">
+                  Binance USD-M Futures <span className="text-[12px] text-zinc-600">(perps + shorting — the TS sleeve venue)</span>
+                </h4>
+              </div>
+              <Field label="API Key" htmlFor="binance-key">
+                <SecretInput id="binance-key" value={binanceKey} onChange={(e) => setBinanceKey(e.target.value)} placeholder="Binance futures API key" />
+              </Field>
+              <Field label="Secret" htmlFor="binance-secret">
+                <SecretInput id="binance-secret" value={binanceSecret} onChange={(e) => setBinanceSecret(e.target.value)} placeholder="Binance futures secret" />
+              </Field>
+              <div className="grid grid-cols-2 items-start gap-3">
+                <ControlRow title="Testnet" description="ON = safe sandbox. OFF = mainnet.">
+                  <Toggle checked={binanceTestnet} onChange={() => setBinanceTestnet(!binanceTestnet)} tone="safety" />
+                </ControlRow>
+                <Field label="Max leverage" htmlFor="binance-lev">
+                  <TextInput id="binance-lev" type="number" step="1" mono value={binanceLeverage} onChange={(e) => setBinanceLeverage(e.target.value)} placeholder="2" />
+                </Field>
               </div>
             </div>
-            
+          </Section>
+
+          {/* ── Trading Wallets (Web3) ── */}
+          <Section
+            title="Trading Wallets (Web3)"
+            dotColor="bg-zinc-600"
+            info={
+              <>
+                <div className="mb-2 font-semibold text-zinc-100">Trading Wallets</div>
+                Where your AI stores and uses its on-chain capital.<br /><br />
+                <span className="text-zinc-400">RPC URL:</span> gateway node to the Arbitrum blockchain.<br /><br />
+                <span className="text-zinc-400">Private Key:</span> the AI&apos;s signing key. Do not share.
+              </>
+            }
+          >
             <div className="space-y-5">
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Network Gateway URL (Arbitrum RPC)</label>
-                <input
-                  type="text"
-                  value={arbitrumRpcUrl}
-                  onChange={(e) => setArbitrumRpcUrl(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="https://arb-mainnet.g.alchemy.com/v2/..."
-                />
-              </div>
+              <Field label="Network Gateway URL (Arbitrum RPC)" htmlFor="rpc-url">
+                <TextInput id="rpc-url" mono value={arbitrumRpcUrl} onChange={(e) => setArbitrumRpcUrl(e.target.value)} placeholder="https://arb-mainnet.g.alchemy.com/v2/…" />
+              </Field>
+              <Field label="Wallet Private Key (optional — needed for live on-chain trades)" htmlFor="agent-pk">
+                <SecretInput id="agent-pk" value={agentPrivateKey} onChange={(e) => setAgentPrivateKey(e.target.value)} placeholder="0x…" />
+              </Field>
+              <Field label="Public Wallet Address" htmlFor="agent-addr">
+                <TextInput id="agent-addr" mono value={agentWalletAddress} onChange={(e) => setAgentWalletAddress(e.target.value)} placeholder="0x…" />
+              </Field>
+              <Field label={<>WalletConnect Project ID <span className="text-zinc-600">(optional — enables the connect QR)</span></>} htmlFor="wc-id">
+                <TextInput id="wc-id" mono value={walletConnectProjectId} onChange={(e) => setWalletConnectProjectId(e.target.value)} placeholder="from cloud.reown.com" />
+              </Field>
+              <Field label={<>Ramp Host API Key <span className="text-zinc-600">(optional — enables Add Funds / Google Pay)</span></>} htmlFor="ramp-key">
+                <SecretInput id="ramp-key" value={rampHostApiKey} onChange={(e) => setRampHostApiKey(e.target.value)} placeholder="from ramp.network" />
+              </Field>
 
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Wallet Private Key (Optional - Needed for live trades)</label>
-                <div className="flex gap-3">
-                  <div className="relative w-full">
-                    <input
-                      type={showAgPk ? "text" : "password"}
-                      value={agentPrivateKey}
-                      onChange={(e) => !agPkLocked && setAgentPrivateKey(e.target.value)}
-                      disabled={agPkLocked}
-                      className={`w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 ${agPkLocked ? 'pr-10 text-neutral-500 opacity-70' : 'text-neutral-200'} text-[14px] focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700`}
-                      placeholder="0x..."
-                    />
-                    {agPkLocked && (
-                      <button
-                        type="button"
-                        onClick={() => setShowAgPk(!showAgPk)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                      >
-                        {showAgPk ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    )}
-                  </div>
-                  {agPkLocked ? (
-                    <button
-                      type="button"
-                      onClick={() => { setAgPkLocked(false); setAgentPrivateKey(""); setShowAgPk(false); }}
-                      className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-lg text-sm transition-colors whitespace-nowrap"
-                    >
-                      Update Key
-                    </button>
-                  ) : (
-                    agentPrivateKey === "" && <div className="px-4 py-2 opacity-0 pointer-events-none whitespace-nowrap">Update Key</div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Public Wallet Address</label>
-                <input
-                  type="text"
-                  value={agentWalletAddress}
-                  onChange={(e) => setAgentWalletAddress(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="0x..."
-                />
-              </div>
-
-              {/* Workstream D/E: funding keys */}
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">
-                  WalletConnect Project ID <span className="text-neutral-600">(optional — enables the connect QR)</span>
-                </label>
-                <input
-                  type="text"
-                  value={walletConnectProjectId}
-                  onChange={(e) => setWalletConnectProjectId(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="from cloud.reown.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">
-                  Ramp Host API Key <span className="text-neutral-600">(optional — enables Add Funds / Google Pay)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type={showRampKey ? "text" : "password"}
-                    value={rampHostApiKey}
-                    onChange={(e) => setRampHostApiKey(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-12 text-[14px] text-neutral-200 focus:outline-none focus:border-orange-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                    placeholder="from ramp.network"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowRampKey(!showRampKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
-                  >
-                    {showRampKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Deposit QR + Add Funds (Google Pay / Ramp) */}
               <WalletPanel />
             </div>
-          </div>
+          </Section>
 
-          <div className="bg-[#222224] border border-[#333336] rounded-[16px] p-8 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-[11px] uppercase tracking-widest text-neutral-500 font-semibold flex items-center">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-500/80 mr-2"></div>
-                Data Sources & Social
-              </h3>
-              <div className="relative group">
-                <button 
-                  type="button"
-                  className="text-neutral-500 hover:text-neutral-300 transition-colors p-1 rounded-full cursor-help hover:bg-white/5"
-                >
-                  <Info size={16} />
-                </button>
-                <div className="absolute top-8 right-[-10px] w-64 bg-[#1C1C1F] border border-[#333336] rounded-xl p-4 shadow-xl z-50 text-[12px] text-neutral-300 leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                  <div className="font-semibold text-neutral-100 mb-2">Data Sources</div>
-                  Lets the AI gather sentiment from external networks.<br/><br/>
-                  <span className="text-neutral-400">Alpaca:</span> Used for traditional stock pricing data.<br/><br/>
-                  <span className="text-neutral-400">X (Twitter):</span> Used to read public sentiment and meme-coin hype.
-                </div>
-              </div>
+          {/* ── Data Sources & Social ── */}
+          <Section
+            title="Data Sources & Social"
+            dotColor="bg-zinc-600"
+            info={
+              <>
+                <div className="mb-2 font-semibold text-zinc-100">Data Sources</div>
+                Lets the AI gather sentiment and pricing from external networks.<br /><br />
+                <span className="text-zinc-400">Alpaca:</span> traditional stock pricing + brokerage.<br /><br />
+                <span className="text-zinc-400">X (Twitter):</span> public sentiment and hype signals.
+              </>
+            }
+          >
+            <div className="space-y-5">
+              <h4 className="text-sm font-medium text-zinc-300">Alpaca Markets</h4>
+              <Field label="API Key" htmlFor="alpaca-key">
+                <SecretInput id="alpaca-key" value={alpacaApiKey} onChange={(e) => setAlpacaApiKey(e.target.value)} placeholder="PK…" />
+              </Field>
+              <Field label="Secret Key" htmlFor="alpaca-secret">
+                <SecretInput id="alpaca-secret" value={alpacaSecretKey} onChange={(e) => setAlpacaSecretKey(e.target.value)} placeholder="Secret…" />
+              </Field>
+
+              <Divider className="my-2" />
+
+              <h4 className="text-sm font-medium text-zinc-300">X (Twitter) Integration</h4>
+              <Field label="X API Key" htmlFor="x-key">
+                <SecretInput id="x-key" value={xApiKey} onChange={(e) => setXApiKey(e.target.value)} placeholder="Key" />
+              </Field>
+              <Field label="X API Secret" htmlFor="x-secret">
+                <SecretInput id="x-secret" value={xApiSecret} onChange={(e) => setXApiSecret(e.target.value)} placeholder="Secret" />
+              </Field>
+              <Field label="X Access Token" htmlFor="x-token">
+                <SecretInput id="x-token" value={xAccessToken} onChange={(e) => setXAccessToken(e.target.value)} placeholder="Token" />
+              </Field>
+              <Field label="X Access Token Secret" htmlFor="x-token-secret">
+                <SecretInput id="x-token-secret" value={xAccessTokenSecret} onChange={(e) => setXAccessTokenSecret(e.target.value)} placeholder="Secret" />
+              </Field>
+
+              <Divider className="my-2" />
+
+              <h4 className="text-sm font-medium text-zinc-300">Telegram Integration</h4>
+              <Field label="API ID" htmlFor="tg-id">
+                <SecretInput id="tg-id" value={telegramApiId} onChange={(e) => setTelegramApiId(e.target.value)} placeholder="ID" />
+              </Field>
+              <Field label="API Hash" htmlFor="tg-hash">
+                <SecretInput id="tg-hash" value={telegramApiHash} onChange={(e) => setTelegramApiHash(e.target.value)} placeholder="Hash" />
+              </Field>
             </div>
+          </Section>
 
-            <div className="space-y-5 mb-8">
-              <h4 className="text-sm text-neutral-300 font-medium">Alpaca Markets</h4>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Key</label>
-                <input
-                  type="text"
-                  value={alpacaApiKey}
-                  onChange={(e) => setAlpacaApiKey(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                  placeholder="PK..."
-                />
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">Secret Key</label>
-                <div className="relative w-full">
-                  <input
-                    type={showAlpacaSecret ? "text" : "password"}
-                    value={alpacaSecretKey}
-                    onChange={(e) => setAlpacaSecretKey(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all font-mono placeholder:font-sans placeholder-neutral-700"
-                    placeholder="Secret..."
-                  />
-                  {alpacaSecretKey && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAlpacaSecret(!showAlpacaSecret)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                    >
-                      {showAlpacaSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
-
-            <div className="space-y-5 mb-8">
-              <h4 className="text-sm text-neutral-300 font-medium">X (Twitter) Integration</h4>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X API Key</label>
-                <input
-                  type="text"
-                  value={xApiKey}
-                  onChange={(e) => setXApiKey(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="Key"
-                />
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X API Secret</label>
-                <div className="relative w-full">
-                  <input
-                    type={showXSecret ? "text" : "password"}
-                    value={xApiSecret}
-                    onChange={(e) => setXApiSecret(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                    placeholder="Secret"
-                  />
-                  {xApiSecret && (
-                    <button
-                      type="button"
-                      onClick={() => setShowXSecret(!showXSecret)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                    >
-                      {showXSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X Access Token</label>
-                <div className="relative w-full">
-                  <input
-                    type={showXToken ? "text" : "password"}
-                    value={xAccessToken}
-                    onChange={(e) => setXAccessToken(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                    placeholder="Token"
-                  />
-                  {xAccessToken && (
-                    <button
-                      type="button"
-                      onClick={() => setShowXToken(!showXToken)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                    >
-                      {showXToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">X Access Token Secret</label>
-                <div className="relative w-full">
-                  <input
-                    type={showXTokenSecret ? "text" : "password"}
-                    value={xAccessTokenSecret}
-                    onChange={(e) => setXAccessTokenSecret(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 pr-10 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                    placeholder="Secret"
-                  />
-                  {xAccessTokenSecret && (
-                    <button
-                      type="button"
-                      onClick={() => setShowXTokenSecret(!showXTokenSecret)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 transition-colors"
-                    >
-                      {showXTokenSecret ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#333] to-transparent my-6"></div>
-
-            <div className="space-y-5 mb-8">
-              <h4 className="text-sm text-neutral-300 font-medium">Telegram Integration</h4>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API ID</label>
-                <input
-                  type="text"
-                  value={telegramApiId}
-                  onChange={(e) => setTelegramApiId(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="ID"
-                />
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-neutral-400 mb-2">API Hash</label>
-                <input
-                  type="text"
-                  value={telegramApiHash}
-                  onChange={(e) => setTelegramApiHash(e.target.value)}
-                  className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  placeholder="Hash"
-                />
-              </div>
-            </div>
-            
-          </div>
-
-          {/* Advanced Options — risk parameters */}
-          <div className="bg-[#0e0e0e] border border-[#262626] rounded-2xl p-6 mb-6">
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="w-full flex items-center justify-between text-left"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-[15px] font-semibold text-neutral-100">Advanced Options — Risk Parameters</span>
-                <Info size={14} className="text-neutral-500" />
-              </div>
-              <span className="text-neutral-400 text-sm">{advancedOpen ? "Hide" : "Show"}</span>
+          {/* ── Advanced Options — risk parameters ── */}
+          <div className="rounded-2xl border border-[#171717] bg-[#0A0A0A] p-6 md:p-7">
+            <button type="button" onClick={() => setAdvancedOpen(!advancedOpen)} className="flex w-full items-center justify-between text-left">
+              <span className="text-[15px] font-semibold text-zinc-100">Advanced Options — Risk Parameters</span>
+              <span className="text-sm text-zinc-400">{advancedOpen ? "Hide" : "Show"}</span>
             </button>
 
             {advancedOpen && (
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
-                <p className="md:col-span-2 text-[12px] text-neutral-500">
+              <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+                <p className="text-[12px] text-zinc-500 md:col-span-2">
                   These tune the live risk engine. Changes apply on the next agent restart (triggered by Save).
                 </p>
                 {[
@@ -810,43 +616,31 @@ export default function SettingsPage() {
                   { label: "CVaR Tail-Risk Limit (%)", val: riskCvarLimit, set: setRiskCvarLimit, hint: "Block new trades above this projected tail loss (0 disables)" },
                   { label: "Kelly Fraction (0 = use model size)", val: kellyFraction, set: setKellyFraction, hint: "Fraction of Kelly to bet; lower = more conservative" },
                 ].map((f) => (
-                  <div key={f.label}>
-                    <label className="block text-[13px] font-medium text-neutral-400 mb-2">{f.label}</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={f.val}
-                      onChange={(e) => f.set(e.target.value)}
-                      className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                    />
-                    <p className="text-[11px] text-neutral-600 mt-1">{f.hint}</p>
-                  </div>
+                  <Field key={f.label} label={f.label} hint={f.hint}>
+                    <TextInput type="number" step="0.01" mono value={f.val} onChange={(e) => f.set(e.target.value)} />
+                  </Field>
                 ))}
-                <div className="md:col-span-2">
-                  <label className="block text-[13px] font-medium text-neutral-400 mb-2">Model Architecture (temporal core)</label>
-                  <select
-                    value={nnTrunk}
-                    onChange={(e) => setNnTrunk(e.target.value)}
-                    className="w-full bg-[#161616] border border-[#333336] rounded-lg px-4 py-3 text-[14px] text-neutral-200 focus:outline-none focus:border-blue-500/50 transition-all"
-                  >
+                <Field
+                  className="md:col-span-2"
+                  label="Model Architecture (temporal core)"
+                  hint={<>Switches the model&apos;s temporal core. You must <span className="text-zinc-400">retrain</span> with this setting and load that checkpoint — the live model cold-starts if the checkpoint&apos;s core doesn&apos;t match.</>}
+                >
+                  <SelectInput value={nnTrunk} onChange={(e) => setNnTrunk(e.target.value)}>
                     <option value="lstm">LSTM (default — recurrent)</option>
                     <option value="tcn">TCN (causal temporal conv-net)</option>
-                  </select>
-                  <p className="text-[11px] text-neutral-600 mt-1">
-                    Switches the model&apos;s temporal core. You must <span className="text-neutral-400">retrain</span> with this setting and load that checkpoint — the live model cold-starts if the checkpoint&apos;s core doesn&apos;t match. Compare LSTM vs TCN via scripts/backtest.py.
-                  </p>
-                </div>
+                  </SelectInput>
+                </Field>
               </div>
             )}
           </div>
 
-          <div className="flex justify-end pt-4 pb-12">
+          <div className="flex justify-end pt-2 pb-12">
             <button
               type="submit"
               disabled={saving}
-              className="px-8 py-3 bg-neutral-100 hover:bg-white text-neutral-900 font-semibold rounded-lg shadow-lg flex items-center transition-all disabled:opacity-50"
+              className="flex items-center rounded-lg bg-zinc-100 px-7 py-3 font-semibold text-zinc-900 shadow-lg transition-all hover:bg-white disabled:opacity-50"
             >
-              {saving ? "Saving..." : <><Save size={18} className="mr-2" /> Save & Restart Agents</>}
+              {saving ? "Saving…" : <><Save size={18} className="mr-2" /> Save &amp; Restart Agents</>}
             </button>
           </div>
         </form>
@@ -855,63 +649,59 @@ export default function SettingsPage() {
       {/* Model Download Modal */}
       {installModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
-          <div className="bg-neutral-900 border border-neutral-800 p-8 rounded-2xl w-full max-w-lg shadow-2xl relative overflow-hidden">
-            <div className="flex flex-col items-center justify-center mb-8">
-              <h2 className="text-xl font-semibold mb-2">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-[#171717] bg-[#0A0A0A] p-8 shadow-2xl">
+            <div className="mb-8 flex flex-col items-center justify-center">
+              <h2 className="mb-2 text-xl font-semibold">
                 {installState.status === "installing_ollama" && installState.pct < 1
-                  ? "Downloading Ollama Engine..."
+                  ? "Downloading Ollama Engine…"
                   : installState.status === "installing_ollama"
-                  ? "Installing Ollama Engine..."
+                  ? "Installing Ollama Engine…"
                   : installState.status === "starting_ollama"
-                  ? "Starting Ollama Service..."
+                  ? "Starting Ollama Service…"
                   : installState.status === "pulling_model"
-                  ? (installState.ollama_status && !installState.ollama_status.includes("pulling ") && !installState.ollama_status.includes("downloading ") 
-                     ? (installState.ollama_status.charAt(0).toUpperCase() + installState.ollama_status.slice(1) + "...")
+                  ? (installState.ollama_status && !installState.ollama_status.includes("pulling ") && !installState.ollama_status.includes("downloading ")
+                     ? (installState.ollama_status.charAt(0).toUpperCase() + installState.ollama_status.slice(1) + "…")
                      : `Downloading ${installState.model}`)
-                  : installState.status === "done" 
+                  : installState.status === "done"
                   ? "Installation Complete!"
-                  : "Preparing Engine..."}
+                  : "Preparing Engine…"}
               </h2>
-              <p className="text-neutral-400 text-sm text-center">
-                Please securely keep this window open while the background processor downloads external dependencies.
+              <p className="text-center text-sm text-zinc-400">
+                Please keep this window open while the background processor downloads external dependencies.
               </p>
             </div>
 
             {(installState.status === "pulling_model" || (installState.status === "installing_ollama" && installState.total_mb > 0)) && (
-              <div className="space-y-5 animate-in fade-in zoom-in duration-300">
-                <div className="w-full bg-neutral-800/80 rounded-full h-3.5 mb-2 relative overflow-hidden border border-neutral-700">
-                  <div 
-                    className="bg-blue-500 h-full rounded-none transition-all duration-300 ease-out shadow-lg shadow-blue-500/20" 
-                    style={{ width: `${(installState.pct * 100).toFixed(1)}%` }}
-                  ></div>
+              <div className="animate-in fade-in zoom-in space-y-5 duration-300">
+                <div className="relative mb-2 h-3 w-full overflow-hidden rounded-full border border-zinc-800 bg-zinc-800/60">
+                  <div className="h-full rounded-full bg-zinc-100 transition-all duration-300 ease-out" style={{ width: `${(installState.pct * 100).toFixed(1)}%` }} />
                 </div>
-                
-                <div className="grid grid-cols-2 text-sm gap-y-4 gap-x-2">
+                <div className="grid grid-cols-2 gap-x-2 gap-y-4 text-sm">
                   <div className="flex flex-col pl-1">
-                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Total Progress</span>
-                    <span className="font-mono text-neutral-100">{(installState.pct * 100).toFixed(1)}%</span>
+                    <span className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Total Progress</span>
+                    <span className="font-mono text-zinc-100">{(installState.pct * 100).toFixed(1)}%</span>
                   </div>
-                  <div className="flex flex-col text-right pr-1">
-                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">File Progress</span>
-                    <span className="font-mono text-neutral-100">
+                  <div className="flex flex-col pr-1 text-right">
+                    <span className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">File Progress</span>
+                    <span className="font-mono text-zinc-100">
                       {installState.comp_mb >= 1024 ? `${(installState.comp_mb / 1024).toFixed(2)} GB` : `${installState.comp_mb.toFixed(1)} MB`}
-                      <span className="text-neutral-500 text-xs mx-1">/</span>
+                      <span className="mx-1 text-xs text-zinc-500">/</span>
                       {installState.total_mb >= 1024 ? `${(installState.total_mb / 1024).toFixed(2)} GB` : `${installState.total_mb.toFixed(1)} MB`}
                     </span>
                   </div>
                   <div className="flex flex-col pl-1">
-                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Network Speed</span>
+                    <span className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Network Speed</span>
                     <span className="font-mono text-emerald-400">
                       {installState.speed_mb >= 1024 ? `${(installState.speed_mb / 1024).toFixed(2)} GB/s` : `${installState.speed_mb.toFixed(1)} MB/s`}
                     </span>
                   </div>
-                  <div className="flex flex-col text-right pr-1">
-                    <span className="text-neutral-500 font-medium uppercase text-[10px] tracking-wider mb-1">Time Remaining</span>
-                    <span className="font-mono text-neutral-100">
+                  <div className="flex flex-col pr-1 text-right">
+                    <span className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Time Remaining</span>
+                    <span className="font-mono text-zinc-100">
                       {(() => {
-                        if (installState.status === "pulling_model" && installState.pct >= 1) return "Finalizing...";
-                        if (installState.rem_time === undefined || installState.rem_time === null || isNaN(installState.rem_time) || installState.rem_time < 0) return "Calculating...";
-                        if (installState.rem_time === 0 && installState.total_mb > 0) return "Almost Done...";
+                        if (installState.status === "pulling_model" && installState.pct >= 1) return "Finalizing…";
+                        if (installState.rem_time === undefined || installState.rem_time === null || isNaN(installState.rem_time) || installState.rem_time < 0) return "Calculating…";
+                        if (installState.rem_time === 0 && installState.total_mb > 0) return "Almost Done…";
                         const hrs = Math.floor(installState.rem_time / 3600);
                         const mins = Math.floor((installState.rem_time % 3600) / 60);
                         const secs = Math.floor(installState.rem_time % 60);
@@ -924,17 +714,15 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-            
+
             {installState.status === "error" && (
-              <div className="text-red-400 font-mono text-center text-sm p-4 bg-red-900/10 rounded-lg border border-red-500/20 shadow-inner">
+              <div className="rounded-lg border border-red-500/20 bg-red-900/10 p-4 text-center font-mono text-sm text-red-400">
                 {installState.error_msg || "Unknown error occurred during setup."}
               </div>
             )}
           </div>
         </div>
       )}
-
     </div>
   );
 }
-

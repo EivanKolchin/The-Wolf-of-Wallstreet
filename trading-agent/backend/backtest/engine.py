@@ -331,14 +331,10 @@ def run_exec_backtest(close, high, low, atr, signal, *, forecast_vol=None,
             blocked = 0
         if in_pos:
             hold += 1
-            peak = max(peak, high[i]) if d > 0 else min(peak, low[i])
-            fav = (peak - entry) * d
-            if breakeven_atr and fav >= breakeven_atr * atr[i]:           # lock to breakeven
-                stop = max(stop, entry) if d > 0 else min(stop, entry)
-            stop = (max(stop, peak - trail_atr * atr[i]) if d > 0          # ratchet trailing stop
-                    else min(stop, peak + trail_atr * atr[i]))
-            if (not scaled) and scale_out_frac > 0 and fav >= tp1_atr * atr[i]:
-                size *= (1.0 - scale_out_frac); scaled = True              # bank partial profit
+            # Exits test the stop as known at the END of the PRIOR bar. Ratcheting the
+            # stop with THIS bar's high and then testing THIS bar's low (the old order)
+            # assumed an intra-bar sequence (high before low) that OHLC can't establish
+            # — a same-bar look-ahead. Prior-stop-first is the unambiguous convention.
             stop_hit = (low[i] <= stop) if d > 0 else (high[i] >= stop)
             timed = (max_hold is not None and hold >= max_hold)
             flip = (sig[i] == 0) or (sig[i] != 0 and np.sign(sig[i]) != d)
@@ -347,6 +343,15 @@ def run_exec_backtest(close, high, low, atr, signal, *, forecast_vol=None,
                 in_pos = False; d = 0; size = 0.0; scaled = False; hold = 0
             elif flip:
                 in_pos = False; d = 0; size = 0.0; scaled = False; hold = 0
+            else:                                                          # still in — ratchet state
+                peak = max(peak, high[i]) if d > 0 else min(peak, low[i])
+                fav = (peak - entry) * d
+                if breakeven_atr and fav >= breakeven_atr * atr[i]:       # lock to breakeven
+                    stop = max(stop, entry) if d > 0 else min(stop, entry)
+                stop = (max(stop, peak - trail_atr * atr[i]) if d > 0      # ratchet trailing stop
+                        else min(stop, peak + trail_atr * atr[i]))
+                if (not scaled) and scale_out_frac > 0 and fav >= tp1_atr * atr[i]:
+                    size *= (1.0 - scale_out_frac); scaled = True          # bank partial profit
         if (not in_pos) and sig[i] != 0:
             nd = int(np.sign(sig[i]))
             if nd != blocked and (nd > 0 or allow_short):

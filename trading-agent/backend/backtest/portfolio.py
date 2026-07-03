@@ -25,11 +25,16 @@ from backend.backtest.engine import (
 from backend.strategies.base import Strategy
 
 
-def align_panel(data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-    """Inner-join all symbols on timestamp → equal-length, same-calendar frames. REQUIRED
-    before a cross-sectional / pairs strategy + its backtest, so that "position index t"
-    means the same wall-clock bar across every symbol (otherwise ranking/aggregation mixes
-    dates). Per-symbol-independent strategies (e.g. ts_momentum) don't need this."""
+def align_panel(data: Dict[str, pd.DataFrame], how: str = "inner") -> Dict[str, pd.DataFrame]:
+    """Align all symbols on timestamp → equal-length, same-calendar frames. REQUIRED before a
+    cross-sectional / pairs strategy + its backtest, so that "position index t" means the same
+    wall-clock bar across every symbol.
+
+    ``how="inner"`` (default) intersects dates — right for a small, fully-overlapping universe
+    (pairs, a few perps). ``how="outer"`` reindexes to the UNION of dates, NaN-padding before a
+    name's history starts — right for a BROAD universe with staggered IPO dates (e.g. the S&P
+    500 over decades): the window stays long and breadth grows over time, and the cross-sectional
+    rank simply skips the NaN (not-yet-listed) names each rebalance."""
     frames = {}
     for s, df in data.items():
         d = df.copy()
@@ -37,6 +42,15 @@ def align_panel(data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
             d = d.reset_index().rename(columns={d.index.name or "index": "timestamp"})
         d["timestamp"] = pd.to_datetime(d["timestamp"])
         frames[s] = d.drop_duplicates("timestamp").set_index("timestamp").sort_index()
+    if how == "outer":
+        idx = None
+        for d in frames.values():
+            idx = d.index if idx is None else idx.union(d.index)
+        if idx is None or len(idx) == 0:
+            raise ValueError("align_panel: no timestamps")
+        idx = idx.sort_values()
+        return {s: frames[s].reindex(idx).reset_index().rename(columns={"index": "timestamp"})
+                for s in frames}
     common = None
     for d in frames.values():
         common = d.index if common is None else common.intersection(d.index)
@@ -134,9 +148,10 @@ def portfolio_backtest(strategies: Dict[str, Strategy], data: Dict[str, pd.DataF
                        target_ann_vol: float = 0.12, bars_per_year: float = BARS_PER_YEAR_5M,
                        alloc: str = "risk_parity", market_symbol: str = None,
                        max_leverage: float = 2.0, degear_threshold: float = 0.15,
-                       degear_floor: float = 0.25) -> PortfolioResult:
+                       degear_floor: float = 0.25, alloc_window: int = 96) -> PortfolioResult:
     """Combine strategies into one vol-targeted book. ``alloc`` ∈ {equal, risk_parity}
-    (risk_parity = inverse-vol weights). ``market_symbol`` (e.g. BTCUSDT) is the benchmark
+    (risk_parity = CAUSAL inverse trailing-vol weights over ``alloc_window`` bars, shifted
+    one bar — no look-ahead). ``market_symbol`` (e.g. BTCUSDT) is the benchmark
     for regression α/β; defaults to an equal-weight basket of all symbols.
 
     Risk overlay: vol-targeting is capped at ``max_leverage`` (conservative 2.0 default — so a
@@ -146,6 +161,10 @@ def portfolio_backtest(strategies: Dict[str, Strategy], data: Dict[str, pd.DataF
     strat_rets: Dict[str, np.ndarray] = {}
     turnover_total = 0.0
     for name, strat in strategies.items():
+        custom = strat.generate_returns(data)            # carry / externally-priced sleeves
+        if custom is not None and len(custom):
+            strat_rets[name] = np.asarray(custom, dtype=np.float64).ravel()
+            continue
         positions = strat.generate_positions(data)
         r = strategy_net_returns(positions, data, fee_bps, slippage_bps)
         if r.size:
@@ -159,16 +178,27 @@ def portfolio_backtest(strategies: Dict[str, Strategy], data: Dict[str, pd.DataF
     L = min(len(r) for r in strat_rets.values())
     strat_rets = {k: v[-L:] for k, v in strat_rets.items()}
 
-    # 2) allocate across strategies (equal, or inverse-vol risk parity)
+    # 2) allocate across strategies (equal, or CAUSAL inverse-vol risk parity).
+    # Look-ahead fix: weights used to come from R.std over the ENTIRE sample (future
+    # leak — the allocation "knew" which strategy would end up low-vol). Now the
+    # weight at bar t uses each strategy's trailing vol through t-1 only (rolling,
+    # shifted), with equal weights during the warm-up where no vol is defined yet.
     names = list(strat_rets)
     R = np.vstack([strat_rets[n] for n in names])          # (S, L)
-    if alloc == "equal":
-        w = np.full(len(names), 1.0 / len(names))
+    S = len(names)
+    if alloc == "equal" or S == 1:
+        combined = R.mean(axis=0)
     else:
-        vol = R.std(axis=1)
-        inv = np.where(vol > 1e-12, 1.0 / vol, 0.0)
-        w = inv / inv.sum() if inv.sum() > 0 else np.full(len(names), 1.0 / len(names))
-    combined = (w[:, None] * R).sum(axis=0)                # (L,)
+        vol_ts = np.vstack([
+            pd.Series(R[i]).rolling(alloc_window, min_periods=max(10, alloc_window // 4))
+            .std().to_numpy()
+            for i in range(S)])                             # (S, L) trailing vol at t
+        vol_ts = np.concatenate([np.full((S, 1), np.nan), vol_ts[:, :-1]], axis=1)  # shift → past only
+        inv = np.where(np.isfinite(vol_ts) & (vol_ts > 1e-12), 1.0 / vol_ts, 0.0)
+        colsum = inv.sum(axis=0)                            # (L,)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            w_ts = np.where(colsum > 0, inv / colsum, 1.0 / S)   # equal weight in warm-up
+        combined = (w_ts * R).sum(axis=0)                   # (L,)
 
     # 3) portfolio volatility targeting (causal) + drawdown de-gearing
     lev = vol_target_scale(combined, target_ann_vol, bars_per_year, max_leverage=max_leverage)

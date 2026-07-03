@@ -73,7 +73,7 @@ class PriorityNewsQueue:
         self.redis = redis
 
     async def put(self, impact: NewsImpact) -> None:
-        score = 0 if impact.severity == "SEVERE" else 1
+        score = {"SEVERE": 0, "SIGNIFICANT": 1, "MILD": 2}.get(str(impact.severity).upper(), 3)
         # Store as standard string mapped to its score.
         # We can add a unique identifier if multiple identical payloads are expected,
         # but ZADD inherently handles uniqueness by the member string.

@@ -903,6 +903,7 @@ class NNTradingAgent:
                 try:
                     longest_seq = max([len(seq) for seq in self.feature_sequences.values()]) if self.feature_sequences else 0
                     is_forced_stop = await self.heartbeat_client.redis.get("agent_force_stopped")
+                    paper_reset_requested = await self.heartbeat_client.redis.get("paper:reset_requested")
                     
                     status_payload = {
                         "is_halted": is_forced_stop == b"true",
@@ -935,6 +936,13 @@ class NNTradingAgent:
                         self.risk_manager.reset_halt()
                         await self.heartbeat_client.redis.delete("risk:reset_requested")
                         logger.info("risk_halt_reset_via_redis_flag")
+
+                    if paper_reset_requested in (b"true", "true"):
+                        await self._reset_paper_state()
+                        await self.heartbeat_client.redis.delete("paper:reset_requested")
+                        logger.info("paper_state_reset_via_redis_flag")
+                        await asyncio.sleep(self.cycle_interval_seconds)
+                        continue
                     
                     if is_forced_stop == b"true":
                         await asyncio.sleep(self.cycle_interval_seconds)
@@ -964,6 +972,8 @@ class NNTradingAgent:
                         self.news_impact_expires_at = datetime.utcnow() + timedelta(minutes=impact.t_max_minutes)
                         # Phase 3: snapshot (embedding, price) per relevant symbol
                         # for the online self-labeling accumulator.
+                        self._log_news_label(impact)
+                    elif impact.severity == "MILD":
                         self._log_news_label(impact)
 
                 if self.severe_flag.value:
@@ -1073,6 +1083,50 @@ class NNTradingAgent:
 
         # close_position pops via the trade-closed callback; clear any stragglers.
         self.open_trades.clear()
+
+    async def _reset_paper_state(self) -> None:
+        self.open_trades.clear()
+        self.open_trade_context.clear()
+        self.open_trade_actions.clear()
+        self._last_distribution.clear()
+        self.current_news_impact = None
+        self.news_impact_expires_at = None
+        self.cycles_since_trade = 0
+        self._attention.clear()
+        try:
+            if hasattr(self.risk_manager, "reset_all"):
+                self.risk_manager.reset_all(float(settings.INITIAL_USDC_AMOUNT))
+            elif hasattr(self.risk_manager, "reset_halt"):
+                self.risk_manager.reset_halt()
+        except Exception as e:
+            logger.warning("risk_state_reset_failed", error=str(e))
+
+        live_state = {
+            "unrealized_pnl": 0.0,
+            "total_value_locked": 0.0,
+            "positions": [],
+            "_initial_usdc": float(settings.INITIAL_USDC_AMOUNT),
+            "_realized_pnl": 0.0,
+            "available_usdc": float(settings.INITIAL_USDC_AMOUNT),
+            "available_cash": float(settings.INITIAL_USDC_AMOUNT),
+        }
+        try:
+            if hasattr(self.execution_engine, "_set_live_state"):
+                await self.execution_engine._set_live_state(live_state)
+            elif hasattr(self.heartbeat_client, "redis"):
+                await self.heartbeat_client.redis.set("portfolio:live_state", json.dumps(live_state))
+        except Exception as e:
+            logger.warning("paper_live_state_reset_failed", error=str(e))
+
+        try:
+            redis = self.heartbeat_client.redis
+            await redis.delete("portfolio:live_state", "risk:status", "attention:state", "attention:overrides", "agent_visual_predictions")
+            async for key in redis.scan_iter(match="agent_visual_predictions:*"):
+                await redis.delete(key)
+            async for key in redis.scan_iter(match="entry_price:*"):
+                await redis.delete(key)
+        except Exception as e:
+            logger.warning("paper_redis_reset_failed", error=str(e))
         
     async def _on_trade_closed(self, trade: Trade, pnl_pct: float) -> None:
         logger.info("trade_closed", trade_id=str(trade.id), pnl_pct=pnl_pct)

@@ -1,30 +1,69 @@
 "use client";
 import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Radar } from "lucide-react";
+import { ThumbsDown, ThumbsUp } from "lucide-react";
+import { newsFeedbackKey, useNewsFeedback } from "@/lib/hooks/useNewsFeedback";
 
-export function NewsScannerWidget({ rawNews }: { rawNews: any[] }) {
+export function NewsScannerWidget({ rawNews, className = "" }: { rawNews: any[]; className?: string }) {
+  const count = rawNews?.length || 0;
+  const { getRating, submitFeedback } = useNewsFeedback();
+
+  const sendFeedback = async (news: any, rating: 1 | -1, index: number) => {
+    const key = newsFeedbackKey(news, index);
+    await submitFeedback(key, rating, {
+      feedback_type: "relevance",
+      headline: news.headline,
+      source_domain: news.source,
+      article_hash: news.article_hash,
+    });
+  };
+
   return (
-    <Card className="h-full flex flex-col overflow-hidden">
-      <CardHeader className="border-b border-zinc-800/50 pb-4 flex flex-row items-center justify-between">
+    <Card className={`flex flex-col overflow-hidden ${className}`}>
+      <CardHeader className="flex flex-row items-center justify-between border-b border-[#171717] pb-4">
         <CardTitle className="text-sm">Live Agent Scanner</CardTitle>
+        <span className="rounded-full border border-[#1f1f22] bg-[#0e0e10] px-2 py-0.5 font-mono text-[10px] text-zinc-500">
+          {count ? `${count} events` : "idle"}
+        </span>
       </CardHeader>
-      <CardContent className="font-mono text-[11px] text-zinc-400 space-y-3 pt-4 flex-1 overflow-y-auto max-h-[300px]">
-        {rawNews && rawNews.length > 0 ? (
-          rawNews.map((news, i) => (
-            <div key={i} className="flex flex-col gap-1 border-b border-zinc-800/30 pb-2">
-              <div className="flex justify-between items-center text-zinc-500 text-[10px]">
+      <CardContent className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pt-4">
+        {count > 0 ? (
+          rawNews.map((news, i) => {
+            const key = newsFeedbackKey(news, i);
+            const selected = getRating(key);
+            return (
+            <div key={key} className="border-b border-[#141416] pb-2.5 last:border-0">
+              <div className="mb-1 flex items-center justify-between text-[10px] text-zinc-600">
                 <span className="uppercase tracking-wider">{news.source}</span>
-                <span>{new Date(news.time).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="font-mono">{new Date(news.time).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
               </div>
-              <p className="text-[#D1D4DC] leading-relaxed line-clamp-2" title={news.headline}>
+              <p className="line-clamp-2 text-[12px] leading-relaxed text-zinc-300" title={news.headline}>
                 {news.headline}
               </p>
+              <div className="mt-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => sendFeedback(news, 1, i)}
+                  className={`rounded-md border px-2 py-1 transition-colors ${selected === 1 ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : "border-[#1f1f22] text-zinc-500 hover:border-emerald-500/40 hover:text-emerald-300"}`}
+                  title="Scan and analyse more news like this"
+                >
+                  <ThumbsUp size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendFeedback(news, -1, i)}
+                  className={`rounded-md border px-2 py-1 transition-colors ${selected === -1 ? "border-rose-500/50 bg-rose-500/10 text-rose-300" : "border-[#1f1f22] text-zinc-500 hover:border-rose-500/40 hover:text-rose-300"}`}
+                  title="Deprioritize news like this"
+                >
+                  <ThumbsDown size={12} />
+                </button>
+              </div>
             </div>
-          ))
+          );
+          })
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-600 italic">
-            Listening to global feeds...
+          <div className="flex h-full items-center justify-center py-10 text-[12px] italic text-zinc-600">
+            Listening to global feeds…
           </div>
         )}
       </CardContent>

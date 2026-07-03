@@ -10,9 +10,9 @@ that are trained ONLINE via RL (Phase 3/4), not during offline pretraining — s
 when loading an offline checkpoint the exit-head keys are simply missing and are
 left freshly initialised (see PersistentTradingModel._load_or_initialise).
 
-NOTE (follow-up): the base class is currently duplicated in scripts/pretrain.py.
-When the offline trainer is reworked (Phase 3) pretrain.py should import this base
-so the two can never drift. They are identical today.
+NOTE: scripts/pretrain.py imports THIS class (and SYMBOLS) directly — the old
+duplicated offline copy was deleted after it drifted (no TCN support, 18-vs-22
+symbol registry). This module is the single source of truth for the architecture.
 """
 from __future__ import annotations
 
@@ -74,6 +74,11 @@ SYMBOLS = [
     #      (older checkpoints still load; rows 13..17 just start fresh) ----
     "RENDERUSDT", "NEARUSDT",          # crypto (Render = ex-RNDR; Near) — Binance
     "NVDA", "TSM", "SMCI",             # AI-chip stocks — help the model learn the AMD/MU sector
+    # ---- Cycle 24 additions (ids 18..21) — APPENDED (embedding rows start fresh;
+    #      the checkpoint's symbol_embedding is spliced in on load, so live still
+    #      boots). AXTI stays above (id 11) for training even though it's no longer
+    #      in the *tradable* universe (core/universe.py STOCK_UNDERLYINGS). ----
+    "TSLA", "MSTR", "COIN", "PLTR",    # high-beta cross-sector names (EV / BTC-proxy / crypto-fin / AI-software)
 ]
 SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
 

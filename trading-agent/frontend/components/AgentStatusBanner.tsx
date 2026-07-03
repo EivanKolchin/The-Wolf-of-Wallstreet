@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent } from "./ui/card";
-import { Button } from "./ui/button";
+import { Card } from "./ui/card";
+import { Power, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AgentStatus {
@@ -15,31 +15,38 @@ interface AgentStatus {
   status_text: string;
 }
 
-export function AgentStatusBanner() {
+type EngineState = "connecting" | "offline" | "halted" | "warming" | "active";
+
+function fmtUptime(sec: number) {
+  if (!isFinite(sec) || sec < 0) return "0m";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${Math.floor(sec)}s`;
+}
+
+export function AgentStatusBanner({ compact = false }: { compact?: boolean }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
+  const [reachable, setReachable] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(Date.now() / 1000);
 
   const fetchStatus = async () => {
     try {
       const res = await fetch("http://localhost:8000/api/agent/status");
-      if (res.ok) {
-        const json = await res.json();
-        setStatus(json);
-      }
-    } catch (err) {
-      console.error(err);
+      if (res.ok) { setStatus(await res.json()); setReachable(true); }
+      else setReachable(false);
+    } catch {
+      setReachable(false);
     }
   };
 
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 3000);
-    const tick = setInterval(() => setNow(Date.now() / 1000), 1000); // 1-second ticks
-    return () => {
-      clearInterval(interval);
-      clearInterval(tick);
-    };
+    const tick = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => { clearInterval(interval); clearInterval(tick); };
   }, []);
 
   const toggleStop = async (halt: boolean) => {
@@ -58,123 +65,133 @@ export function AgentStatusBanner() {
     }
   };
 
-  if (!status) return null;
-
+  // ── Derive a single, honest engine state ──
   const warmupWindowSeconds = 300;
-  const elapsedSinceStart = Math.max(0, now - (status.started_at || now));
-  const isWarmingUp = ((elapsedSinceStart < warmupWindowSeconds) || status.buffer_current < status.buffer_required) && !status.is_halted;
-  
-  // Real-time calculation mechanics
-  let remainingSeconds = 0;
-  if (isWarmingUp) {     
-     // Start from 5 minutes (300 seconds) since that's what the UI usually requires to buffer
-      let calculatedRemaining = Math.max(0, warmupWindowSeconds - elapsedSinceStart);
-     if (!status.has_market_data || status.buffer_current === 0) {
-        // Still waiting for first kline. Keep ticking down but pause at 0 if no data
-        if (calculatedRemaining < 0) calculatedRemaining = 0;
-     } else if (status.buffer_current < status.buffer_required) {
-        // Market data established!
-        const bufferTimeRemaining = (status.buffer_required - status.buffer_current) * status.cycle_interval;
-        calculatedRemaining = Math.max(calculatedRemaining, bufferTimeRemaining);
-     }
+  const elapsedSinceStart = status ? Math.max(0, now - (status.started_at || now)) : 0;
+  const isWarmingUp = !!status &&
+    !status.is_halted &&
+    ((elapsedSinceStart < warmupWindowSeconds) || status.buffer_current < status.buffer_required);
 
-     remainingSeconds = calculatedRemaining;
+  let engine: EngineState = "connecting";
+  if (reachable === false) engine = "offline";
+  else if (status?.is_halted) engine = "halted";
+  else if (status && isWarmingUp) engine = "warming";
+  else if (status) engine = "active";
+
+  const meta: Record<EngineState, { label: string; tone: string; sub: string }> = {
+    connecting: { label: "Connecting", tone: "text-zinc-400", sub: "Reaching the trading engine…" },
+    offline:    { label: "Offline",    tone: "text-zinc-500", sub: "Backend unreachable — engine not running." },
+    halted:     { label: "Halted",     tone: "text-rose-400", sub: "Stopped by the kill switch. No orders will route." },
+    warming:    { label: "Initializing", tone: "text-zinc-200", sub: status?.status_text || "Buffering market data…" },
+    active:     { label: "Active",     tone: "text-emerald-400", sub: status?.status_text || "Scanning markets and evaluating signals." },
+  };
+  const m = meta[engine];
+
+  // warm-up progress + ETA
+  let remainingSeconds = 0;
+  if (status && isWarmingUp) {
+    let calc = Math.max(0, warmupWindowSeconds - elapsedSinceStart);
+    if (status.buffer_current > 0 && status.buffer_current < status.buffer_required) {
+      calc = Math.max(calc, (status.buffer_required - status.buffer_current) * status.cycle_interval);
+    }
+    remainingSeconds = calc;
   }
-  
   const mins = Math.floor(remainingSeconds / 60);
   const secs = Math.floor(remainingSeconds % 60);
-
-  // Compute bar width safely
   let progressPct = 100;
-  if (status.buffer_current < status.buffer_required) {
-      progressPct = Math.max(0, (status.buffer_current / status.buffer_required) * 100);
+  if (status && status.buffer_current < status.buffer_required) {
+    progressPct = Math.max(0, (status.buffer_current / (status.buffer_required || 1)) * 100);
   } else if (isWarmingUp) {
-      progressPct = Math.max(0, Math.min(100, (elapsedSinceStart / warmupWindowSeconds) * 100));
+    progressPct = Math.max(0, Math.min(100, (elapsedSinceStart / warmupWindowSeconds) * 100));
+  }
+
+  const canKill = engine === "active" || engine === "warming";
+
+  if (compact) {
+    return (
+      <Card className="min-w-[320px] p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-zinc-500">Engine State</p>
+            <div className="flex items-baseline gap-2">
+              <span className={cn("text-lg font-semibold tracking-tight", m.tone)}>{m.label}</span>
+              {engine === "active" && (
+                <span className="text-[10px] font-medium text-zinc-500">up {fmtUptime(elapsedSinceStart)}</span>
+              )}
+            </div>
+            <p className="mt-1 max-w-[180px] truncate text-[11px] text-zinc-500" title={m.sub}>{m.sub}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggleStop(engine !== "halted")}
+            disabled={loading || engine === "offline" || engine === "connecting"}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[11px] font-semibold tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+              engine === "halted"
+                ? "bg-zinc-100 text-zinc-900 hover:bg-white"
+                : "border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+            )}
+          >
+            {engine === "halted" ? <><Play size={13} /> Resume</> : <><Power size={13} /> Kill Switch</>}
+          </button>
+        </div>
+      </Card>
+    );
   }
 
   return (
-    <Card className="col-span-2 border-zinc-800/50 bg-[#0A0A0A] overflow-hidden rounded-xl shadow-lg">
-      <CardContent className={cn("p-0 grid grid-cols-1 divide-y md:divide-y-0 md:divide-x divide-zinc-800/50",
-        isWarmingUp ? "md:grid-cols-4" : "md:grid-cols-2")}>
-        
-        {/* Engine State */}
-        <div className="p-5 flex flex-col justify-center bg-black/40">
-          <p className="text-[11px] font-semibold text-zinc-500 tracking-wider mb-2">Engine State</p>
-          <div className="flex items-center gap-2.5">
-            {!isWarmingUp && (
-              <div className={cn("w-2 h-2 rounded-full flex-shrink-0",
-                status.is_halted ? "bg-rose-500" : "bg-emerald-500"
-              )} />
+    <Card className="flex h-full flex-col justify-between p-5">
+      <div className="flex items-start justify-between gap-4">
+        {/* Engine state — functional, no decorative dot */}
+        <div className="min-w-0">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">Engine</p>
+          <div className="flex items-baseline gap-2.5">
+            <span className={cn("text-2xl font-semibold tracking-tight", m.tone)}>{m.label}</span>
+            {engine === "active" && (
+              <span className="text-[11px] font-medium text-zinc-500">live · up {fmtUptime(elapsedSinceStart)}</span>
             )}
-            <span className={cn("text-sm font-semibold tracking-wide",
-              status.is_halted ? "text-rose-500" :
-              isWarmingUp ? "text-amber-500" :
-              "text-emerald-500"
-            )}>
-              {status.is_halted ? "Terminated" : isWarmingUp ? "Initializing..." : "Active"}
-            </span>
           </div>
-          <p className="text-xs text-zinc-400 mt-1.5 truncate" title={status.status_text}>{status.status_text}</p>
+          <p className="mt-1.5 truncate text-[12px] text-zinc-500" title={m.sub}>{m.sub}</p>
         </div>
 
-        {/* Data Buffer + Time To Active — only meaningful during warm-up.
-            Once the engine is Active these collapse away (no lingering 0m 00s). */}
-        {isWarmingUp && (
-          <div className="p-5 flex flex-col justify-center">
-            <div className="flex justify-between items-center mb-1.5">
-               <p className="text-[11px] font-semibold text-zinc-500 tracking-wider">Data Buffer</p>
-               <p className="text-sm font-medium tabular-nums text-[#D1D4DC]">
-                  {status.buffer_current} <span className="text-zinc-600">/ {status.buffer_required}</span>
-               </p>
-            </div>
-            <div className="w-full h-1.5 bg-zinc-900 rounded-full mt-2 overflow-hidden flex-shrink-0">
-               <div
-                 className={cn("h-full rounded-full transition-all duration-500 ease-in-out",
-                   status.is_halted ? "bg-rose-500/50" : "bg-amber-500"
-                 )}
-                 style={{ width: `${progressPct}%` }}
-               />
-            </div>
-          </div>
-        )}
-
-        {isWarmingUp && (
-          <div className="p-5 flex flex-col justify-center">
-              <p className="text-[11px] font-semibold text-zinc-500 tracking-wider mb-1">Time To Active</p>
-              <p className={cn("text-3xl font-medium tracking-tight tabular-nums mt-1",
-                status.is_halted ? "text-zinc-600" : "text-amber-400"
-              )}>
-                {status.is_halted ? "--:--" : `${mins}m ${secs.toString().padStart(2, "0")}s`}
-              </p>
-          </div>
-        )}
-
-        {/* Action Panel */}
-        <div className="p-4 flex items-center justify-center bg-black/20">
-           {status.is_halted ? (
-             <Button
-                variant="outline"
-                size="sm"
-                onClick={() => toggleStop(false)}
-                disabled={loading}
-                className="w-full h-11 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border-emerald-500/30 tracking-wider text-xs font-semibold transition-colors"
-              >
-                Resume Engine
-              </Button>
-          ) : (
-             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => toggleStop(true)}
-              disabled={loading}
-              className="w-full h-11 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border-rose-500/30 tracking-wider text-xs font-semibold transition-colors"
-            >
-              Force Kill Switch
-            </Button>
+        {/* Kill / resume control */}
+        <button
+          type="button"
+          onClick={() => toggleStop(engine !== "halted")}
+          disabled={loading || engine === "offline" || engine === "connecting"}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-[12px] font-semibold tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+            engine === "halted"
+              ? "bg-zinc-100 text-zinc-900 hover:bg-white"
+              : "border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
           )}
-        </div>
+        >
+          {engine === "halted" ? <><Play size={14} /> Resume Engine</> : <><Power size={14} /> Force Kill</>}
+        </button>
+      </div>
 
-      </CardContent>
+      {/* Warm-up detail — only while initializing */}
+      {engine === "warming" && (
+        <div className="mt-5 grid grid-cols-2 gap-4 border-t border-[#171717] pt-4">
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">Data buffer</p>
+              <p className="font-mono text-[13px] tabular-nums text-zinc-300">
+                {status?.buffer_current} <span className="text-zinc-600">/ {status?.buffer_required}</span>
+              </p>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-zinc-100 transition-all duration-500 ease-in-out" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">Time to active</p>
+            <p className="font-mono text-xl font-medium tabular-nums tracking-tight text-zinc-200">
+              {mins}m {secs.toString().padStart(2, "0")}s
+            </p>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

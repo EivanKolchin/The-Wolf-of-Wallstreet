@@ -203,7 +203,7 @@ def _trade_stats(trades: list[Trade]) -> dict:
 # ---------------------------------------------------------- news + latency
 def _news_stats(news: list[NewsPrediction]) -> dict:
     n = len(news)
-    sev_counts = {"NEUTRAL": 0, "SIGNIFICANT": 0, "SEVERE": 0}
+    sev_counts = {"NEUTRAL": 0, "MILD": 0, "SIGNIFICANT": 0, "SEVERE": 0}
     for p in news:
         try:
             sev_counts[p.severity.value] = sev_counts.get(p.severity.value, 0) + 1
@@ -218,7 +218,8 @@ def _news_stats(news: list[NewsPrediction]) -> dict:
     avg_actual_pct = (sum(p.actual_move_pct for p in scored) / len(scored)) if scored else 0.0
     return {
         "total": n,
-        "minor_count": sev_counts.get("NEUTRAL", 0),       # NEUTRAL == "minor" semantically
+        "minor_count": sev_counts.get("NEUTRAL", 0) + sev_counts.get("MILD", 0),
+        "mild_count": sev_counts.get("MILD", 0),
         "significant_count": sev_counts.get("SIGNIFICANT", 0),
         "severe_count": sev_counts.get("SEVERE", 0),
         "avg_confidence": round(avg_conf, 4),

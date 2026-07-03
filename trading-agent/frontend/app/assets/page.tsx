@@ -4,7 +4,6 @@ import React from "react";
 import { Card } from "@/components/ui/card";
 import { API_BASE } from "@/lib/api";
 
-// ---- types -----------------------------------------------------------------
 interface ExtendedQuote {
   price: number; session: string; is_extended: boolean; source: string;
 }
@@ -21,8 +20,53 @@ interface AssetRow {
   position: any | null;
 }
 
-const STOCKS = new Set(["SNDK", "AMD", "MU", "AXTI", "BE"]);
-const isStock = (s: string) => STOCKS.has((s || "").toUpperCase());
+const TIMEFRAMES = {
+  day: { label: "Last Day", interval: "15m", limit: 96 },
+  week: { label: "Last Week", interval: "1h", limit: 24 * 7 },
+  month: { label: "Last Month", interval: "4h", limit: 30 * 6 },
+  year: { label: "Last Year", interval: "1d", limit: 365 },
+} as const;
+
+const SORTS = [
+  { id: "top", label: "Top Trend" },
+  { id: "bottom", label: "Bottom Trend" },
+  { id: "uptrend", label: "Strongest Uptrend" },
+  { id: "downtrend", label: "Strongest Downtrend" },
+  { id: "volatility", label: "Most Volatile" },
+  { id: "volume", label: "Highest Volume" },
+] as const;
+
+const VIEW_MODES = [
+  { id: "flat", label: "Flat Ranking" },
+  { id: "assetType", label: "By Asset Type" },
+] as const;
+
+const STOCK_THEMES = {
+  memory: "Memory",
+  semiconductors: "Semiconductors",
+  ai: "AI / Software",
+  healthcare: "Healthcare",
+  space: "Space",
+  crypto_fintech: "Crypto / Fintech",
+  ev_auto: "EV / Auto",
+  energy: "Energy",
+  other: "Other",
+} as const;
+
+const STOCK_THEME_BY_SYMBOL: Record<string, keyof typeof STOCK_THEMES> = {
+  SNDK: "memory",
+  MU: "memory",
+  AMD: "semiconductors",
+  NVDA: "semiconductors",
+  TSM: "semiconductors",
+  SMCI: "semiconductors",
+  PLTR: "ai",
+  COIN: "crypto_fintech",
+  MSTR: "crypto_fintech",
+  TSLA: "ev_auto",
+  BE: "energy",
+};
+
 const displaySymbol = (s: string) => s.replace("USDT", "");
 
 function fmtNum(n: number | null | undefined, d = 2) {
@@ -37,7 +81,6 @@ function fmtCompact(n: number | null | undefined) {
   return n.toFixed(2);
 }
 
-// Color-code the market session badge.
 function sessionBadge(session: string) {
   const map: Record<string, string> = {
     regular: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -54,10 +97,9 @@ function sessionBadge(session: string) {
   return { cls: map[session] || map.closed, label: label[session] || session };
 }
 
-// Lightweight inline SVG sparkline — avoids spinning up N chart instances.
 function Sparkline({ data, up }: { data: number[]; up: boolean }) {
   if (!data || data.length < 2) {
-    return <div className="h-12 flex items-center justify-center text-[10px] text-zinc-600">no data</div>;
+    return <div className="flex h-12 items-center justify-center text-[10px] text-zinc-600">no data</div>;
   }
   const w = 240, h = 48, pad = 2;
   const min = Math.min(...data), max = Math.max(...data);
@@ -67,77 +109,38 @@ function Sparkline({ data, up }: { data: number[]; up: boolean }) {
     const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
-  const stroke = up ? "#34d399" : "#f87171";
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-12" preserveAspectRatio="none">
-      <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.5"
-        strokeLinejoin="round" strokeLinecap="round" />
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-12 w-full" preserveAspectRatio="none">
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={up ? "#34d399" : "#f87171"}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
-// Compact order book — crypto only (Alpaca free tier has no L2 for stocks).
-function MiniOrderBook({ symbol }: { symbol: string }) {
-  const [book, setBook] = React.useState<{ bids: any[]; asks: any[] } | null>(null);
-  React.useEffect(() => {
-    if (isStock(symbol)) return;
-    let cancelled = false;
-    const load = () => {
-      fetch(`${API_BASE}/market/depth?symbol=${encodeURIComponent(symbol)}&limit=6`)
-        .then(r => r.json())
-        .then(d => { if (!cancelled) setBook({ bids: d.bids || [], asks: d.asks || [] }); })
-        .catch(() => { });
-    };
-    load();
-    const id = setInterval(load, 6000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [symbol]);
-
-  if (isStock(symbol)) {
-    return <div className="text-[10px] text-zinc-600 italic py-2">Order book N/A (free stock feed has no L2 depth)</div>;
-  }
-  if (!book) return <div className="text-[10px] text-zinc-600 py-2">loading book…</div>;
-  const asks = (book.asks || []).slice(0, 5).reverse();
-  const bids = (book.bids || []).slice(0, 5);
-  return (
-    <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
-      <div>
-        <div className="text-zinc-500 mb-1 uppercase tracking-wider">Bids</div>
-        {bids.map((b: any, i: number) => (
-          <div key={i} className="flex justify-between text-emerald-400/90">
-            <span>{fmtNum(parseFloat(b[0]), 2)}</span><span className="text-zinc-500">{fmtCompact(parseFloat(b[1]))}</span>
-          </div>
-        ))}
-      </div>
-      <div>
-        <div className="text-zinc-500 mb-1 uppercase tracking-wider">Asks</div>
-        {asks.map((a: any, i: number) => (
-          <div key={i} className="flex justify-between text-rose-400/90">
-            <span>{fmtNum(parseFloat(a[0]), 2)}</span><span className="text-zinc-500">{fmtCompact(parseFloat(a[1]))}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AssetCard({ a }: { a: AssetRow }) {
+function AssetCard({ a, rank, timeframeLabel }: { a: AssetRow; rank: number; timeframeLabel: string }) {
   const up = (a.price_change_pct ?? 0) >= 0;
   const sb = sessionBadge(a.session);
   return (
-    <Card className="p-4 flex flex-col gap-3">
-      {/* Header */}
+    <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <span className="rounded-md border border-zinc-700/60 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400">
+            #{rank}
+          </span>
           <span className="text-base font-semibold text-zinc-100">{displaySymbol(a.symbol)}</span>
-          <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-zinc-700/60 text-zinc-400">
+          <span className="rounded border border-zinc-700/60 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-zinc-400">
             {a.asset_class === "crypto" ? "Crypto" : "Stock"}
           </span>
         </div>
-        <span className={`text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${sb.cls}`}>{sb.label}</span>
+        <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wider ${sb.cls}`}>{sb.label}</span>
       </div>
 
-      {/* Price + change */}
       <div className="flex items-end justify-between">
         <div className="text-xl font-mono font-semibold text-zinc-100">
           ${fmtNum(a.last_price, a.last_price && a.last_price < 10 ? 4 : 2)}
@@ -149,41 +152,33 @@ function AssetCard({ a }: { a: AssetRow }) {
 
       <Sparkline data={a.spark} up={up} />
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <div className="bg-[#0A0A0A] rounded p-2 border border-zinc-800/50">
-          <div className="text-zinc-500 uppercase tracking-wider text-[9px]">Volatility</div>
+        <div className="rounded border border-zinc-800/50 bg-[#0A0A0A] p-2">
+          <div className="text-[9px] uppercase tracking-wider text-zinc-500">Volatility</div>
           <div className="font-mono text-zinc-200">{fmtNum(a.volatility_pct, 2)}%</div>
         </div>
-        <div className="bg-[#0A0A0A] rounded p-2 border border-zinc-800/50">
-          <div className="text-zinc-500 uppercase tracking-wider text-[9px]">Volume</div>
+        <div className="rounded border border-zinc-800/50 bg-[#0A0A0A] p-2">
+          <div className="text-[9px] uppercase tracking-wider text-zinc-500">Volume</div>
           <div className="font-mono text-zinc-200">{fmtCompact(a.volume)}</div>
         </div>
-        <div className="bg-[#0A0A0A] rounded p-2 border border-zinc-800/50">
-          <div className="text-zinc-500 uppercase tracking-wider text-[9px]">24h</div>
+        <div className="rounded border border-zinc-800/50 bg-[#0A0A0A] p-2">
+          <div className="text-[9px] uppercase tracking-wider text-zinc-500">{timeframeLabel}</div>
           <div className={`font-mono ${up ? "text-emerald-400" : "text-rose-400"}`}>{up ? "+" : ""}{fmtNum(a.price_change_pct, 1)}%</div>
         </div>
       </div>
 
-      {/* Extended-hours quote (stocks in pre/after) */}
       {a.extended_hours && (
-        <div className="text-[10px] flex items-center justify-between px-2 py-1 rounded bg-amber-500/5 border border-amber-500/20">
-          <span className="text-amber-400 uppercase tracking-wider">{a.extended_hours.session} px</span>
+        <div className="flex items-center justify-between rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[10px]">
+          <span className="uppercase tracking-wider text-amber-400">{a.extended_hours.session} px</span>
           <span className="font-mono text-zinc-200">${fmtNum(a.extended_hours.price, 2)}</span>
           <span className="text-zinc-600">via {a.extended_hours.source}</span>
         </div>
       )}
 
-      {/* Order book */}
-      <div className="border-t border-zinc-800/50 pt-2">
-        <MiniOrderBook symbol={a.symbol} />
-      </div>
-
-      {/* Position */}
       <div className="border-t border-zinc-800/50 pt-2">
         {a.position ? (
           <div className="flex items-center justify-between text-[11px]">
-            <span className={`uppercase font-bold ${a.position.direction === "short" ? "text-rose-400" : "text-emerald-400"}`}>
+            <span className={`font-bold uppercase ${a.position.direction === "short" ? "text-rose-400" : "text-emerald-400"}`}>
               {(a.position.direction || "long").toUpperCase()} ${fmtNum(a.position.size_usd, 0)}
             </span>
             <span className={`font-mono ${(a.position.unrealized ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -198,15 +193,65 @@ function AssetCard({ a }: { a: AssetRow }) {
   );
 }
 
+function sortAssets(rows: AssetRow[], sortId: string) {
+  const byMetric = (selector: (a: AssetRow) => number) => [...rows].sort((a, b) => selector(b) - selector(a));
+  switch (sortId) {
+    case "bottom":
+    case "downtrend":
+      return [...rows].sort((a, b) => (a.price_change_pct ?? 0) - (b.price_change_pct ?? 0));
+    case "volatility":
+      return byMetric(a => a.volatility_pct ?? -Infinity);
+    case "volume":
+      return byMetric(a => a.volume ?? -Infinity);
+    case "uptrend":
+    case "top":
+    default:
+      return byMetric(a => a.price_change_pct ?? -Infinity);
+  }
+}
+
+function stockThemeFor(symbol: string) {
+  const upper = symbol.toUpperCase();
+  return STOCK_THEME_BY_SYMBOL[upper] || "other";
+}
+
+function groupAssetsByType(rows: AssetRow[]) {
+  const crypto: AssetRow[] = [];
+  const stockThemes = new Map<keyof typeof STOCK_THEMES, AssetRow[]>();
+
+  for (const row of rows) {
+    if (row.asset_class === "crypto") {
+      crypto.push(row);
+      continue;
+    }
+    const theme = stockThemeFor(row.symbol);
+    const current = stockThemes.get(theme) || [];
+    current.push(row);
+    stockThemes.set(theme, current);
+  }
+
+  return { crypto, stockThemes };
+}
+
 export default function AllAssetsPage() {
   const [assets, setAssets] = React.useState<AssetRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
+  const [timeframe, setTimeframe] = React.useState<keyof typeof TIMEFRAMES>("day");
+  const [search, setSearch] = React.useState("");
+  const [assetFilter, setAssetFilter] = React.useState<"all" | "crypto" | "stocks">("all");
+  const [sortBy, setSortBy] = React.useState<(typeof SORTS)[number]["id"]>("top");
+  const [viewMode, setViewMode] = React.useState<(typeof VIEW_MODES)[number]["id"]>("flat");
 
   React.useEffect(() => {
     let cancelled = false;
+    const tf = TIMEFRAMES[timeframe];
     const load = () => {
-      fetch(`${API_BASE}/assets/overview`)
+      const qs = new URLSearchParams({
+        interval: tf.interval,
+        limit: String(tf.limit),
+      });
+      fetch(`${API_BASE}/assets/overview?${qs.toString()}`)
         .then(r => r.json())
         .then(d => {
           if (cancelled) return;
@@ -216,46 +261,142 @@ export default function AllAssetsPage() {
         .catch(e => { if (!cancelled) setErr(String(e)); })
         .finally(() => { if (!cancelled) setLoading(false); });
     };
+    setLoading(true);
     load();
     const id = setInterval(load, 10000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [timeframe]);
 
-  const crypto = assets.filter(a => a.asset_class === "crypto");
-  const stocks = assets.filter(a => a.asset_class !== "crypto");
+  const filteredAssets = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return assets.filter((a) => {
+      if (assetFilter === "crypto" && a.asset_class !== "crypto") return false;
+      if (assetFilter === "stocks" && a.asset_class === "crypto") return false;
+      if (!q) return true;
+      return a.symbol.toLowerCase().includes(q) || displaySymbol(a.symbol).toLowerCase().includes(q);
+    });
+  }, [assets, assetFilter, search]);
+
+  const rankedAssets = React.useMemo(() => sortAssets(filteredAssets, sortBy), [filteredAssets, sortBy]);
+  const groupedAssets = React.useMemo(() => groupAssetsByType(rankedAssets), [rankedAssets]);
+  const timeframeLabel = TIMEFRAMES[timeframe].label.replace("Last ", "");
+
+  const renderAssetCard = (a: AssetRow, idx: number) => (
+    <AssetCard key={`${a.symbol}-${timeframe}`} a={a} rank={idx + 1} timeframeLabel={timeframeLabel} />
+  );
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">All Assets</h1>
-          <p className="text-sm text-zinc-500">Live cross-asset overview — graphs, order books, volatility, volume, sessions & positions.</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-white">All Assets</h1>
+          <p className="text-sm text-zinc-500">Live cross-asset overview with search, ranking, and timeframe-based trend filters.</p>
         </div>
-        {loading && <span className="text-xs text-zinc-500">loading…</span>}
+        <div className="flex flex-wrap items-center gap-2">
+          {Object.entries(TIMEFRAMES).map(([id, tf]) => (
+            <button
+              key={id}
+              onClick={() => setTimeframe(id as keyof typeof TIMEFRAMES)}
+              className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                timeframe === id ? "bg-zinc-100 text-zinc-900" : "border border-[#1a1a1c] bg-[#0e0e10] text-zinc-400 hover:text-zinc-100"
+              }`}
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      <Card className="p-4">
+        <div className="grid gap-3 lg:grid-cols-[1.4fr_0.8fr_1fr]">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assets by ticker..."
+            className="rounded-lg border border-[#1f1f22] bg-[#0e0e10] px-3 py-2 text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+          />
+          <div className="flex gap-2">
+            {(["all", "crypto", "stocks"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setAssetFilter(mode)}
+                className={`flex-1 rounded-md px-3 py-2 text-[12px] font-medium capitalize transition-colors ${
+                  assetFilter === mode ? "bg-zinc-100 text-zinc-900" : "border border-[#1a1a1c] bg-[#0e0e10] text-zinc-400 hover:text-zinc-100"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {VIEW_MODES.map((mode) => (
+              <button
+                key={mode.id}
+                onClick={() => setViewMode(mode.id)}
+                className={`flex-1 rounded-md px-3 py-2 text-[12px] font-medium transition-colors ${
+                  viewMode === mode.id ? "bg-zinc-100 text-zinc-900" : "border border-[#1a1a1c] bg-[#0e0e10] text-zinc-400 hover:text-zinc-100"
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as (typeof SORTS)[number]["id"])}
+            className="rounded-lg border border-[#1f1f22] bg-[#0e0e10] px-3 py-2 text-sm text-zinc-200 outline-none"
+          >
+            {SORTS.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+      </Card>
+
       {err && <div className="text-sm text-rose-400">Failed to load: {err}</div>}
+      {loading && <div className="text-xs text-zinc-500">loading…</div>}
 
-      {crypto.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-zinc-500">Crypto · 24/7</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {crypto.map(a => <AssetCard key={a.symbol} a={a} />)}
-          </div>
-        </section>
+      {viewMode === "flat" ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {rankedAssets.map((a, idx) => renderAssetCard(a, idx))}
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {groupedAssets.crypto.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold tracking-tight text-white">Crypto</h2>
+                <span className="text-xs text-zinc-500">{groupedAssets.crypto.length} assets</span>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {groupedAssets.crypto.map((a, idx) => renderAssetCard(a, idx))}
+              </div>
+            </section>
+          )}
+
+          {Array.from(groupedAssets.stockThemes.entries()).map(([theme, rows]) => (
+            rows.length > 0 ? (
+              <section key={theme} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold tracking-tight text-white">{STOCK_THEMES[theme]}</h2>
+                  <span className="text-xs text-zinc-500">{rows.length} assets</span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {rows.map((a, idx) => renderAssetCard(a, idx))}
+                </div>
+              </section>
+            ) : null
+          ))}
+
+          {groupedAssets.crypto.length === 0 && groupedAssets.stockThemes.size === 0 && !loading && !err && (
+            <div className="text-sm text-zinc-500">No assets match the current search/filter.</div>
+          )}
+        </div>
       )}
 
-      {stocks.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-xs uppercase tracking-widest text-zinc-500">US Stocks</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {stocks.map(a => <AssetCard key={a.symbol} a={a} />)}
-          </div>
-        </section>
-      )}
-
-      {!loading && assets.length === 0 && !err && (
-        <div className="text-zinc-500 text-sm">No asset data available.</div>
+      {!loading && rankedAssets.length === 0 && !err && viewMode === "flat" && (
+        <div className="text-sm text-zinc-500">No assets match the current search/filter.</div>
       )}
     </div>
   );

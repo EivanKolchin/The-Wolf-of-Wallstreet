@@ -102,7 +102,52 @@ def candidate_features(high, low, close, volume) -> np.ndarray:
     atr = pd.Series(tr).rolling(96, min_periods=20).mean()
     z = (atr - atr.rolling(1000, min_periods=100).mean()) / (atr.rolling(1000, min_periods=100).std() + 1e-9)
     cols.append(np.nan_to_num(z.to_numpy()))
+    # acceleration: 2nd derivative of EMA-SMOOTHED log price (momentum accelerating vs fading).
+    # Smoothing first is essential — a raw 2nd derivative just amplifies noise. (Jerk/3rd-order is
+    # deliberately NOT included: each extra derivative multiplies high-frequency noise → ~0 signal.)
+    ema = c.ewm(span=20, adjust=False).mean().to_numpy()
+    vel = np.diff(np.log(ema + 1e-12), prepend=np.log(ema[:1] + 1e-12))
+    accel = np.diff(vel, prepend=vel[:1])
+    cols.append(np.nan_to_num(accel))
     return np.column_stack(cols).astype(np.float32)
+
+
+# label order MUST match candidate_features' column order (used by the audit's candidate-IC report)
+CANDIDATE_LABELS = ["mom_48", "mom_288", "mom_864", "mom_2016", "mom_8640",
+                    "trend_288", "trend_1440", "range_288", "range_1440", "vol_regime_z", "accel"]
+
+
+_MACRO_CTX_CACHE: dict = {}
+# Commodity / macro RELATIONAL context (ETF proxies, Alpaca): gold, silver, oil, USD, rates(bonds).
+# Used to RELATE stocks/crypto to macro (oil↔energy, gold/USD↔risk-on/off, rates↔growth) — NOT to
+# predict the commodities themselves. Gated behind AUDIT_MACRO (network) so default runs are offline.
+MACRO_ETFS = ["GLD", "SLV", "USO", "UUP", "TLT"]
+
+
+def macro_context(start_year, start_month, skip_download) -> pd.DataFrame:
+    """Per-bar macro context: each proxy ETF's recent trailing return + trend, merged by time.
+    Fetched via Alpaca (these are ETFs). Causal (backward returns / rolling)."""
+    key = (start_year, start_month)
+    if key in _MACRO_CTX_CACHE:
+        return _MACRO_CTX_CACHE[key]
+    merged = None
+    for etf in MACRO_ETFS:
+        try:
+            df = pre.load_alpaca_history(etf, start_year, start_month, skip_download)["1h"]
+        except Exception as e:
+            print(f"  (macro {etf} skipped: {str(e)[:50]})")
+            continue
+        c = df["close"].to_numpy(np.float64)
+        sub = pd.DataFrame({"timestamp": pd.to_datetime(df["timestamp"].to_numpy())})
+        for w in (24, 120):            # ~1d, ~1w of RTH 1h bars
+            sub[f"{etf}_r{w}"] = np.nan_to_num(np.log(c / np.roll(c, w)), posinf=0.0, neginf=0.0) * (np.arange(len(c)) >= w)
+        sma = pd.Series(c).rolling(120, min_periods=60).mean().to_numpy()
+        sub[f"{etf}_trend"] = np.nan_to_num((c - sma) / (c + 1e-9))
+        merged = sub if merged is None else pd.merge_asof(
+            merged.sort_values("timestamp"), sub.sort_values("timestamp"), on="timestamp", direction="nearest")
+    if merged is not None:
+        _MACRO_CTX_CACHE[key] = merged
+    return merged if merged is not None else pd.DataFrame()
 
 
 _BTC_CTX_CACHE: dict = {}
@@ -190,8 +235,7 @@ def audit_symbol(sym, start_year, start_month, skip_download, horizons, test_fra
     cand_labels: list = []
     if with_candidates:
         cand = candidate_features(high, low, close, volume)[:n]
-        cand_labels = ["mom_48", "mom_288", "mom_864", "mom_2016", "mom_8640",
-                       "trend_288", "trend_1440", "range_288", "range_1440", "vol_regime_z"]
+        cand_labels = list(CANDIDATE_LABELS)
         # Cross-asset: for crypto ALTS, append BTC's recent context (new info, not a momentum
         # restatement). BTC itself / stocks get no BTC context (it'd be self/irrelevant).
         if sym.endswith("USDT") and sym != "BTCUSDT":
@@ -216,6 +260,35 @@ def audit_symbol(sym, start_year, start_month, skip_download, horizons, test_fra
                     print(f"  (+funding features for {sym})")
             except Exception as e:
                 print(f"  (funding skipped for {sym}: {str(e)[:60]})")
+        # On-chain: aggregate stablecoin minting/burning (the crypto dry-powder axis). Gated —
+        # network. SAME measure-first protocol as funding (which failed at |IC| 0.009–0.016):
+        # promote ONLY if the incremental AUC/IC clears the bar, never on narrative.
+        if os.environ.get("AUDIT_ONCHAIN", "0") in ("1", "true", "True") and sym.endswith("USDT"):
+            try:
+                from backend.data.onchain_feed import onchain_candidate, STABLECOIN_FEATURE_LABELS
+                oc = onchain_candidate(df5, n)
+                if oc is not None:
+                    cand = np.column_stack([cand, oc])
+                    cand_labels += list(STABLECOIN_FEATURE_LABELS)
+                    print(f"  (+on-chain stablecoin features for {sym})")
+            except Exception as e:
+                print(f"  (on-chain skipped for {sym}: {str(e)[:60]})")
+        # Commodity / macro relational context (gold/silver/oil/USD/rates ETFs) — gated, network.
+        # Relates the symbol to macro; merged by time onto its bars (ffill across the 24/7 gap for crypto).
+        if os.environ.get("AUDIT_MACRO", "0") in ("1", "true", "True"):
+            try:
+                mctx = macro_context(start_year, start_month, skip_download)
+                if mctx is not None and not mctx.empty:
+                    mcols = [c for c in mctx.columns if c != "timestamp"]
+                    merged = pd.merge_asof(
+                        pd.DataFrame({"timestamp": pd.to_datetime(df5["timestamp"].to_numpy()[:n])}),
+                        mctx.sort_values("timestamp"), on="timestamp", direction="backward")
+                    macro_arr = np.nan_to_num(merged[mcols].to_numpy(np.float32))
+                    cand = np.column_stack([cand, macro_arr])
+                    cand_labels += mcols
+                    print(f"  (+macro context for {sym}: {len(mcols)} cols)")
+            except Exception as e:
+                print(f"  (macro-context skipped for {sym}: {str(e)[:60]})")
         augmented = np.column_stack([combined, cand])
 
     base_F = combined.shape[1]

@@ -13,6 +13,7 @@ from core.config import settings
 # Enums
 class Severity(enum.Enum):
     NEUTRAL = "NEUTRAL"
+    MILD = "MILD"
     SIGNIFICANT = "SIGNIFICANT"
     SEVERE = "SEVERE"
 

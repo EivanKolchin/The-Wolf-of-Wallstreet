@@ -5,52 +5,76 @@ import { useAppState } from "@/lib/context";
 export default function PositionsPage() {
     const { positions } = useAppState();
 
+    const longs = positions.filter(p => p.direction === "long").length;
+    const shorts = positions.length - longs;
+    const netPnl = positions.reduce((s, p) => s + (p.unrealised_pnl || 0), 0);
+
     return (
-        <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-white">Live Positions</h1>
-            
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="mx-auto max-w-[1400px] space-y-6">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight text-white">Live Positions</h1>
+                    <p className="mt-1 text-sm text-zinc-500">Open exposure across every connected venue, marked in real time.</p>
+                </div>
+                <div className="flex items-center gap-6 text-sm">
+                    <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-widest text-zinc-600">Open</div>
+                        <div className="font-mono text-zinc-200">{positions.length} <span className="text-zinc-600">·</span> {longs}L / {shorts}S</div>
+                    </div>
+                    <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-widest text-zinc-600">Unrealised PnL</div>
+                        <div className={`font-mono font-medium ${netPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                            {netPnl >= 0 ? "+" : ""}${netPnl.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-[#171717] bg-[#0A0A0A]">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="uppercase tracking-wider border-b border-zinc-800 bg-zinc-950/50 text-zinc-400">
+                    <table className="w-full whitespace-nowrap text-left text-sm">
+                        <thead className="border-b border-[#171717] bg-black/40 text-[10px] uppercase tracking-widest text-zinc-500">
                             <tr>
-                                <th className="px-6 py-4">Asset</th>
-                                <th className="px-6 py-4">Status</th>
-                                <th className="px-6 py-4">Size (USD)</th>
-                                <th className="px-6 py-4">Entry</th>
-                                <th className="px-6 py-4">Current</th>
-                                <th className="px-6 py-4">PnL</th>
-                                <th className="px-6 py-4 text-right">SL / TP</th>
+                                <th className="px-6 py-4 font-medium">Asset</th>
+                                <th className="px-6 py-4 font-medium">Side</th>
+                                <th className="px-6 py-4 font-medium">Size (USD)</th>
+                                <th className="px-6 py-4 font-medium">Entry</th>
+                                <th className="px-6 py-4 font-medium">Current</th>
+                                <th className="px-6 py-4 font-medium">PnL</th>
+                                <th className="px-6 py-4 text-right font-medium">SL / TP</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-800/50">
+                        <tbody className="divide-y divide-[#141416]">
                             {positions.length > 0 ? (
                                 positions.map((pos, i) => {
                                     const isProfit = (pos.unrealised_pnl || 0) >= 0;
+                                    const isLong = pos.direction === "long";
                                     return (
-                                        <tr key={pos.id || i} className="hover:bg-zinc-800/20 transition-colors">
+                                        <tr key={pos.id || i} className="transition-colors hover:bg-white/[0.015]">
                                             <td className="px-6 py-4 font-medium text-white">{pos.asset}</td>
                                             <td className="px-6 py-4">
-                                                <span className={`px-2 py-1 text-xs font-bold rounded-md ${pos.direction === 'long' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                                                <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${isLong ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                                                     {pos.direction.toUpperCase()}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-zinc-300">${pos.size_usd.toFixed(2)}</td>
-                                            <td className="px-6 py-4 text-zinc-300">${pos.entry_price.toFixed(4)}</td>
-                                            <td className="px-6 py-4 text-zinc-300">${pos.current_price?.toFixed(4) || "..."}</td>
-                                            <td className={`px-6 py-4 font-medium ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
+                                            <td className="px-6 py-4 font-mono text-zinc-300">${pos.size_usd.toFixed(2)}</td>
+                                            <td className="px-6 py-4 font-mono text-zinc-300">${pos.entry_price.toFixed(4)}</td>
+                                            <td className="px-6 py-4 font-mono text-zinc-300">${pos.current_price?.toFixed(4) || "…"}</td>
+                                            <td className={`px-6 py-4 font-mono font-medium ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
                                                 {isProfit ? "+" : ""}${(pos.unrealised_pnl || 0).toFixed(2)}
                                             </td>
-                                            <td className="px-6 py-4 text-right text-zinc-400">
-                                                <span className="text-red-400">${pos.stop_loss.toFixed(4)}</span> / <span className="text-green-400">${pos.take_profit.toFixed(4)}</span>
+                                            <td className="px-6 py-4 text-right font-mono text-zinc-400">
+                                                <span className="text-rose-400/80">${pos.stop_loss.toFixed(4)}</span>
+                                                <span className="text-zinc-600"> / </span>
+                                                <span className="text-emerald-400/80">${pos.take_profit.toFixed(4)}</span>
                                             </td>
                                         </tr>
                                     );
                                 })
                             ) : (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">
-                                        No open positions
+                                    <td colSpan={7} className="px-6 py-16 text-center text-zinc-600">
+                                        No open positions.
                                     </td>
                                 </tr>
                             )}

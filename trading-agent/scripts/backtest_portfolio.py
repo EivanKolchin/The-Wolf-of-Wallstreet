@@ -38,10 +38,31 @@ from backend.strategies.stat_arb import (  # noqa: E402
     StatArbPairs, StatArbParams, find_cointegrated_pairs,
 )
 from backend.strategies.mean_reversion import MeanReversion, MeanReversionParams  # noqa: E402
+from backend.strategies.funding_carry import FundingCarry, FundingCarryParams  # noqa: E402
 
-TF_BARS_PER_YEAR = {"5m": 105_120, "15m": 35_040, "1h": 24 * 365, "4h": 6 * 365}
+TF_BARS_PER_YEAR = {"5m": 105_120, "15m": 35_040, "1h": 24 * 365, "4h": 6 * 365, "1d": 365}
+# pandas offset aliases for resample (minutes = "min", day = "D")
+# funding (8h) periods elapsed per bar — scales the carry accrual to the bar size
+TF_FUNDING_PERIODS = {"5m": 5 / 480, "15m": 15 / 480, "1h": 60 / 480, "4h": 240 / 480, "1d": 3.0}
+
+
+def _attach_funding(data: dict) -> dict:
+    """Attach a per-bar 'funding_rate' column (8h rate forward-filled) from Binance perp
+    funding history — required by the funding-carry strategy. Best-effort (geo-blocked /
+    non-perp symbols just won't get a column → carry stays inert for them)."""
+    from backend.data.derivatives_feed import fetch_funding_history, align_to_bars
+    for sym, df in data.items():
+        try:
+            ts = df["timestamp"].values.astype("datetime64[ms]").astype("int64")
+            fh = fetch_funding_history(sym, start_ms=int(ts[0]), end_ms=int(ts[-1]))
+            if not fh.empty:
+                df["funding_rate"] = align_to_bars(fh["timestamp"].to_numpy(),
+                                                   fh["funding_rate"].to_numpy(), ts)
+        except Exception as e:
+            print(f"  funding fetch skipped for {sym}: {str(e)[:60]}")
+    return data
 # pandas offset aliases (pandas 2.x: minutes are "min", not "m" — "m" is month-end!)
-_PANDAS_RULE = {"15m": "15min", "1h": "1h", "4h": "4h"}
+_PANDAS_RULE = {"15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D"}
 _AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 
@@ -86,7 +107,8 @@ def main():
     ap.add_argument("--no-short", action="store_true")
     # which strategies are in the book + cross-sectional knobs
     ap.add_argument("--strategy", default="ts_momentum",
-                    choices=["ts_momentum", "xs_momentum", "both", "stat_arb", "mean_reversion"])
+                    choices=["ts_momentum", "xs_momentum", "both", "stat_arb",
+                             "mean_reversion", "funding_carry"])
     ap.add_argument("--xs-lookback", type=int, default=168)
     ap.add_argument("--xs-hold", type=int, default=24)
     ap.add_argument("--mr-adx-max", type=float, default=20.0,
@@ -137,6 +159,10 @@ def main():
     if args.strategy == "mean_reversion":
         strategies["mean_reversion"] = MeanReversion(MeanReversionParams(
             entry_z=args.mr_entry_z, adx_max=args.mr_adx_max, allow_short=not args.no_short))
+    if args.strategy == "funding_carry":
+        data = _attach_funding(data)
+        ppb = TF_FUNDING_PERIODS.get(args.timeframe, 1.0)
+        strategies["funding_carry"] = FundingCarry(FundingCarryParams(periods_per_bar=ppb))
     market = "BTCUSDT" if "BTCUSDT" in data else None
 
     res = portfolio_backtest(strategies, data, fee_bps=args.fee_bps, slippage_bps=args.slippage_bps,

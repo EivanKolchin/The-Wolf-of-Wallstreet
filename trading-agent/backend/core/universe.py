@@ -2,7 +2,12 @@
 
 Signals are ALWAYS computed on the liquid US underlying. Orders route to the LSE
 leveraged ETP when it exists and LSE is open, else to the US underlying via Alpaca.
-AXTI/BE have no ETP and always trade as the plain stock.
+Names without an ETP entry trade as the plain stock via Alpaca.
+
+NOTE: AXTI was retired from the *tradable* set (kept in the model vocabulary for
+training — see agents/improved_model.py SYMBOLS). The tradable set favours liquid,
+high-beta names, several of which have single-stock leveraged ETPs available
+(referenced in ETP_MAP comments) even though we route the underlying by default.
 """
 from __future__ import annotations
 
@@ -21,12 +26,20 @@ CRYPTO_SYMBOLS = [
 
 # US underlyings the agent trades (signal computation happens here)
 # Cycle 6 — NVDA/TSM/SMCI: AI-chip sector, liquid, and correlated with AMD/MU.
-STOCK_UNDERLYINGS = ["SNDK", "AMD", "MU", "AXTI", "BE", "NVDA", "TSM", "SMCI"]
+# Cycle 24 — AXTI dropped from tradable (still trained). Added high-beta, high-vol
+# names across non-semiconductor sectors, each with a liquid single-stock leveraged
+# ETP: TSLA (EV/auto, TSLL/TSLS), MSTR (BTC-proxy, MSTU/MSTZ), COIN (crypto-fin,
+# CONL), PLTR (AI-software, PTIR) — better diversification than the semis cluster.
+STOCK_UNDERLYINGS = [
+    "SNDK", "AMD", "MU", "BE", "NVDA", "TSM", "SMCI",
+    "TSLA", "MSTR", "COIN", "PLTR",
+]
 
 # native US listing venue (for the chart + extended-hours routing)
 US_EXCHANGE = {
-    "SNDK": "NASDAQ", "AMD": "NASDAQ", "MU": "NASDAQ", "AXTI": "NASDAQ", "BE": "NYSE",
+    "SNDK": "NASDAQ", "AMD": "NASDAQ", "MU": "NASDAQ", "BE": "NYSE",
     "NVDA": "NASDAQ", "TSM": "NYSE", "SMCI": "NASDAQ",
+    "TSLA": "NASDAQ", "MSTR": "NASDAQ", "COIN": "NASDAQ", "PLTR": "NASDAQ",
 }
 
 # underlying -> LSE leveraged UCITS ETP routing.
@@ -37,12 +50,17 @@ ETP_MAP = {
     "SNDK": {"etp_available": True,  "long_etp": "", "short_etp": "", "venue": "lse"},
     "AMD":  {"etp_available": True,  "long_etp": "3LAM", "short_etp": "3SAM", "venue": "lse"},
     "MU":   {"etp_available": True,  "long_etp": "", "short_etp": "", "venue": "lse"},
-    "AXTI": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
     "BE":   {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nyse"},
     # Cycle 6 — trade the underlying directly (Alpaca); ETP routing off by default.
     "NVDA": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
     "TSM":  {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nyse"},
     "SMCI": {"etp_available": False, "long_etp": "", "short_etp": "", "venue": "nasdaq"},
+    # Cycle 24 — high-beta diversifiers. Single-stock leveraged ETPs exist (noted
+    # for reference) but we route the underlying via Alpaca (etp_available=False).
+    "TSLA": {"etp_available": False, "long_etp": "TSLL", "short_etp": "TSLS", "venue": "nasdaq"},
+    "MSTR": {"etp_available": False, "long_etp": "MSTU", "short_etp": "MSTZ", "venue": "nasdaq"},
+    "COIN": {"etp_available": False, "long_etp": "CONL", "short_etp": "",     "venue": "nasdaq"},
+    "PLTR": {"etp_available": False, "long_etp": "PTIR", "short_etp": "",     "venue": "nasdaq"},
 }
 
 

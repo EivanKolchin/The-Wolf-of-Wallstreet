@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     ALPACA_SECRET: str = ""
     ALPACA_SECRET_KEY: str = ""
 
+    # Binance USD-M futures (the crypto-perp / short-capable venue for the TS-momentum sleeve)
+    BINANCE_FUTURES_API_KEY: str = ""
+    BINANCE_FUTURES_SECRET: str = ""
+    BINANCE_FUTURES_TESTNET: bool = True    # route to the futures TESTNET until explicitly disabled
+    BINANCE_FUTURES_LEVERAGE: int = 2       # max leverage set per symbol (conservative)
+
+    # ── MASTER LIVE-TRADING SWITCH ──
+    # PAPER_TRADING=true (default) → all routing is simulated, no real orders, ever.
+    # Going live needs BOTH PAPER_TRADING=false AND valid broker credentials present (the
+    # credentials are the real gate; the flag alone can never move money). Per-venue, a venue only
+    # goes live if ITS keys are valid — so you can run Alpaca live while Binance stays paper, etc.
+    PAPER_TRADING: bool = True
+
     # Stock brokers besides Alpaca + optional extra (free) stock-data providers
     IBKR_HOST: str = "127.0.0.1"        # IB Gateway / TWS host (LSE leveraged-ETP execution)
     IBKR_PORT: str = "4002"             # 4002 paper gateway / 7497 paper TWS (string-tolerant for blank .env)
@@ -164,6 +177,48 @@ class Settings(BaseSettings):
     NN_MC_SAMPLES: int = 16                # MC-dropout passes for edge uncertainty
     NN_USE_IPEX: bool = True               # apply Intel Extension for PyTorch (CPU inference speedup) when installed
 
+    # NN policy-net trader master switch. Default True (a trained setup runs it). Set FALSE to
+    # run the rule-based StrategyAgent book WITHOUT the NN trader — the right state until a full
+    # training run exists (a random-init checkpoint would otherwise load and trade noise).
+    NN_AGENT_ENABLED: bool = True
+
+    # StrategyAgent — the validated managed-beta book (daily trend + vol-target + macro de-risk),
+    # run as a SHADOW/PAPER book alongside the NN agent. Off by default and PAPER-only: it never
+    # routes real orders (live routing is intentionally not auto-wired — see strategy_agent.py).
+    STRATEGY_AGENT_ENABLED: bool = False
+    STRATEGY_AGENT_SYMBOLS: str = "SPY QQQ TQQQ TLT GLD BTC-USD ETH-USD"  # yfinance daily tickers
+    STRATEGY_AGENT_REBALANCE_SECONDS: float = 86400.0   # daily rebalance
+    STRATEGY_AGENT_TARGET_VOL: float = 0.15
+    STRATEGY_AGENT_TREND_EMA: int = 200
+    STRATEGY_AGENT_EQUITY: float = 100000.0             # paper book starting equity
+    # Two-sleeve book: add the validated 4h TS-momentum crypto sleeve (Binance perps). Empty = managed-only.
+    STRATEGY_AGENT_TS_SYMBOLS: str = ""                 # e.g. "BTCUSDT ETHUSDT SOLUSDT XRPUSDT ADAUSDT"
+    STRATEGY_AGENT_W_MANAGED: float = 0.5               # capital fraction to the managed-beta sleeve
+    STRATEGY_AGENT_W_TS: float = 0.5                    # capital fraction to the TS-momentum sleeve
+    STRATEGY_AGENT_NEWS_OVERLAY: bool = True            # apply the directional news→risk overlay
+    STRATEGY_AGENT_NEWS_LLM_VERIFY: bool = False        # also run the LLM RiskAgent cross-check
+    STRATEGY_AGENT_MAX_ORDER_USD: float = 5000.0        # per-order notional cap on the live router
+    # Execution style for perp orders (Binance futures): "passive" = post-only limit at the
+    # near touch with a market sweep after the timeout (earns the spread; the default because
+    # leverage multiplies turnover), "market" = immediate taker.
+    EXECUTION_PERP_STYLE: str = "passive"
+    EXECUTION_LIMIT_TIMEOUT_S: float = 30.0
+    # TWAP child-order slicing: orders above the threshold are chopped into children spread
+    # over the window (runs in the background; each child uses the configured perp style).
+    EXECUTION_SLICE_THRESHOLD_USD: float = 2000.0
+    EXECUTION_SLICE_CHILDREN: int = 6
+    EXECUTION_SLICE_WINDOW_S: float = 900.0
+    # DMN/QuantileTCN overlay gate on the TS sleeve (OOS: +0.37 Sharpe timing skill vs the
+    # constant-scaling control). Off by default; needs the trained seed checkpoints in models/.
+    STRATEGY_AGENT_OVERLAY: bool = False
+    OVERLAY_CKPT_GLOB: str = "models/quantile_tcn_overlay_sharpe_seed*.pt"
+    OVERLAY_IR_CAP: float = 1.0
+    OVERLAY_FLOOR: float = 0.25
+    # L1 quote logger (Binance futures bookTicker websocket → gz JSONL, the training corpus a
+    # future RL execution agent needs — capture must start long before the model is justified).
+    TICK_LOGGER_ENABLED: bool = False
+    TICK_LOGGER_DIR: str = "training_data/ticks"
+
     # Risk limits (editable via Advanced Options in the UI; applied on restart)
     RISK_MAX_DRAWDOWN_PCT: float = 15.0
     RISK_MAX_DAILY_LOSS_PCT: float = 5.0
@@ -193,6 +248,25 @@ class Settings(BaseSettings):
     # the swap aborts rather than burn ETH during congestion.
     DEFI_MAX_GAS_UNITS: int = 500_000          # hard cap on the gas-units field
     DEFI_MAX_GAS_PRICE_GWEI: float = 5.0       # gas_price above this -> abort the swap
+
+    # ── live-trading gates (credentials are the real gate; the flag alone can't move money) ──
+    @staticmethod
+    def _key_ok(k: str, min_len: int = 15) -> bool:
+        k = (k or "").strip()
+        return bool(k) and len(k) >= min_len and "your_" not in k.lower()
+
+    def alpaca_live_enabled(self) -> bool:
+        """True only when paper is OFF and real Alpaca credentials are present."""
+        return (not self.PAPER_TRADING) and self._key_ok(self.ALPACA_API_KEY) \
+            and self._key_ok(self.ALPACA_SECRET_KEY or self.ALPACA_SECRET)
+
+    def binance_futures_live_enabled(self) -> bool:
+        """True only when paper is OFF, NOT on testnet, and real Binance-futures credentials exist."""
+        return (not self.PAPER_TRADING) and (not self.BINANCE_FUTURES_TESTNET) \
+            and self._key_ok(self.BINANCE_FUTURES_API_KEY) and self._key_ok(self.BINANCE_FUTURES_SECRET)
+
+    def any_live_enabled(self) -> bool:
+        return self.alpaca_live_enabled() or self.binance_futures_live_enabled()
 
     def needs_setup(self) -> bool:
         def is_valid_key(k: str, prefix: str = None, min_len: int = 15) -> bool:

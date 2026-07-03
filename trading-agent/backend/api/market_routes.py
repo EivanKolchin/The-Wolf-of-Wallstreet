@@ -81,23 +81,59 @@ _ALPACA_LOOKBACK_DAYS = {
 }
 
 
-def _alpaca_start_iso(tf: str, end_ms: int | None) -> tuple[str, str | None]:
-    """Compute (start_iso, end_iso) for an Alpaca bars request.
+def _alpaca_window_iso(
+    tf: str,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+    limit: int = 1000,
+) -> tuple[str, str, str]:
+    """Compute (start_iso, end_iso, sort) for an Alpaca bars request.
 
-    Alpaca's free IEX feed has a ~15-min delay; setting `end = now - 16min`
-    avoids "empty most-recent" surprises. Caller may override `end_ms` to fetch
-    older history (used by the chart's load-more scroll).
+    For the normal chart load we ask Alpaca for the newest bars first, then
+    reverse them before returning. The previous ascending query started years or
+    months back and hit ``limit`` before reaching today's candles, which made
+    stock charts appear frozen while crypto stayed live.
     """
     import datetime as _dt
     lookback = _ALPACA_LOOKBACK_DAYS.get(tf, 30)
-    if end_ms:
+    # Tighten the default window so ``limit`` bars always land near the present.
+    tf_minutes = {
+        "1Min": 1, "5Min": 5, "15Min": 15, "30Min": 30,
+        "1Hour": 60, "2Hour": 120, "4Hour": 240,
+        "1Day": 390, "1Week": 1950, "1Month": 7800,
+    }.get(tf, 15)
+    # US regular session ≈ 6.5h/day; pad 2× for holidays/gaps.
+    bars_needed = max(1, int(limit))
+    session_days = max(3, int((bars_needed * tf_minutes) / (6.5 * 60)) + 5)
+    lookback = min(lookback, session_days)
+
+    if start_ms and not end_ms:
+        # Date-picker navigation: fetch a bounded window around the chosen date
+        # using descending sort so we always get the newest bars in range.
+        anchor = _dt.datetime.utcfromtimestamp(start_ms / 1000.0)
+        end_dt = anchor + _dt.timedelta(days=lookback)
+        now_cap = _dt.datetime.utcnow() - _dt.timedelta(minutes=16)
+        if end_dt > now_cap:
+            end_dt = now_cap
+        start_dt = max(anchor - _dt.timedelta(days=1), end_dt - _dt.timedelta(days=lookback))
+        sort = "desc"
+    elif start_ms and end_ms:
+        start_dt = _dt.datetime.utcfromtimestamp(start_ms / 1000.0)
         end_dt = _dt.datetime.utcfromtimestamp(end_ms / 1000.0)
+        sort = "desc"
+    elif end_ms:
+        end_dt = _dt.datetime.utcfromtimestamp(end_ms / 1000.0)
+        start_dt = end_dt - _dt.timedelta(days=lookback)
+        sort = "desc"
     else:
         end_dt = _dt.datetime.utcnow() - _dt.timedelta(minutes=16)
-    start_dt = end_dt - _dt.timedelta(days=lookback)
-    end_iso = end_dt.replace(microsecond=0).isoformat() + "Z" if end_ms else None
+        start_dt = end_dt - _dt.timedelta(days=lookback)
+        sort = "desc"
+    if start_dt > end_dt:
+        start_dt = end_dt - _dt.timedelta(days=lookback)
     start_iso = start_dt.replace(microsecond=0).isoformat() + "Z"
-    return start_iso, end_iso
+    end_iso = end_dt.replace(microsecond=0).isoformat() + "Z"
+    return start_iso, end_iso, sort
 
 
 def _finnhub_available() -> bool:
@@ -145,7 +181,8 @@ async def _finnhub_bars_to_klines(symbol: str, interval: str, limit: int,
                 closes = data.get("c", []) or []
                 vols = data.get("v", []) or []
                 out = []
-                for i in range(min(len(ts), int(limit))):
+                start_i = max(0, len(ts) - int(limit))
+                for i in range(start_i, len(ts)):
                     ms = int(ts[i]) * 1000
                     out.append([
                         ms, str(opens[i]), str(highs[i]), str(lows[i]), str(closes[i]),
@@ -159,6 +196,7 @@ async def _finnhub_bars_to_klines(symbol: str, interval: str, limit: int,
 
 
 async def _alpaca_bars_to_klines(symbol: str, interval: str, limit: int,
+                                  start_ms: int | None = None,
                                   end_ms: int | None = None) -> list | dict:
     """Fetch bars from Alpaca and shape them like Binance klines so the
     frontend renderer doesn't have to branch.
@@ -167,18 +205,17 @@ async def _alpaca_bars_to_klines(symbol: str, interval: str, limit: int,
     frontend can surface the cause; on success returns a plain list.
     """
     tf = _ALPACA_TF_MAP.get(interval, "5Min")
-    start_iso, end_iso = _alpaca_start_iso(tf, end_ms)
+    start_iso, end_iso, sort = _alpaca_window_iso(tf, start_ms=start_ms, end_ms=end_ms, limit=limit)
     url = f"{ALPACA_DATA}/stocks/{symbol.upper()}/bars"
     params = {
         "timeframe": tf,
         "limit": str(min(int(limit), 10000)),
         "adjustment": "raw",
         "feed": "iex",
-        "sort": "asc",
+        "sort": sort,
         "start": start_iso,
+        "end": end_iso,
     }
-    if end_iso:
-        params["end"] = end_iso
 
     t0 = time.monotonic()
     try:
@@ -198,6 +235,8 @@ async def _alpaca_bars_to_klines(symbol: str, interval: str, limit: int,
                 bars = (data or {}).get("bars") or []
                 out = []
                 import datetime as _dt
+                if sort == "desc":
+                    bars = list(reversed(bars))
                 for b in bars:
                     # b: {"t":"2025-01-01T13:30:00Z","o":..,"h":..,"l":..,"c":..,"v":..}
                     try:
@@ -252,7 +291,7 @@ async def get_market_klines(symbol: str, interval: str, limit: int = 100,
     if _is_us_stock(symbol):
         if not _alpaca_available():
             return {"error": "alpaca_credentials_missing", "bars": []}
-        return await _alpaca_bars_to_klines(symbol, interval, limit, end_ms=endTime)
+        return await _alpaca_bars_to_klines(symbol, interval, limit, start_ms=startTime, end_ms=endTime)
     return _binance_klines(symbol, interval, limit, start_ms=startTime, end_ms=endTime)
 
 
@@ -409,13 +448,10 @@ async def get_assets_overview(interval: str = "15m", limit: int = 96):
     """Cross-asset snapshot powering the All Assets page: per-symbol last price,
     volume, volatility, price change, market session, any open position, and
     (for stocks in extended hours) a best-effort pre/after-hours quote."""
-    symbols: list[str] = []
-    try:
-        from backend.agents.improved_model import SYMBOLS as MODEL_SYMBOLS
-        stocks = set(_universe.STOCK_UNDERLYINGS)
-        symbols = [s for s in MODEL_SYMBOLS if s not in stocks] + list(_universe.STOCK_UNDERLYINGS)
-    except Exception:
-        symbols = list(_universe.CRYPTO_SYMBOLS) + list(_universe.STOCK_UNDERLYINGS)
+    # Use the live tradable universe as the source of truth. The model vocabulary
+    # may contain historical training symbols (e.g. AXTI) that are intentionally
+    # retired from trading and should not appear in frontend rankings.
+    symbols = list(_universe.CRYPTO_SYMBOLS) + list(_universe.STOCK_UNDERLYINGS)
 
     rows = await asyncio.gather(
         *[_overview_for_symbol(s, interval, limit) for s in symbols],
