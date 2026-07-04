@@ -759,7 +759,11 @@ export default function TradingChart({
                                    : data.detail?.message || JSON.stringify(data.detail || {});
                     setDataError(`${data.error}${data.status ? ` (${data.status})` : ""}${detail ? `: ${detail}` : ""}`);
                 } else if (rows.length === 0) {
-                    setDataError("No data returned. If this is a stock, market may be closed and the IEX free feed has a 15-min delay.");
+                    // Symbol-aware: the stock/IEX explanation on a BTCUSDT chart was misleading.
+                    const knownStocks = universe.stocks.length ? universe.stocks : STOCK_UNDERLYINGS;
+                    setDataError(knownStocks.includes(symbol.toUpperCase())
+                        ? "No data returned — the market may be closed and the IEX free feed has a 15-min delay."
+                        : `No candles returned for ${symbol} — the Binance data mirror may be briefly unavailable. Live ticks continue via WebSocket; history retries on the next refresh.`);
                 } else {
                     setDataError(null);
                 }

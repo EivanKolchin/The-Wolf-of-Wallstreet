@@ -124,6 +124,23 @@ class EntityGraph:
                     out.append((e.src, float(w)))
         return out
 
+    def view(self) -> dict:
+        """Dashboard payload: every node + edge with its PRIOR and current LIVE weight, so the
+        UI can draw living edges thick and dead narratives as dashed ghosts."""
+        nodes: Dict[str, dict] = {}
+        edges = []
+        for e in self.edges:
+            for name, is_src in ((e.src, True), (e.dst, False)):
+                key = name.upper()
+                if key not in nodes:
+                    kind = "crypto" if (key.endswith("USDT") or key in
+                                        ("BTC", "ETH", "SOL", "XRP", "ADA", "DOGE")) else "equity"
+                    nodes[key] = {"id": key, "kind": kind}
+            edges.append({"src": e.src.upper(), "dst": e.dst.upper(), "kind": e.kind,
+                          "prior": round(e.prior, 3),
+                          "weight": round(float(self._weights.get((e.src, e.dst), 0.0)), 3)})
+        return {"nodes": list(nodes.values()), "edges": edges}
+
     @staticmethod
     def derive(impact, src: str, dst: str, weight: float):
         """Clone a source-asset NewsImpact into a WEIGHTED impact for ``dst``. Duck-typed:

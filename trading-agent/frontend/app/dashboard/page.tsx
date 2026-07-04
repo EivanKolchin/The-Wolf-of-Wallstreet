@@ -7,6 +7,7 @@ import { useNewsData } from "@/lib/hooks/useNewsData";
 import { useAppState } from "@/lib/context";
 import { VirtualWalletCard } from "@/components/VirtualWalletCard";
 import { StrategyBookCard } from "@/components/StrategyBookCard";
+import { EntityGraphCard } from "@/components/EntityGraphCard";
 import { AgentStatusBanner } from "@/components/AgentStatusBanner";
 import { NewsScannerWidget } from "@/components/NewsScannerWidget";
 import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
@@ -331,8 +332,9 @@ export default function Dashboard() {
       </div>
 
       {/* ── Strategy book (managed-beta + TS-momentum): allocations + net-worth curve ── */}
-      <div className="grid gap-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
         <StrategyBookCard />
+        <EntityGraphCard />
       </div>
 
       {/* ── Chart row ── */}

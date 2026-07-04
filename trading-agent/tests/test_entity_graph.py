@@ -68,6 +68,22 @@ def test_derive_scales_magnitude_and_confidence():
     assert "BTC->MSTR" in d.via_edge
 
 
+def test_view_exposes_nodes_and_live_vs_dead_edges():
+    a, b = _corr_pair(rho=0.9, seed=5)
+    g = EntityGraph(edges=[Edge("BTC", "MSTR", "proxy", 0.9),
+                           Edge("NVDA", "TSM", "supply_chain", 0.6)])
+    g.refresh({"BTCUSDT": _bars(a), "MSTR": _bars(b)})       # NVDA/TSM have no data → dead
+    v = g.view()
+    ids = {n["id"] for n in v["nodes"]}
+    assert {"BTC", "MSTR", "NVDA", "TSM"} <= ids
+    by_key = {(e["src"], e["dst"]): e for e in v["edges"]}
+    assert by_key[("BTC", "MSTR")]["weight"] > 0             # live, corr-validated
+    assert by_key[("NVDA", "TSM")]["weight"] == 0.0          # dead (no data)
+    assert by_key[("NVDA", "TSM")]["prior"] == 0.6           # prior still visible
+    kinds = {n["id"]: n["kind"] for n in v["nodes"]}
+    assert kinds["BTC"] == "crypto" and kinds["TSM"] == "equity"
+
+
 def test_agent_propagates_source_news_to_proxy():
     """A BTC impact reaches MSTR through the agent's news path, weighted by the live edge."""
     from backend.agents.strategy_agent import StrategyAgent

@@ -218,6 +218,13 @@ class Settings(BaseSettings):
     # future RL execution agent needs — capture must start long before the model is justified).
     TICK_LOGGER_ENABLED: bool = False
     TICK_LOGGER_DIR: str = "training_data/ticks"
+    # Trade journal: append-only JSONL of every rebalance/order/mark/outcome — the reviewable
+    # record for periodic deep post-mortems (scripts/postmortem.py aggregates + writes lessons).
+    TRADE_JOURNAL_ENABLED: bool = True
+    # Cross-sectional anomaly scanner (2 REST calls / 15min over the whole perp universe):
+    # wide-spread/illiquid flags de-gear perp weights (tighten-only, floor 0.5); move/volume
+    # flags are attention/observability only. Fails open to no scaling.
+    ANOMALY_SCANNER_ENABLED: bool = True
 
     # Risk limits (editable via Advanced Options in the UI; applied on restart)
     RISK_MAX_DRAWDOWN_PCT: float = 15.0

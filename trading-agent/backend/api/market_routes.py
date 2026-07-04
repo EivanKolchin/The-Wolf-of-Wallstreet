@@ -29,6 +29,30 @@ ALPACA_DATA = "https://data.alpaca.markets/v2"
 ALPACA_WS = "wss://stream.data.alpaca.markets/v2/iex"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
+# Binance market data: api.binance.com returns HTTP 451 (geo-block) from US IPs — the
+# same lesson learned in pretrain.py / the NN agent, which this proxy had never picked
+# up (result: empty klines → blank charts, a misleading "stock market closed?" banner,
+# and every symbol switch appearing dead). data-api.binance.vision is Binance's official
+# public market-data mirror serving the same /api/v3 endpoints, reachable everywhere.
+# We try the mirror first, then fall back to the main host.
+BINANCE_HOSTS = ("https://data-api.binance.vision", "https://api.binance.com")
+
+
+def _binance_get(path: str, params: dict, timeout: int = 8):
+    """GET a public Binance /api/v3 endpoint via the mirror with main-host fallback.
+    Returns parsed JSON; raises the LAST error if every host fails."""
+    qs = urllib.parse.urlencode(params)
+    last_err: Exception | None = None
+    for host in BINANCE_HOSTS:
+        try:
+            req = urllib.request.Request(f"{host}{path}?{qs}",
+                                         headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode())
+        except Exception as e:
+            last_err = e
+    raise last_err if last_err else RuntimeError("binance hosts exhausted")
+
 # Cycle 21: Finnhub fallback for the historical stock bars endpoint. Fires
 # ONLY when the Alpaca request failed at the transport level (connection,
 # DNS, HTTP 5xx). Never on 401 — that's a credential problem and a fallback
@@ -269,20 +293,19 @@ async def _alpaca_bars_to_klines(symbol: str, interval: str, limit: int,
 
 
 def _binance_klines(symbol: str, interval: str, limit: int,
-                     start_ms: int | None = None, end_ms: int | None = None) -> list:
+                     start_ms: int | None = None, end_ms: int | None = None):
+    q = {"symbol": symbol.upper(), "interval": interval, "limit": int(limit)}
+    if start_ms is not None:
+        q["startTime"] = int(start_ms)
+    if end_ms is not None:
+        q["endTime"] = int(end_ms)
     try:
-        q = {"symbol": symbol.upper(), "interval": interval, "limit": int(limit)}
-        if start_ms is not None:
-            q["startTime"] = int(start_ms)
-        if end_ms is not None:
-            q["endTime"] = int(end_ms)
-        qs = urllib.parse.urlencode(q)
-        url = f"https://api.binance.com/api/v3/klines?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            return json.loads(response.read().decode())
-    except Exception:
-        return []
+        return _binance_get("/api/v3/klines", q)
+    except Exception as e:
+        # Surface a SPECIFIC error instead of silently returning [] — the frontend used
+        # to interpret the empty list as "stock market closed?" even for BTCUSDT.
+        logger.warning("binance_klines_failed", symbol=symbol, error=str(e)[:120])
+        return {"error": "binance_request_failed", "detail": str(e)[:200], "bars": []}
 
 
 @router.get("/api/market/klines")
@@ -314,14 +337,10 @@ async def get_market_quote(symbol: str):
             ledger.log_api_call("alpaca", "GET", url, ok=False,
                                 latency_ms=(time.monotonic() - t0) * 1000, note=str(e)[:120])
             return {"price": None, "error": str(e)[:120]}
-    # Crypto: ask Binance for the latest trade
+    # Crypto: ask Binance (mirror-first) for the latest price
     try:
-        qs = urllib.parse.urlencode({"symbol": symbol.upper()})
-        url = f"https://api.binance.com/api/v3/ticker/price?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            return {"price": float(data.get("price", 0.0))}
+        data = _binance_get("/api/v3/ticker/price", {"symbol": symbol.upper()}, timeout=5)
+        return {"price": float(data.get("price", 0.0))}
     except Exception as e:
         return {"price": None, "error": str(e)[:120]}
 
@@ -334,9 +353,11 @@ async def get_market_universe():
     stocks = list(_universe.STOCK_UNDERLYINGS)
     try:
         from backend.agents.improved_model import SYMBOLS as MODEL_SYMBOLS
-        # MODEL_SYMBOLS holds crypto (ids 0..7) AND the 5 US stocks (ids 8..12);
-        # the stocks must NOT leak into the "crypto" bucket, so filter them out.
-        cryptos = [s for s in MODEL_SYMBOLS if s not in stocks]
+        # MODEL_SYMBOLS mixes crypto pairs and US stocks. Classify by the USDT suffix
+        # (self-maintaining) rather than "not in stocks" — the old filter leaked AXTI
+        # (training-vocab only, retired from the tradable stock set) into the crypto
+        # dropdown, where its chart would query Binance and fail.
+        cryptos = [s for s in MODEL_SYMBOLS if s.upper().endswith("USDT")]
     except Exception:
         cryptos = list(_universe.CRYPTO_SYMBOLS)
     return {
@@ -352,11 +373,7 @@ async def get_market_depth(symbol: str, limit: int = 50):
     if _is_us_stock(symbol):
         return {"bids": [], "asks": []}
     try:
-        qs = urllib.parse.urlencode({"symbol": symbol.upper(), "limit": int(limit)})
-        url = f"https://api.binance.com/api/v3/depth?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            return json.loads(response.read().decode())
+        return _binance_get("/api/v3/depth", {"symbol": symbol.upper(), "limit": int(limit)})
     except Exception:
         return {"bids": [], "asks": []}
 
@@ -366,11 +383,7 @@ async def get_market_trades(symbol: str, limit: int = 50):
     if _is_us_stock(symbol):
         return []   # stocks: not needed for the chart's recent-trades widget
     try:
-        qs = urllib.parse.urlencode({"symbol": symbol.upper(), "limit": int(limit)})
-        url = f"https://api.binance.com/api/v3/trades?{qs}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            return json.loads(response.read().decode())
+        return _binance_get("/api/v3/trades", {"symbol": symbol.upper(), "limit": int(limit)})
     except Exception:
         return []
 

@@ -268,6 +268,52 @@ def train_one_seed_sharpe(datasets: Dict[str, dict], seed: int, *, epochs: int, 
     return model, best_score
 
 
+class GBMArm:
+    """Tabular QuantileGBM arm for the overlay ensemble: predicts {p10,p50,p90} of the H+48
+    vol-normalized forward return from the LAST bar's 58 features (GBM sees snapshots, not
+    sequences — the scale-invariant robustness anchor). Duck-typed into ensemble_edge_unc via
+    ``predict_edge_unc_rows``."""
+
+    def __init__(self, gbm):
+        self.gbm = gbm
+
+    def predict_edge_unc_rows(self, rows: np.ndarray):
+        edge, unc = self.gbm.edge_and_uncertainty(rows)
+        return edge, np.maximum(unc, 1e-9)
+
+    def save(self, path: Path):
+        self.gbm.save(str(path))
+
+    @classmethod
+    def load(cls, path: Path):
+        from backend.models.gbm import QuantileGBM
+        return cls(QuantileGBM.load(str(path)))
+
+
+GBM_PATH = MODELS_DIR / f"{CKPT_STEM}_gbm.json"
+
+
+def train_gbm_arm(datasets: Dict[str, dict], *, stride: int, horizon_idx: int = 1,
+                  log=print) -> GBMArm:
+    """Pooled tabular fit on every symbol's TRAIN split (same chronological split as the TCN),
+    target = the H+HORIZONS[horizon_idx] vol-normalized forward return at each window end."""
+    from backend.models.gbm import QuantileGBM
+    Xs, ys = [], []
+    embargo = max(HORIZONS) // max(1, stride) + 1
+    for s, d in datasets.items():
+        ends = window_ends(len(d["X"]), d["y"], stride)
+        tr, _, _ = split_ends(ends, embargo)
+        Xs.append(d["X"][tr - 1])                       # last row of each train window
+        ys.append(d["y"][tr - 1, horizon_idx])
+    X = np.concatenate(Xs, axis=0)
+    y = np.concatenate(ys, axis=0)
+    log(f"  GBM arm: fitting on {len(X):,} pooled train rows × {X.shape[1]} features")
+    arm = GBMArm(QuantileGBM(quantiles=QUANTILES).fit(X, y))
+    arm.save(GBM_PATH)
+    log(f"  GBM arm saved: {GBM_PATH}")
+    return arm
+
+
 def save_seed(model: QuantileTCN, seed: int, score: float, symbols: List[str],
               objective: str = "pinball") -> Path:
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -310,7 +356,10 @@ def ensemble_edge_unc(models: List[QuantileTCN], F: np.ndarray, ends: np.ndarray
             sb = torch.full((len(sel),), sid, dtype=torch.long, device=device)
             es, us = [], []
             for m in models:
-                if isinstance(m, DMNPositionNet):
+                if hasattr(m, "predict_edge_unc_rows"):                     # tabular GBM arm
+                    e_g, u_g = m.predict_edge_unc_rows(F[sel - 1])
+                    es.append(np.asarray(e_g)); us.append(np.asarray(u_g))
+                elif isinstance(m, DMNPositionNet):
                     es.append(m.forward_position(xb, sb).cpu().numpy())
                     us.append(np.ones(len(sel)))
                 else:
@@ -440,6 +489,9 @@ def main():
                          "(Lim/Zohren/Roberts 2019) with a turnover cost term")
     ap.add_argument("--block", type=int, default=64,
                     help="contiguous block length for the sharpe objective's turnover term")
+    ap.add_argument("--with-gbm", action="store_true",
+                    help="also train the tabular QuantileGBM co-model on last-row features and "
+                         "include it in the A/B ensemble (the scale-invariant robustness anchor)")
     args = ap.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -472,9 +524,16 @@ def main():
             print(f"  saved {p}  (best val score {score:+.3f})")
 
     models = load_seeds(device, objective=args.objective)
+    if args.with_gbm:
+        if not args.ab_only:
+            print("training GBM arm ...")
+            train_gbm_arm(datasets, stride=args.stride)
+        if GBM_PATH.exists():
+            models.append(GBMArm.load(GBM_PATH))
+            print("GBM arm added to the ensemble")
     if not models:
         raise SystemExit("no saved checkpoints to A/B")
-    print(f"\nA/B with {len(models)}-seed ensemble ...")
+    print(f"\nA/B with {len(models)}-member ensemble ...")
     run_ab(datasets, models, device)
 
 

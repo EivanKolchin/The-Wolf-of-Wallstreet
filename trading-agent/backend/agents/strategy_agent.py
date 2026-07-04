@@ -112,17 +112,25 @@ class PaperBook:
         """Apply each held position's price return SINCE the last mark to equity, then record a
         net-worth history point. Returns the marked gross return. Positions are weight fractions
         of equity, so the book return = Σ wᵢ·(pᵢ/pᵢ_prev − 1). Symbols without a prior price
-        (just added) contribute 0 this step and seed their price for the next."""
+        (just added) contribute 0 this step and seed their price for the next.
+
+        Side effects for the journal/post-mortem loop: ``last_contributions`` holds each held
+        symbol's return contribution this mark; ``current_drawdown`` tracks the peak-to-now DD."""
         gross_ret = 0.0
+        self.last_contributions = {}
         for sym, w in self.positions.items():
             p_now = prices.get(sym)
             p_prev = self.last_prices.get(sym)
             if p_now and p_prev and p_prev > 0 and abs(w) > 1e-9:
-                gross_ret += float(w) * (float(p_now) / float(p_prev) - 1.0)
+                c = float(w) * (float(p_now) / float(p_prev) - 1.0)
+                gross_ret += c
+                self.last_contributions[sym] = c
         self.equity *= (1.0 + gross_ret)
         for sym, p in prices.items():
             if p and float(p) > 0:
                 self.last_prices[sym] = float(p)
+        self.peak_equity = max(getattr(self, "peak_equity", self.equity), self.equity)
+        self.current_drawdown = (self.equity / self.peak_equity - 1.0) if self.peak_equity else 0.0
         self.net_worth_history.append({"ts": float(now_ts), "value": round(self.equity, 2)})
         if len(self.net_worth_history) > self.max_history:
             self.net_worth_history = self.net_worth_history[-self.max_history:]
@@ -188,6 +196,11 @@ class StrategyAgent:
     # optional DMN/QuantileTCN overlay gate on the TS sleeve (OOS-validated timing skill;
     # scales perp weights in [floor, 1], never originates — fails open to the baseline)
     overlay_gate: object = None
+    # append-only JSONL journal of every rebalance/order/mark/outcome — the reviewable record
+    # the owner periodically hands to a strong model for deep post-mortem. Records, never decides.
+    journal: object = None
+    # optional cross-sectional anomaly scanner (wide-spread / illiquidity de-gear; tighten-only)
+    scanner: object = None
     _asset_halts: Dict[str, float] = field(default_factory=dict)   # symbol -> halt-until epoch sec
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -339,7 +352,8 @@ class StrategyAgent:
         prices = self._latest_prices({**bars, **ts_bars})
         if prices and hasattr(self.portfolio, "mark_to_market"):
             try:
-                self.portfolio.mark_to_market(prices, __import__("time").time())
+                book_ret = self.portfolio.mark_to_market(prices, __import__("time").time())
+                self._after_mark(book_ret)
             except Exception as e:
                 logger.warning("mark_to_market_failed", error=str(e)[:100])
         overlay_notes = {}
@@ -358,6 +372,17 @@ class StrategyAgent:
                 overlay_notes = self.overlay_gate.apply(targets, list(ts_bars))
             except Exception as e:
                 logger.warning("overlay_gate_failed", error=str(e)[:120])
+
+        if self.scanner is not None and ts_bars:
+            try:   # anomaly scanner: tighten-only de-gear on wide-spread / illiquid perps
+                for s in list(ts_bars):
+                    if s in targets and targets[s] != 0.0:
+                        scale = float(self.scanner.degear_scale(s))
+                        if scale < 1.0:
+                            targets[s] *= scale
+                            logger.info("anomaly_degear", symbol=s, scale=round(scale, 3))
+            except Exception as e:
+                logger.warning("anomaly_scanner_failed", error=str(e)[:100])
 
         snap = await self.portfolio.snapshot()
         cur = snap.get("positions", {})
@@ -386,8 +411,42 @@ class StrategyAgent:
                     n_overlay=len(overlay_notes),
                     gross=float(sum(abs(v) for v in targets.values())))
         await self._publish_portfolio()
-        return {"targets": targets, "orders": orders, "skipped": skipped,
+        plan = {"targets": targets, "orders": orders, "skipped": skipped,
                 "news": news_notes, "overlay": overlay_notes, "blocked": None}
+        if self.journal is not None:
+            try:
+                self.journal.record_rebalance(plan, equity=equity, prices=prices,
+                                              paper=bool(self.paper))
+            except Exception as e:
+                logger.warning("journal_rebalance_failed", error=str(e)[:100])
+        return plan
+
+    def _after_mark(self, book_return: float) -> None:
+        """Post-mark bookkeeping: journal the mark + per-symbol outcomes, and feed realized
+        per-symbol returns to the overlay's online conviction/conformal loop. Aggregation-level
+        LEARNING happens only in scripts/postmortem.py — never here (per-loss mutation is the
+        online-AWR failure mode this project already measured)."""
+        book = self.portfolio
+        contribs: Dict[str, float] = dict(getattr(book, "last_contributions", {}) or {})
+        if self.journal is not None:
+            try:
+                self.journal.record_mark(
+                    equity=float(getattr(book, "equity", 0.0)),
+                    book_return=float(book_return),
+                    drawdown=float(getattr(book, "current_drawdown", 0.0)),
+                    contributions=contribs,
+                    weights=dict(getattr(book, "positions", {}) or {}),
+                )
+            except Exception as e:
+                logger.warning("journal_mark_failed", error=str(e)[:100])
+        if self.overlay_gate is not None and hasattr(self.overlay_gate, "record_outcome"):
+            for sym, c in contribs.items():
+                w = float((getattr(book, "positions", {}) or {}).get(sym, 0.0))
+                if abs(w) > 1e-9:
+                    try:   # per-symbol return (sign is what the conviction EWMA consumes)
+                        self.overlay_gate.record_outcome(sym, c / w)
+                    except Exception:
+                        pass
 
     @staticmethod
     def _latest_prices(all_bars: Dict[str, pd.DataFrame]) -> Dict[str, float]:
@@ -405,19 +464,23 @@ class StrategyAgent:
         return out
 
     async def _publish_portfolio(self) -> None:
-        """Publish the paper book's dashboard view to Redis (``strategy:portfolio``) so the API
-        process (which doesn't share memory with this agent process) can serve it. Best-effort —
-        a Redis hiccup never breaks a rebalance, and a live (non-paper) book simply has no view."""
-        if not hasattr(self.portfolio, "portfolio_view"):
-            return
+        """Publish the paper book's dashboard view (``strategy:portfolio``) and the entity
+        graph's live state (``strategy:graph``) to Redis so the API process (which doesn't
+        share memory with this agent process) can serve them. Best-effort — a Redis hiccup
+        never breaks a rebalance, and a live (non-paper) book simply has no view."""
         try:
             import json as _json
             from backend.memory.redis_client import get_redis
-            view = self.portfolio.portfolio_view()
-            view["paper"] = bool(self.paper)
-            view["updated_at"] = __import__("time").time()
             r = await get_redis()
-            await r.set("strategy:portfolio", _json.dumps(view))
+            if hasattr(self.portfolio, "portfolio_view"):
+                view = self.portfolio.portfolio_view()
+                view["paper"] = bool(self.paper)
+                view["updated_at"] = __import__("time").time()
+                await r.set("strategy:portfolio", _json.dumps(view))
+            if self.entity_graph is not None and hasattr(self.entity_graph, "view"):
+                g = self.entity_graph.view()
+                g["updated_at"] = __import__("time").time()
+                await r.set("strategy:graph", _json.dumps(g))
         except Exception as e:
             logger.debug("strategy_portfolio_publish_failed", error=str(e)[:100])
 

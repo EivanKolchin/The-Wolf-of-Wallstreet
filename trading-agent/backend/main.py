@@ -291,6 +291,20 @@ def run_nn_agent(severe_flag):
                 except Exception as e:
                     logger.warning("overlay_gate_build_failed", error=str(e)[:120])
 
+                journal = scanner = None
+                if bool(getattr(settings, "TRADE_JOURNAL_ENABLED", True)):
+                    try:
+                        from backend.agents.trade_journal import TradeJournal
+                        journal = TradeJournal()
+                    except Exception as e:
+                        logger.warning("trade_journal_build_failed", error=str(e)[:100])
+                if bool(getattr(settings, "ANOMALY_SCANNER_ENABLED", True)):
+                    try:
+                        from backend.signals.anomaly_scanner import AnomalyScanner
+                        scanner = AnomalyScanner()
+                    except Exception as e:
+                        logger.warning("anomaly_scanner_build_failed", error=str(e)[:100])
+
                 strat_agent = StrategyAgent(
                     universe=str(settings.STRATEGY_AGENT_SYMBOLS).split(),
                     bar_provider=DailyBarProvider(),
@@ -304,6 +318,7 @@ def run_nn_agent(severe_flag):
                     w_ts=float(settings.STRATEGY_AGENT_W_TS),
                     news_provider=news_provider, news_verifier=news_verifier,
                     entity_graph=entity_graph, overlay_gate=overlay_gate,
+                    journal=journal, scanner=scanner,
                     paper=paper, live_router=live_router,
                 )
                 asyncio.create_task(strat_agent.run())
@@ -447,8 +462,69 @@ if __name__ == "__main__":
             import time
             time.sleep(3)
 
+    # ── PORT PRE-FLIGHT: a stale backend instance still holding :8000 makes uvicorn's bind
+    # fail AFTER the agent processes have already spawned (orphan agents + a dead API — the
+    # dashboard then silently talks to the OLD process). Check the port FIRST; if the holder
+    # is a python process (i.e. a previous instance of this backend), kill its whole tree so
+    # a plain restart via start.bat always works. A non-python holder aborts loudly instead.
+    def _ensure_port_free(port: int = 8000) -> bool:
+        import socket, subprocess, time as _time
+        def _free() -> bool:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                return s.connect_ex(("127.0.0.1", port)) != 0
+        if _free():
+            return True
+        if os.name != "nt":
+            logger.error("port_in_use", port=port,
+                         note="another process holds the API port — stop it and restart")
+            return False
+        def _image_of(pid: str) -> str:
+            """Process image name for a PID — tasklist first, PowerShell fallback
+            (tasklist's /FI filter misbehaves under some shells/locales)."""
+            for cmd in (["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                        ["powershell", "-NoProfile", "-Command",
+                         f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).ProcessName"]):
+                try:
+                    out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL,
+                                                  timeout=10)
+                    if out.strip():
+                        return out.strip()
+                except Exception:
+                    continue
+            return ""
+        try:
+            out = subprocess.check_output(["netstat", "-ano"], text=True,
+                                          stderr=subprocess.DEVNULL)
+            pids = {ln.split()[-1] for ln in out.splitlines()
+                    if f":{port}" in ln and "LISTENING" in ln and ln.split()[-1].isdigit()}
+            for pid in pids:
+                if pid == str(os.getpid()):
+                    continue
+                img = _image_of(pid)
+                if "python" in img.lower():
+                    logger.warning("killing_stale_backend_instance", pid=pid, port=port)
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    logger.error("port_held_by_non_python_process", pid=pid,
+                                 image=(img or "unknown")[:120],
+                                 note=f"free port {port} manually, then restart")
+                    return False
+            _time.sleep(1.5)
+            return _free()
+        except Exception as e:
+            logger.error("port_preflight_failed", error=str(e)[:120])
+            return False
+
+    if not _ensure_port_free(8000):
+        logger.error("startup_aborted_port_8000_busy",
+                     note="No agents were started (prevents orphans). Close the previous "
+                          "backend window / free port 8000, then re-run start.bat.")
+        sys.exit(1)
+
     multiprocessing.set_start_method('spawn')
-    
+
     shared_severe_flag = multiprocessing.Value(ctypes.c_bool, False)
     
     p1 = multiprocessing.Process(target=run_nn_agent, args=(shared_severe_flag,), name="NNTradingAgent")

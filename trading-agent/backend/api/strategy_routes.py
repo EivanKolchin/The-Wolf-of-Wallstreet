@@ -47,3 +47,21 @@ async def strategy_portfolio():
     except Exception as e:
         logger.debug("strategy_portfolio_read_failed", error=str(e))
         return _EMPTY
+
+
+@router.get("/api/strategy/graph")
+async def strategy_graph():
+    """The live entity graph: nodes + directed edges with curated PRIORS and the current
+    correlation-validated LIVE weights (0 = the narrative is dead right now). Drives the
+    dashboard's cross-asset propagation network view."""
+    try:
+        r = await get_redis()
+        raw = await r.get("strategy:graph")
+        if not raw:
+            return {"active": False, "nodes": [], "edges": []}
+        g = json.loads(raw if isinstance(raw, str) else raw.decode())
+        g["active"] = True
+        return g
+    except Exception as e:
+        logger.debug("strategy_graph_read_failed", error=str(e))
+        return {"active": False, "nodes": [], "edges": []}
