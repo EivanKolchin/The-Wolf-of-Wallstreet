@@ -362,7 +362,9 @@ export default function TradingChart({
                     ? { ...last, high: Math.max(last.high, px), low: Math.min(last.low, px), close: px }
                     : { ...last, close: px };
                 chartDataRef.current[lastIdx] = updated;
-                if (seriesRef.current) seriesRef.current.update(updated as any);
+                if (seriesRef.current) {
+                    try { seriesRef.current.update(updated as any); } catch { /* stale tick */ }
+                }
             };
 
             const open = () => {
@@ -436,7 +438,7 @@ export default function TradingChart({
                 };
                 chartDataRef.current[lastIdx] = updatedCandle;
                 if (seriesRef.current) {
-                    seriesRef.current.update(updatedCandle as any);
+                    try { seriesRef.current.update(updatedCandle as any); } catch { /* stale tick */ }
                 }
                 if (config.ema9.show && ema9Ref.current) {
                      const emaTails = calculateEMA(chartDataRef.current, 9);
@@ -471,8 +473,15 @@ export default function TradingChart({
                     close: parseFloat(k.c) * currencyRate,
                 };
 
-                if (seriesRef.current) {
-                    seriesRef.current.update(newCandle as any);
+                // Guard against out-of-order candles: on a symbol/timeframe switch a stale WS
+                // message from the OLD subscription can land after the NEW history was set —
+                // lightweight-charts then throws "Cannot update oldest data" and crashes the
+                // page. Only update when the candle is not older than the series' last bar,
+                // and swallow the library's ordering error as belt-and-braces.
+                const lastKnown = chartDataRef.current?.length
+                    ? chartDataRef.current[chartDataRef.current.length - 1].time : null;
+                if (seriesRef.current && (lastKnown === null || newCandle.time >= lastKnown)) {
+                    try { seriesRef.current.update(newCandle as any); } catch { /* stale tick */ }
                 }
 
                 if (chartDataRef.current && chartDataRef.current.length > 0) {

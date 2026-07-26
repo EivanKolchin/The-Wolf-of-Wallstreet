@@ -68,11 +68,12 @@ def test_cycle6_new_symbols_registered_and_classified():
     from scripts.pretrain import _is_stock_symbol, SYMBOLS as off_syms
     from backend.core import universe
 
-    assert list(SYMBOLS) == list(off_syms) and len(SYMBOLS) == 22   # Cycle 24: +TSLA/MSTR/COIN/PLTR
+    assert list(SYMBOLS) == list(off_syms) and len(SYMBOLS) == 26   # Cycle 40: +GOOGL/MSFT/RKLB/RGTI
     for c in ("RENDERUSDT", "NEARUSDT"):
         assert c in SYMBOL_TO_ID and not _is_stock_symbol(c)
         assert c in universe.CRYPTO_SYMBOLS
-    for s in ("NVDA", "TSM", "SMCI", "TSLA", "MSTR", "COIN", "PLTR"):
+    for s in ("NVDA", "TSM", "SMCI", "TSLA", "MSTR", "COIN", "PLTR",
+              "GOOGL", "MSFT", "RKLB", "RGTI"):
         assert s in SYMBOL_TO_ID and _is_stock_symbol(s)
         assert s in universe.STOCK_UNDERLYINGS
         assert s in universe.US_EXCHANGE and s in universe.ETP_MAP   # routing wired

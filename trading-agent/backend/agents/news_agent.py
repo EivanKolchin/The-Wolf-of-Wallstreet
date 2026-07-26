@@ -87,7 +87,9 @@ class LLMNewsAgent:
         )
 
         try:
-            text = await self.llm_service.generate_text(prompt, tier="sonnet", max_tokens=300)
+            # "flash" tier → Gemini 2.5 Flash under hybrid_gemini (fast, cheap, well-calibrated for
+            # classification); Pro/"sonnet" was overkill. Pure-ollama config still runs locally.
+            text = await self.llm_service.generate_text(prompt, tier="flash", max_tokens=300)
             data = extract_json(text)
         except Exception as e:
             logger.error("llm_classification_error", error=str(e), headline=article.headline)
@@ -96,6 +98,16 @@ class LLMNewsAgent:
         severity_str = data.get("severity", "NEUTRAL").upper()
         if severity_str not in {"NEUTRAL", "MILD", "SIGNIFICANT", "SEVERE"}:
             severity_str = "NEUTRAL"
+        # Calibration guard: SEVERE de-gears/halts the book, so require real conviction for it.
+        # A low-confidence "SEVERE" (the local-model over-alarm failure mode) is demoted one level.
+        try:
+            _conf = float(data.get("confidence", 0.0))
+        except Exception:
+            _conf = 0.0
+        if severity_str == "SEVERE" and _conf < 0.55:
+            logger.info("news_severe_demoted_low_confidence", confidence=round(_conf, 2),
+                        headline=article.headline[:120])
+            severity_str = "SIGNIFICANT"
         if severity_str != "NEUTRAL":
             bias = news_feedback.severity_bias(
                 article.headline,

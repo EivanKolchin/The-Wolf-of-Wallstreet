@@ -122,12 +122,24 @@ class AnomalyScanner:
     and a Redis publish for observability. All failure paths return neutral (no scaling)."""
 
     def __init__(self, cfg: Optional[ScannerConfig] = None, *, ttl_seconds: float = 900.0,
-                 testnet: Optional[bool] = None):
-        from backend.core.config import settings
+                 testnet: Optional[bool] = None, stock_cfg: Optional[ScannerConfig] = None):
         self.cfg = cfg or ScannerConfig()
+        # Equities need their OWN thresholds. Alpaca's free feed is IEX-only, so (a) the quoted
+        # spread is a single small venue's book — much wider than the consolidated NBBO — and
+        # (b) dailyBar volume is IEX's slice (~a few % of consolidated), not the real tape. Reusing
+        # the crypto-perp thresholds flagged 12/15 megacaps as `wide_spread` and RGTI as `illiquid`.
+        # move_z/volume_z are LOWER than crypto's 3.0: the stock cross-section is ~15 names, and a
+        # z-score over n samples is bounded by (n-1)/√n ≈ 3.6 — a 3.0 threshold is nearly
+        # unreachable there, so it would never flag. 2.5 is attainable yet still a genuine outlier.
+        self.stock_cfg = stock_cfg or ScannerConfig(
+            spread_warn_bps=25.0, spread_max_bps=100.0,
+            min_quote_volume=5e5,     # IEX-slice dollar volume; ~$500k IEX ≈ genuinely thin
+            move_z=2.5, volume_z=2.5, degear_floor=self.cfg.degear_floor,
+        )
         self.ttl = ttl_seconds
-        tn = settings.BINANCE_FUTURES_TESTNET if testnet is None else testnet
-        self.base = "https://testnet.binancefuture.com" if tn else "https://fapi.binance.com"
+        # Mainnet only: the scanner needs REAL cross-sectional moves / spreads / volumes; testnet
+        # tickers are synthetic and would fabricate anomaly flags (or hide real ones).
+        self.base = "https://fapi.binance.com"
         self._flags: Dict[str, List[Flag]] = {}
         self._at: float = 0.0
 
@@ -136,8 +148,105 @@ class AnomalyScanner:
         r = requests.get(f"{self.base}{path}", timeout=10)
         return r.json() if r.status_code == 200 else None
 
+    @staticmethod
+    def _alpaca_creds() -> Optional[tuple]:
+        """(key, secret) for Alpaca market data, or None when not configured. Fail-open:
+        no creds → the stock leg is silently skipped and only crypto flags are returned."""
+        try:
+            from backend.core.config import settings
+            key = (getattr(settings, "ALPACA_API_KEY", "") or "").strip()
+            secret = (getattr(settings, "ALPACA_SECRET_KEY", "") or
+                      getattr(settings, "ALPACA_SECRET", "") or "").strip()
+            if key and secret and "your_" not in key.lower():
+                return key, secret
+        except Exception:
+            pass
+        return None
+
+    def _fetch_stock_snapshots(self):
+        """Alpaca snapshots for the STOCK universe, shaped into the (stats, books) contract
+        classify_anomalies expects. One REST call for all names. Returns ([], {}) on any
+        failure / missing creds so the stock leg never breaks the crypto scan."""
+        creds = self._alpaca_creds()
+        if not creds:
+            return [], {}
+        try:
+            from backend.core import universe as _universe
+            syms = list(_universe.STOCK_UNDERLYINGS)
+        except Exception:
+            return [], {}
+        if not syms:
+            return [], {}
+        try:
+            from backend.core.config import settings
+            feed = (getattr(settings, "ALPACA_DATA_FEED", "iex") or "iex").strip().lower()
+        except Exception:
+            feed = "iex"
+        try:
+            import requests
+            key, secret = creds
+            r = requests.get(
+                "https://data.alpaca.markets/v2/stocks/snapshots",
+                params={"symbols": ",".join(syms), "feed": feed},
+                headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+                timeout=10)
+            if r.status_code != 200:
+                logger.warning("anomaly_stock_snapshot_http", status=r.status_code)
+                return [], {}
+            data = r.json() or {}
+        except Exception as e:
+            logger.warning("anomaly_stock_snapshot_failed", error=str(e)[:100])
+            return [], {}
+
+        # Emit spread flags ONLY when the quote is a meaningful execution-cost signal:
+        #   * a CONSOLIDATED feed (sip) — IEX's single-venue book is routinely far off the NBBO
+        #     (measured: SNDK 245bps / TSLA 98bps on IEX vs ~1bps for NVDA), so an IEX-derived
+        #     "wide_spread" says more about IEX than about the stock; and
+        #   * during the REGULAR session — outside it quotes are stale/arbitrarily wide.
+        # Otherwise we return no books, so stocks are flagged on move/volume/liquidity only.
+        try:
+            from backend.core.market_hours import us_session_state
+            rth = us_session_state() == "regular"
+        except Exception:
+            rth = False
+        spread_ok = rth and feed not in ("iex",)
+
+        stats, books = [], {}
+        for sym, snap in data.items():
+            if not isinstance(snap, dict):
+                continue
+            daily = snap.get("dailyBar") or {}
+            prev = snap.get("prevDailyBar") or {}
+            quote = snap.get("latestQuote") or {}
+            try:
+                c = float(daily.get("c", 0.0) or 0.0)
+                pc = float(prev.get("c", 0.0) or 0.0)
+                vol = float(daily.get("v", 0.0) or 0.0)
+                vw = float(daily.get("vw", 0.0) or c or 0.0)   # VWAP ≈ avg price for $-volume
+            except (TypeError, ValueError):
+                continue
+            change_pct = ((c / pc - 1.0) * 100.0) if pc > 0 else 0.0
+            stats.append({
+                "symbol": str(sym).upper(),
+                "priceChangePercent": change_pct,
+                "quoteVolume": vol * (vw if vw > 0 else c),      # dollar volume (IEX slice)
+            })
+            if not spread_ok:
+                continue
+            try:
+                bid = float(quote.get("bp", 0.0) or 0.0)
+                ask = float(quote.get("ap", 0.0) or 0.0)
+                if bid > 0 and ask > 0:
+                    books[str(sym).upper()] = {"bid": bid, "ask": ask}
+            except (TypeError, ValueError):
+                pass
+        return stats, books
+
     def scan(self) -> Dict[str, List[Flag]]:
-        """Refresh if stale (2 REST calls for the whole universe). Best-effort."""
+        """Refresh if stale. Best-effort. Crypto leg = 2 Binance-futures REST calls over the
+        whole perp universe; stock leg = 1 Alpaca snapshots call over STOCK_UNDERLYINGS. The
+        two asset classes are classified in SEPARATE cross-sections (z-scores are only
+        meaningful within a class) then merged."""
         now = time.time()
         if now - self._at < self.ttl and self._flags:
             return self._flags
@@ -147,10 +256,18 @@ class AnomalyScanner:
             books = {str(b.get("symbol", "")).upper(): {"bid": b.get("bidPrice"),
                                                         "ask": b.get("askPrice")}
                      for b in book_rows if b.get("symbol")}
-            self._flags = classify_anomalies(stats, books, self.cfg)
+            crypto_flags = classify_anomalies(stats, books, self.cfg)
+
+            # Stock leg — its OWN cross-section AND its own thresholds (equity return/volume/spread
+            # scales differ from crypto perps, and the IEX feed reports a single venue's slice).
+            s_stats, s_books = self._fetch_stock_snapshots()
+            stock_flags = classify_anomalies(s_stats, s_books, self.stock_cfg) if s_stats else {}
+
+            self._flags = {**crypto_flags, **stock_flags}
             self._at = now
             logger.info("anomaly_scan_done", flagged=len(self._flags),
-                        universe=len(stats))
+                        crypto_flagged=len(crypto_flags), stock_flagged=len(stock_flags),
+                        crypto_universe=len(stats), stock_universe=len(s_stats))
         except Exception as e:
             logger.warning("anomaly_scan_failed", error=str(e)[:100])
         return self._flags
@@ -160,12 +277,25 @@ class AnomalyScanner:
         flags = self.scan().get(str(symbol).upper())
         return degear_from_flags(flags, self.cfg) if flags else 1.0
 
+    @staticmethod
+    def _publishable(symbol: str) -> bool:
+        """Only surface flags for assets in OUR universe. The crypto leg classifies the whole ~700
+        perp cross-section (breadth is what makes the z-scores meaningful), but publishing all ~490
+        flagged altcoins we never trade drowns the dashboard — and made the panel read as
+        'crypto-only'. De-gear lookups still consult the full, unfiltered flag set."""
+        try:
+            from backend.core import universe as _u
+            return symbol.upper() in set(_u.CRYPTO_SYMBOLS) | set(_u.STOCK_UNDERLYINGS)
+        except Exception:
+            return True
+
     async def publish(self, redis) -> None:
         """Best-effort Redis publish (strategy:anomalies) for the dashboard."""
         try:
             import json as _json
             payload = {s: [{"kind": f.kind, "value": f.value, "severity": round(f.severity, 2)}
-                           for f in fl] for s, fl in self.scan().items()}
+                           for f in fl]
+                       for s, fl in self.scan().items() if self._publishable(s)}
             await redis.set("strategy:anomalies", _json.dumps(
                 {"flags": payload, "updated_at": time.time()}))
         except Exception as e:  # pragma: no cover

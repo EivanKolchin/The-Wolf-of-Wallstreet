@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    output: 'standalone',
+    // NOTE: no `output: 'standalone'`. Standalone rewrites the server chunk layout for
+    // containerized deploys and is incompatible with `next start` (breaks the viem vendor
+    // chunk). The launcher runs `next start` locally, so the default build is what we want.
+    // Allow an isolated build dir (e.g. NEXT_DIST_DIR=.next-prod) so a production build
+    // can be produced/served without a concurrently-running `next dev` clobbering `.next`.
+    distDir: process.env.NEXT_DIST_DIR || '.next',
     eslint: { ignoreDuringBuilds: false },
     typescript: { ignoreBuildErrors: false },
     webpack: (config) => {

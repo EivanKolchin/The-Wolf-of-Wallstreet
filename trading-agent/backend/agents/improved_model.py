@@ -79,6 +79,9 @@ SYMBOLS = [
     #      boots). AXTI stays above (id 11) for training even though it's no longer
     #      in the *tradable* universe (core/universe.py STOCK_UNDERLYINGS). ----
     "TSLA", "MSTR", "COIN", "PLTR",    # high-beta cross-sector names (EV / BTC-proxy / crypto-fin / AI-software)
+    # ---- Cycle 40 (ids 22..25): megacaps + high-beta growth. Appended (never inserted) so
+    #      older checkpoints keep their embedding indices; spliced on load, fresh until retrain. ----
+    "GOOGL", "MSFT", "RKLB", "RGTI",
 ]
 SYMBOL_TO_ID = {s: i for i, s in enumerate(SYMBOLS)}
 

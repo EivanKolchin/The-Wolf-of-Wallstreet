@@ -30,9 +30,14 @@ CRYPTO_SYMBOLS = [
 # names across non-semiconductor sectors, each with a liquid single-stock leveraged
 # ETP: TSLA (EV/auto, TSLL/TSLS), MSTR (BTC-proxy, MSTU/MSTZ), COIN (crypto-fin,
 # CONL), PLTR (AI-software, PTIR) — better diversification than the semis cluster.
+#   Cycle 40 — added megacaps GOOGL/MSFT (lower-beta diversifiers vs the tech-momentum
+#   cluster) + high-beta growth RKLB (space) / RGTI (quantum). SanDisk=SNDK and Micron=MU
+#   were already here. NOTE: Kioxia is Tokyo-listed only (285A.T, JPY) — NOT routable via the
+#   US broker (Alpaca), so it's intentionally NOT in this set (needs a Japan-capable venue).
 STOCK_UNDERLYINGS = [
     "SNDK", "AMD", "MU", "BE", "NVDA", "TSM", "SMCI",
     "TSLA", "MSTR", "COIN", "PLTR",
+    "GOOGL", "MSFT", "RKLB", "RGTI",
 ]
 
 # native US listing venue (for the chart + extended-hours routing)
@@ -40,6 +45,7 @@ US_EXCHANGE = {
     "SNDK": "NASDAQ", "AMD": "NASDAQ", "MU": "NASDAQ", "BE": "NYSE",
     "NVDA": "NASDAQ", "TSM": "NYSE", "SMCI": "NASDAQ",
     "TSLA": "NASDAQ", "MSTR": "NASDAQ", "COIN": "NASDAQ", "PLTR": "NASDAQ",
+    "GOOGL": "NASDAQ", "MSFT": "NASDAQ", "RKLB": "NASDAQ", "RGTI": "NASDAQ",
 }
 
 # underlying -> LSE leveraged UCITS ETP routing.
@@ -61,6 +67,12 @@ ETP_MAP = {
     "MSTR": {"etp_available": False, "long_etp": "MSTU", "short_etp": "MSTZ", "venue": "nasdaq"},
     "COIN": {"etp_available": False, "long_etp": "CONL", "short_etp": "",     "venue": "nasdaq"},
     "PLTR": {"etp_available": False, "long_etp": "PTIR", "short_etp": "",     "venue": "nasdaq"},
+    # Cycle 40 — route the underlying via Alpaca. GOOGL/MSFT have 2x single-stock ETPs
+    # (GGLL, MSFL); RGTI has RGTL. Referenced only; etp_available stays False.
+    "GOOGL": {"etp_available": False, "long_etp": "GGLL", "short_etp": "", "venue": "nasdaq"},
+    "MSFT":  {"etp_available": False, "long_etp": "MSFL", "short_etp": "", "venue": "nasdaq"},
+    "RKLB":  {"etp_available": False, "long_etp": "",     "short_etp": "", "venue": "nasdaq"},
+    "RGTI":  {"etp_available": False, "long_etp": "RGTL", "short_etp": "", "venue": "nasdaq"},
 }
 
 

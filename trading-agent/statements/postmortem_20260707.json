@@ -1,0 +1,83 @@
+{
+  "generated_at": "2026-07-07T20:43:20+00:00",
+  "window_days": 7.0,
+  "aggregates": {
+    "n_marks": 48,
+    "n_rebalances": 48,
+    "n_orders": 36,
+    "window_return": 0.00642,
+    "per_mark_vol": 0.00108,
+    "worst_drawdown": -0.0026,
+    "max_gross": 1.054,
+    "n_blocked_rebalances": 0,
+    "journal_gaps": 3,
+    "per_symbol": {
+      "BTCUSDT": {
+        "n": 43,
+        "wins": 20,
+        "contribution": 0.00089,
+        "hit_rate": 0.465
+      },
+      "ETHUSDT": {
+        "n": 43,
+        "wins": 23,
+        "contribution": 0.00079,
+        "hit_rate": 0.535
+      },
+      "QQQ": {
+        "n": 43,
+        "wins": 1,
+        "contribution": 0.00136,
+        "hit_rate": 0.023
+      },
+      "SPY": {
+        "n": 43,
+        "wins": 1,
+        "contribution": 0.00083,
+        "hit_rate": 0.023
+      },
+      "TQQQ": {
+        "n": 43,
+        "wins": 1,
+        "contribution": 0.00396,
+        "hit_rate": 0.023
+      },
+      "XRPUSDT": {
+        "n": 39,
+        "wins": 13,
+        "contribution": -0.00169,
+        "hit_rate": 0.333
+      },
+      "SOLUSDT": {
+        "n": 28,
+        "wins": 11,
+        "contribution": 0.0003,
+        "hit_rate": 0.393
+      }
+    },
+    "slippage": {}
+  },
+  "concerns": [
+    {
+      "class": "process",
+      "code": "data_or_uptime_gap",
+      "detail": "3 mark gap(s) >3\u00d7 the median interval (agent down or data feed stalled)"
+    },
+    {
+      "class": "regime",
+      "code": "broad_hit_rate_decay",
+      "detail": "hit-rate < 35% on 4 symbols (QQQ, SPY, TQQQ, XRPUSDT\u2026) \u2014 trend regime may be fading"
+    }
+  ],
+  "lessons_written": [
+    {
+      "tag": "data_or_uptime_gap",
+      "text": "[PROCESS] 3 mark gap(s) >3\u00d7 the median interval (agent down or data feed stalled)"
+    },
+    {
+      "tag": "broad_hit_rate_decay",
+      "text": "[REGIME] hit-rate < 35% on 4 symbols (QQQ, SPY, TQQQ, XRPUSDT\u2026) \u2014 trend regime may be fading"
+    }
+  ],
+  "note": "Hand this file (plus training_data/trade_journal.jsonl and training_data/slippage_log.jsonl) to the reviewing model for deep post-mortem and code-level fixes."
+}

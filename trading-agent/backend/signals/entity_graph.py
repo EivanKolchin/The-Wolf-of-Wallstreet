@@ -40,13 +40,29 @@ CURATED_EDGES: List[Edge] = [
     Edge("BTC", "MSTR", "proxy", 0.9),          # levered BTC treasury
     Edge("BTC", "COIN", "proxy", 0.7),          # crypto-volume beta
     Edge("ETH", "COIN", "proxy", 0.5),
-    Edge("BTC", "ETHUSDT", "sector", 0.5),      # BTC systemic news moves the complex
+    # BTC systemic news moves the whole crypto complex (all tradable perps as sector edges)
+    Edge("BTC", "ETHUSDT", "sector", 0.55),
+    Edge("BTC", "SOLUSDT", "sector", 0.5),
+    Edge("BTC", "XRPUSDT", "sector", 0.45),
+    Edge("BTC", "ADAUSDT", "sector", 0.45),
+    Edge("BTC", "DOGEUSDT", "sector", 0.4),
+    Edge("BTC", "AAVEUSDT", "sector", 0.4),
+    Edge("BTC", "XLMUSDT", "sector", 0.4),
+    Edge("BTC", "RENDERUSDT", "sector", 0.4),
+    Edge("BTC", "NEARUSDT", "sector", 0.4),
+    Edge("ETH", "SOLUSDT", "sector", 0.45),     # L1 smart-contract complex
+    Edge("ETH", "AAVEUSDT", "sector", 0.5),     # DeFi runs on ETH
+    Edge("ETH", "RENDERUSDT", "sector", 0.35),
     # AI-semis supply chain / sector
     Edge("NVDA", "TSM", "supply_chain", 0.6),
     Edge("NVDA", "SMCI", "supply_chain", 0.6),
     Edge("NVDA", "AMD", "sector", 0.5),
     Edge("AMD", "TSM", "supply_chain", 0.4),
     Edge("MU", "SNDK", "sector", 0.5),          # memory/storage complex
+    # AI-platform megacaps: NVDA/AI capex + demand news moves the hyperscalers
+    Edge("NVDA", "MSFT", "sector", 0.4),
+    Edge("NVDA", "GOOGL", "sector", 0.4),
+    Edge("MSFT", "GOOGL", "sector", 0.5),       # cloud/AI duopoly
 ]
 
 
@@ -126,16 +142,30 @@ class EntityGraph:
 
     def view(self) -> dict:
         """Dashboard payload: every node + edge with its PRIOR and current LIVE weight, so the
-        UI can draw living edges thick and dead narratives as dashed ghosts."""
+        UI can draw living edges thick and dead narratives as dashed ghosts. Includes EVERY
+        tradable symbol as a node (even edge-less standalone names) so the graph mirrors the
+        full tradable universe, not just the curated relationships."""
+        def _kind(key: str) -> str:
+            k = key.upper()
+            return "crypto" if (k.endswith("USDT") or k.endswith("-USD") or k in
+                                ("BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AAVE", "XLM",
+                                 "RENDER", "NEAR")) else "equity"
+
         nodes: Dict[str, dict] = {}
+        # seed with the full tradable universe so every tradable name shows up
+        try:
+            from backend.core import universe as _u
+            for sym in list(_u.CRYPTO_SYMBOLS) + list(_u.STOCK_UNDERLYINGS):
+                key = sym.upper()
+                nodes[key] = {"id": key, "kind": _kind(key), "tradable": True}
+        except Exception:
+            pass
         edges = []
         for e in self.edges:
-            for name, is_src in ((e.src, True), (e.dst, False)):
+            for name in (e.src, e.dst):
                 key = name.upper()
                 if key not in nodes:
-                    kind = "crypto" if (key.endswith("USDT") or key in
-                                        ("BTC", "ETH", "SOL", "XRP", "ADA", "DOGE")) else "equity"
-                    nodes[key] = {"id": key, "kind": kind}
+                    nodes[key] = {"id": key, "kind": _kind(key), "tradable": False}
             edges.append({"src": e.src.upper(), "dst": e.dst.upper(), "kind": e.kind,
                           "prior": round(e.prior, 3),
                           "weight": round(float(self._weights.get((e.src, e.dst), 0.0)), 3)})

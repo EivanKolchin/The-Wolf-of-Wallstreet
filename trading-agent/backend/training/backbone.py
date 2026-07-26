@@ -38,7 +38,44 @@ CRYPTO_KEYWORD_BANK: dict[str, list[str]] = {
     "XLMUSDT": [
         "stellar", "xlm", "stellar development foundation", "cross-border payments"
     ],
+    "RENDERUSDT": [
+        "render network", "rndr", "render token", "gpu rendering", "octane"
+    ],
+    "NEARUSDT": [
+        "near protocol", "near foundation", "nightshade", "sharding", "aurora near"
+    ],
 }
+
+# Stock keyword bank — company name + distinctive ticker + key people/products/sector terms.
+# Matching is SUBSTRING (see extract_symbol_relevance), so ambiguous 2-letter tokens ("be", "mu",
+# bare "coin") are DELIBERATELY excluded — they'd false-match ("before", "much", "bitcoin").
+STOCK_KEYWORD_BANK: dict[str, list[str]] = {
+    "NVDA": ["nvidia", "nvda", "jensen huang", "blackwell", "h100", "h200", "cuda",
+             "ai chip", "data center gpu"],
+    "AMD":  ["advanced micro devices", "amd", "lisa su", "ryzen", "epyc", "radeon",
+             "mi300", "instinct"],
+    "MU":   ["micron", "dram", "hbm", "nand flash", "memory chips"],
+    "TSM":  ["tsmc", "taiwan semiconductor", "chip foundry", "3nm", "2nm", "arizona fab"],
+    "SMCI": ["supermicro", "super micro", "smci", "ai server", "liquid cooling"],
+    "SNDK": ["sandisk", "sndk", "flash storage", "solid state drive"],
+    "BE":   ["bloom energy", "fuel cell", "solid oxide", "hydrogen power"],
+    "TSLA": ["tesla", "tsla", "elon musk", "cybertruck", "model 3", "model y",
+             "full self-driving", "robotaxi", "gigafactory", "optimus"],
+    "MSTR": ["microstrategy", "mstr", "michael saylor", "bitcoin treasury", "strategy inc"],
+    "COIN": ["coinbase", "brian armstrong", "crypto exchange", "base chain"],
+    "PLTR": ["palantir", "pltr", "alex karp", "foundry platform", "gotham", "aip"],
+    "GOOGL": ["alphabet", "google", "googl", "sundar pichai", "gemini ai", "deepmind",
+              "waymo", "google cloud", "android"],
+    "MSFT": ["microsoft", "msft", "satya nadella", "azure", "copilot", "openai",
+             "windows", "xbox"],
+    "RKLB": ["rocket lab", "rklb", "peter beck", "electron rocket", "neutron rocket",
+             "space launch"],
+    "RGTI": ["rigetti", "rgti", "quantum computing", "qubit", "quantum processor",
+             "superconducting qubit"],
+}
+
+# The combined bank the news pipeline actually searches (crypto + stocks).
+KEYWORD_BANK: dict[str, list[str]] = {**CRYPTO_KEYWORD_BANK, **STOCK_KEYWORD_BANK}
 
 
 def map_asset_to_symbol(asset: str | None) -> str | None:
@@ -46,18 +83,21 @@ def map_asset_to_symbol(asset: str | None) -> str | None:
         return None
     normalized = asset.upper().replace("-", "").replace("/", "")
     aliases = {
-        "BTCUSD": "BTCUSDT",
-        "BTCUSDT": "BTCUSDT",
-        "ETHUSD": "ETHUSDT",
-        "ETHUSDT": "ETHUSDT",
-        "SOLUSD": "SOLUSDT",
-        "XRPUSD": "XRPUSDT",
-        "ADAUSD": "ADAUSDT",
-        "DOGEUSD": "DOGEUSDT",
-        "AAVEUSD": "AAVEUSDT",
-        "XLMUSD": "XLMUSDT",
+        "BTCUSD": "BTCUSDT", "BTCUSDT": "BTCUSDT",
+        "ETHUSD": "ETHUSDT", "ETHUSDT": "ETHUSDT",
+        "SOLUSD": "SOLUSDT", "XRPUSD": "XRPUSDT",
+        "ADAUSD": "ADAUSDT", "DOGEUSD": "DOGEUSDT",
+        "AAVEUSD": "AAVEUSDT", "XLMUSD": "XLMUSDT",
+        "RENDERUSD": "RENDERUSDT", "RNDRUSD": "RENDERUSDT", "RNDR": "RENDERUSDT",
+        "NEARUSD": "NEARUSDT",
     }
-    return aliases.get(normalized)
+    if normalized in aliases:
+        return aliases[normalized]
+    # Stocks map to themselves (the LLM often declares the bare ticker).
+    from backend.core.universe import STOCK_UNDERLYINGS
+    if normalized in STOCK_UNDERLYINGS:
+        return normalized
+    return None
 
 
 def extract_symbol_relevance(
@@ -68,7 +108,7 @@ def extract_symbol_relevance(
     """Per-symbol relevance from keyword hits. If `weights` (a {(symbol, keyword_lower):
     weight} map from the learnable KeywordWeight table) is provided, hits are weighted so
     the bank adapts over time; otherwise falls back to a flat hit count."""
-    bank = keyword_bank or CRYPTO_KEYWORD_BANK
+    bank = keyword_bank or KEYWORD_BANK      # crypto + stocks (was crypto-only)
     lowered = text.lower()
     scores: dict[str, float] = {}
     matches: dict[str, list[str]] = {}

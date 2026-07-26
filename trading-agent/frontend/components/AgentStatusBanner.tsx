@@ -13,6 +13,8 @@ interface AgentStatus {
   started_at: number;
   has_market_data: boolean;
   status_text: string;
+  /** "strategy" = the rule-based paper book (no warm-up buffer); absent for the NN engine. */
+  engine?: string;
 }
 
 type EngineState = "connecting" | "offline" | "halted" | "warming" | "active";
@@ -68,9 +70,14 @@ export function AgentStatusBanner({ compact = false }: { compact?: boolean }) {
   // ── Derive a single, honest engine state ──
   const warmupWindowSeconds = 300;
   const elapsedSinceStart = status ? Math.max(0, now - (status.started_at || now)) : 0;
+  // The rule-based strategy book has no market-data buffer to fill (buffer 1/1), so it is Active
+  // the moment it publishes — only the NN engine needs the 300s warm-up window. Gating on this
+  // lets the backend report an HONEST started_at (uptime from 0) instead of a fake far-past value.
+  const needsWarmup = status?.engine !== "strategy";
   const isWarmingUp = !!status &&
     !status.is_halted &&
-    ((elapsedSinceStart < warmupWindowSeconds) || status.buffer_current < status.buffer_required);
+    (status.buffer_current < status.buffer_required ||
+      (needsWarmup && elapsedSinceStart < warmupWindowSeconds));
 
   let engine: EngineState = "connecting";
   if (reachable === false) engine = "offline";

@@ -35,7 +35,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -200,6 +200,55 @@ async def llm_lessons(agg: dict, concerns: List[dict]) -> List[dict]:
         return deterministic_lessons(concerns)
 
 
+# ─────────────────────────── reusable entry ───────────────────────────
+def run_once(days: float = 7.0, *, use_llm: bool = True, journal_path=None,
+             write_report: bool = True) -> Optional[dict]:
+    """Run one post-mortem over the last ``days``: aggregate → classify → write lessons to the
+    strategy_agent SkillBook → (optionally) persist a report JSON. Returns the report dict, or
+    None when there are no journal rows. Importable so the backend can SCHEDULE it, not just CLI.
+    ``use_llm=False`` uses deterministic lessons only (no LLM dependency / no network)."""
+    journal = TradeJournal(path=Path(journal_path)) if journal_path else TradeJournal()
+    since = time.time() - days * 86400.0
+    rows = journal.read(since_ts=since)
+    if not rows:
+        return None
+
+    slip = SlippageLedger().summary()
+    agg = aggregate(rows, slip)
+    concerns = classify(agg)
+
+    if not use_llm:
+        lessons = deterministic_lessons(concerns)
+    else:
+        import asyncio
+        try:
+            lessons = asyncio.run(llm_lessons(agg, concerns))
+        except RuntimeError:                       # already inside an event loop → deterministic
+            lessons = deterministic_lessons(concerns)
+
+    book = SkillBook("strategy_agent")
+    for l in lessons:
+        book.record(l["text"], tag=l["tag"])
+
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "window_days": days,
+        "aggregates": agg,
+        "concerns": concerns,
+        "lessons_written": lessons,
+        "note": ("Hand this file (plus training_data/trade_journal.jsonl and "
+                 "training_data/slippage_log.jsonl) to the reviewing model for deep "
+                 "post-mortem and code-level fixes."),
+    }
+    if write_report:
+        out_dir = ROOT / "statements"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"postmortem_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        report["report_path"] = str(out_path)
+    return report
+
+
 # ─────────────────────────── main ───────────────────────────
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -209,42 +258,11 @@ def main():
     ap.add_argument("--journal", default=None, help="override journal path (tests)")
     args = ap.parse_args()
 
-    journal = TradeJournal(path=Path(args.journal)) if args.journal else TradeJournal()
-    since = time.time() - args.days * 86400.0
-    rows = journal.read(since_ts=since)
-    if not rows:
+    report = run_once(args.days, use_llm=not args.no_llm, journal_path=args.journal)
+    if report is None:
         print(f"No journal rows in the last {args.days:g} days — nothing to review.")
         return
-
-    slip = SlippageLedger().summary()
-    agg = aggregate(rows, slip)
-    concerns = classify(agg)
-
-    if args.no_llm:
-        lessons = deterministic_lessons(concerns)
-    else:
-        import asyncio
-        lessons = asyncio.run(llm_lessons(agg, concerns))
-
-    book = SkillBook("strategy_agent")
-    for l in lessons:
-        book.record(l["text"], tag=l["tag"])
-
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "window_days": args.days,
-        "aggregates": agg,
-        "concerns": concerns,
-        "lessons_written": lessons,
-        "note": ("Hand this file (plus training_data/trade_journal.jsonl and "
-                 "training_data/slippage_log.jsonl) to the reviewing model for deep "
-                 "post-mortem and code-level fixes."),
-    }
-    out_dir = ROOT / "statements"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"postmortem_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
+    agg, concerns, lessons = report["aggregates"], report["concerns"], report["lessons_written"]
     print(f"=== POST-MORTEM — last {args.days:g} days "
           f"({agg['n_marks']} marks, {agg['n_orders']} orders) ===")
     print(f"window return {agg['window_return']:+.2%}   worst DD {agg['worst_drawdown']:+.1%}   "
@@ -254,7 +272,7 @@ def main():
     if not concerns:
         print("  no concerns — book behaving within specification")
     print(f"lessons written to skill book: {len(lessons)}")
-    print(f"report: {out_path}")
+    print(f"report: {report.get('report_path')}")
 
 
 if __name__ == "__main__":

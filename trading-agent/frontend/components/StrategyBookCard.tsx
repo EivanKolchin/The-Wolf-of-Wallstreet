@@ -43,9 +43,20 @@ const fmtUsd = (n: number) =>
   `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cleanSym = (s: string) => s.replace("USDT", "").replace("-USD", "");
 
+type RangeKey = "1D" | "1W" | "1M" | "3M" | "1Y" | "All";
+const RANGES: { key: RangeKey; label: string; seconds: number }[] = [
+  { key: "1D", label: "1D", seconds: 86_400 },
+  { key: "1W", label: "1W", seconds: 7 * 86_400 },
+  { key: "1M", label: "1M", seconds: 30 * 86_400 },
+  { key: "3M", label: "3M", seconds: 90 * 86_400 },
+  { key: "1Y", label: "1Y", seconds: 365 * 86_400 },
+  { key: "All", label: "All", seconds: Infinity },
+];
+
 export function StrategyBookCard() {
   const [data, setData] = useState<StrategyPortfolio | null>(null);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>("All");
 
   useEffect(() => {
     async function fetchBook() {
@@ -82,15 +93,35 @@ export function StrategyBookCard() {
   const pnl = data?.total_pnl ?? 0;
   const isUp = pnl >= 0;
 
-  const chartData =
-    data?.history?.map((h) => ({
-      t: new Date(h.ts * 1000).toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-      }),
-      value: h.value,
-    })) ?? [];
+  // Filter the net-worth history to the selected range, then format the x-axis label to suit the
+  // window (intraday → clock time; multi-day → dates). ts is kept numeric so the axis is monotonic.
+  const fullHistory = data?.history ?? [];
+  const rangeSeconds = RANGES.find((r) => r.key === range)?.seconds ?? Infinity;
+  const nowSec = Date.now() / 1000;
+  const windowed =
+    rangeSeconds === Infinity ? fullHistory : fullHistory.filter((h) => h.ts >= nowSec - rangeSeconds);
+  // if the range is emptier than a couple of points, fall back to whatever history exists
+  const usable = windowed.length >= 2 ? windowed : fullHistory;
+  const spanSeconds = usable.length ? usable[usable.length - 1].ts - usable[0].ts : 0;
+  const intraday = spanSeconds > 0 && spanSeconds <= 2 * 86_400;
+
+  // NOTE: recharts `scale="time"` interprets the numeric domain as MILLISECONDS, but our
+  // history `ts` is Unix SECONDS. Feed the axis ms (below) and format ms directly — the
+  // previous code fed seconds and multiplied by 1000 in the formatter, so d3 spaced ticks
+  // 1000× too close and every label collapsed to the same clock time ("fused" numbers).
+  const fmtTick = (tsMs: number) =>
+    new Date(tsMs).toLocaleString("en-US",
+      intraday
+        ? { hour: "2-digit", minute: "2-digit" }
+        : spanSeconds <= 120 * 86_400
+          ? { month: "short", day: "numeric" }
+          : { month: "short", year: "2-digit" });
+
+  const chartData = usable.map((h) => ({ ts: h.ts * 1000, value: h.value }));
+  // range-window return (first→last of the visible window) for the sub-label
+  const winFirst = usable.length ? usable[0].value : 0;
+  const winLast = usable.length ? usable[usable.length - 1].value : 0;
+  const winPct = winFirst > 0 ? ((winLast - winFirst) / winFirst) * 100 : 0;
 
   const stroke = isUp ? "#10b981" : "#f43f5e";
 
@@ -143,10 +174,34 @@ export function StrategyBookCard() {
 
               {/* Net-worth line chart */}
               <div className="col-span-1 lg:col-span-2 h-44">
-                <p className="text-[11px] tracking-wider text-zinc-400 uppercase mb-2">
-                  Net Worth Over Time
-                </p>
-                <ResponsiveContainer width="100%" height="90%">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[11px] tracking-wider text-zinc-400 uppercase">
+                    Net Worth Over Time
+                    {usable.length >= 2 && (
+                      <span className={cn("ml-2 font-mono", winPct >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                        {winPct >= 0 ? "+" : ""}{winPct.toFixed(2)}% {range}
+                      </span>
+                    )}
+                  </p>
+                  <div className="flex gap-0.5 rounded-md border border-[#1f1f22] bg-[#0A0A0A] p-0.5">
+                    {RANGES.map((r) => (
+                      <button
+                        key={r.key}
+                        type="button"
+                        onClick={() => setRange(r.key)}
+                        className={cn(
+                          "rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+                          range === r.key
+                            ? "bg-zinc-200 text-zinc-900"
+                            : "text-zinc-500 hover:text-zinc-200"
+                        )}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height="82%">
                   <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
@@ -156,9 +211,13 @@ export function StrategyBookCard() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f1f22" vertical={false} />
                     <XAxis
-                      dataKey="t"
+                      dataKey="ts"
+                      type="number"
+                      scale="time"
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={fmtTick}
                       tick={{ fontSize: 9, fill: "#71717a" }}
-                      minTickGap={40}
+                      minTickGap={44}
                       axisLine={{ stroke: "#27272a" }}
                       tickLine={false}
                     />
@@ -178,6 +237,7 @@ export function StrategyBookCard() {
                         fontSize: 12,
                       }}
                       labelStyle={{ color: "#a1a1aa" }}
+                      labelFormatter={(ts) => new Date(Number(ts)).toLocaleString()}
                       formatter={(v) => [fmtUsd(Number(v)), "Net worth"]}
                     />
                     <Area

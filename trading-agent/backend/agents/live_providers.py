@@ -38,11 +38,12 @@ class Binance4hBarProvider:
     far less often than the cache lifetime, so this re-pulls a couple of times a day)."""
 
     def __init__(self, *, limit: int = 500, ttl_seconds: float = 3600.0, testnet: Optional[bool] = None):
-        from backend.core.config import settings
         self.limit = limit
         self.ttl = ttl_seconds
-        tn = settings.BINANCE_FUTURES_TESTNET if testnet is None else testnet
-        self.base = "https://testnet.binancefuture.com" if tn else "https://fapi.binance.com"
+        # ALWAYS mainnet for market DATA — testnet klines are synthetic (thin, fabricated prices)
+        # and the sleeve's breakout/ATR/EMA signals are meaningless on them. Order ROUTING (a
+        # separate broker) still honours the testnet flag; public data must be real.
+        self.base = "https://fapi.binance.com"
         self._cache: dict[str, Tuple[float, pd.DataFrame]] = {}
 
     def get_bars(self, symbol: str) -> Optional[pd.DataFrame]:
@@ -77,10 +78,8 @@ class BinanceMultiTFProvider:
     _INTERVALS = {"5m": 1200, "1h": 300, "4h": 300}
 
     def __init__(self, *, ttl_seconds: float = 900.0, testnet: Optional[bool] = None):
-        from backend.core.config import settings
         self.ttl = ttl_seconds
-        tn = settings.BINANCE_FUTURES_TESTNET if testnet is None else testnet
-        self.base = "https://testnet.binancefuture.com" if tn else "https://fapi.binance.com"
+        self.base = "https://fapi.binance.com"   # market data is always mainnet (see Binance4hBarProvider)
         self._cache: dict[str, Tuple[float, dict]] = {}
 
     def _klines(self, symbol: str, interval: str, limit: int) -> Optional[pd.DataFrame]:

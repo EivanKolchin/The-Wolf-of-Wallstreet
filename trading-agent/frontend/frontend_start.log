@@ -1,0 +1,44 @@
+
+> trading-agent-frontend@0.1.0 prod
+> node scripts/prod-start.mjs
+
+[prod-start] Source changed since last build (or no build found) — building...
+  ▲ Next.js 14.2.3
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/12) ...
+   Generating static pages (3/12) 
+   Generating static pages (6/12) 
+   Generating static pages (9/12) 
+ ✓ Generating static pages (12/12)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    148 B          88.8 kB
+├ ○ /_not-found                          879 B          89.5 kB
+├ ○ /assets                              4.17 kB        99.6 kB
+├ ○ /audit                               2.15 kB        90.8 kB
+├ ○ /dashboard                           126 kB          221 kB
+├ ○ /news                                4.97 kB         100 kB
+├ ○ /performance                         6.21 kB        94.8 kB
+├ ○ /positions                           2.75 kB        91.4 kB
+├ ○ /settings                            17.3 kB         120 kB
+└ ○ /signals                             148 B          88.8 kB
++ First Load JS shared by all            88.6 kB
+  ├ chunks/7023-cf8cf02732be220c.js      31.6 kB
+  ├ chunks/fd9d1056-a8890639914b9a39.js  53.6 kB
+  └ other shared chunks (total)          3.35 kB
+
+
+○  (Static)  prerendered as static content
+
+[prod-start] Build OK — starting production server.
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 916ms

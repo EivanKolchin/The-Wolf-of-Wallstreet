@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { subscribeToLiveWs } from "./api";
+import { API_BASE, subscribeToLiveWs } from "./api";
 import { PortfolioStatus, Trade, NewsImpact } from "./types";
 
 interface AppState {
@@ -51,7 +51,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                     return { ...prev, signals: [data, ...prev.signals].slice(0, 20) };
                 }
                 if (topic === "trade") {
-                    return { ...prev, positions: [data, ...prev.positions.filter(p => p.id !== data.id)] };
+                    // Closed trades leave the positions list; open ones upsert.
+                    const rest = prev.positions.filter(p => p.id !== data.id);
+                    return { ...prev, positions: data?.status === "closed" ? rest : [data, ...rest] };
                 }
                 if (topic === "news") {
                     return { ...prev, news: data };
@@ -61,7 +63,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         });
 
         // fetch initial from API
-        fetch("http://127.0.0.1:8000/api/setup/config")
+        fetch(`${API_BASE}/setup/config`)
             .then((res) => res.json())
             .then((data) => {
                 setState((prev) => ({
@@ -74,7 +76,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             })
             .catch(console.error);
 
-        return () => ws.close();
+        // Seed open positions from the DB so the positions page shows existing
+        // (paper) trades on load instead of waiting for the next WS trade event.
+        const seedPositions = () =>
+            fetch(`${API_BASE}/positions`)
+                .then((res) => res.json())
+                .then((rows) => {
+                    if (Array.isArray(rows)) {
+                        setState((prev) => ({ ...prev, positions: rows }));
+                    }
+                })
+                .catch(console.error);
+        seedPositions();
+        const positionsPoll = setInterval(seedPositions, 30000);
+
+        return () => { clearInterval(positionsPoll); ws.close(); };
     }, []);
 
     return (

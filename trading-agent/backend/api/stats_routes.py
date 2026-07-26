@@ -190,7 +190,10 @@ def _trade_stats(trades: list[Trade]) -> dict:
         "avg_holding_minutes": round(avg_hold_min, 1),
         "trades_per_day": round(trades_per_day, 3),
         "sharpe_per_trade": round(_sharpe(pnls_pct), 3),
-        "sortino_per_trade": round(_sortino(pnls_pct), 3),
+        # Guard inf/nan like profit_factor above: _sortino returns inf when there are no losing
+        # trades (dd==0, mu>0). Starlette's JSONResponse uses allow_nan=False, so an unguarded inf
+        # would raise on serialization → HTTP 500 → the whole performance page renders blank.
+        "sortino_per_trade": (lambda s: round(s, 3) if math.isfinite(s) else None)(_sortino(pnls_pct)),
         "avg_nn_confidence": round((sum(confs) / len(confs)) if confs else 0.0, 4),
         "avg_size_usd": round((sum(sizes) / len(sizes)) if sizes else 0.0, 2),
         "exit_reasons": exit_reasons,

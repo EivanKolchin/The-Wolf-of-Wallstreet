@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,6 +11,25 @@ import feedparser
 from structlog import get_logger
 
 log = get_logger("data.news_feed")
+
+_NONALNUM = re.compile(r"[^a-z0-9 ]+")
+_WS = re.compile(r"\s+")
+# trailing live-blog / section junk that varies across outlets for the SAME story
+_SUFFIX_JUNK = re.compile(
+    r"\b(business live|live updates?|live blog|as it happened|latest news|breaking|"
+    r"reuters|associated press|ap|cnbc|bloomberg|watch|video|analysis)\b")
+
+
+def _content_key(headline: str) -> str:
+    """Content-based dedup key: lowercased, punctuation/whitespace-normalized, with common
+    cross-outlet suffix junk stripped, then hashed. The SAME story from different sources (or
+    re-posted with different casing/punctuation) collapses to ONE key — unlike the old
+    headline+domain hash, which let every outlet's copy through as 'new'."""
+    h = (headline or "").lower()
+    h = _NONALNUM.sub(" ", h)
+    h = _SUFFIX_JUNK.sub(" ", h)
+    h = _WS.sub(" ", h).strip()
+    return hashlib.sha256(h.encode("utf-8")).hexdigest()
 
 DEFAULT_RSS_FEEDS = [
     "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664",
@@ -43,21 +63,26 @@ class NewsIngestionPipeline:
         self,
         rss_urls: List[str] = DEFAULT_RSS_FEEDS,
         poll_interval_seconds: int = 60,
-        on_article: Callable[[NewsArticle], Coroutine] = None
+        on_article: Callable[[NewsArticle], Coroutine] = None,
+        redis=None,
+        seen_ttl_seconds: int = 72 * 3600,
     ):
         self.rss_urls = rss_urls
         self.poll_interval_seconds = poll_interval_seconds
-        
+
         async def noop(article): pass
         self.on_article = on_article or noop
-        
+
         self.running = False
         self.tasks: List[asyncio.Task] = []
-        
-        # Deduplication cache
+
+        # Deduplication cache: in-memory (within a run) + optional Redis (across restarts). The
+        # Redis layer means a backend restart no longer re-emits every recent story as 'new'.
         self.seen_hashes_queue = deque(maxlen=10000)
         self.seen_hashes_set = set()
         self.cache_lock = asyncio.Lock()
+        self.redis = redis
+        self.seen_ttl_seconds = int(seen_ttl_seconds)
 
     def filter_relevant(self, article: NewsArticle) -> bool:
         headline_lower = article.headline.lower()
@@ -82,17 +107,26 @@ class NewsIngestionPipeline:
         return False
 
     async def _add_to_seen(self, h: str) -> bool:
+        """Return True if ``h`` is NEW (emit it), False if already seen. Checks the in-memory set
+        first (fast, within-run), then an atomic Redis SET-NX (cross-restart / cross-process)."""
         async with self.cache_lock:
             if h in self.seen_hashes_set:
                 return False
-                
             if len(self.seen_hashes_queue) == self.seen_hashes_queue.maxlen:
                 oldest = self.seen_hashes_queue.popleft()
                 self.seen_hashes_set.discard(oldest)
-                
             self.seen_hashes_queue.append(h)
             self.seen_hashes_set.add(h)
-            return True
+
+        if self.redis is not None:
+            try:   # NX = set only if absent → returns truthy when NEW, None/False when it existed
+                was_new = await self.redis.set(f"news:seen:{h}", "1",
+                                               ex=self.seen_ttl_seconds, nx=True)
+                if not was_new:
+                    return False       # emitted in a previous run — suppress the repeat
+            except Exception:
+                pass                    # redis hiccup → fall back to in-memory dedup only
+        return True
 
     def _parse_published_date(self, entry) -> datetime:
         # feedparser standardises to 'published_parsed' struct_time usually
@@ -127,10 +161,11 @@ class NewsIngestionPipeline:
                     if not headline:
                         continue
                         
-                    raw_str = headline + domain
-                    art_hash = hashlib.sha256(raw_str.encode('utf-8')).hexdigest()
-                    
-                    # Deduplicate
+                    # CONTENT-based hash (no domain) so the same story from a different outlet
+                    # is recognised as a duplicate instead of re-emitted.
+                    art_hash = _content_key(headline)
+
+                    # Deduplicate (in-memory + cross-restart Redis)
                     if await self._add_to_seen(art_hash):
                         
                         published_at = self._parse_published_date(entry)

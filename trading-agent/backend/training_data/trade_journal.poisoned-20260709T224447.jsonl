@@ -1,0 +1,746 @@
+{"ts": 1783200040.687, "iso": "2026-07-04T21:20:40+00:00", "kind": "mark", "equity": 100000.0, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783200041.688, "iso": "2026-07-04T21:20:41+00:00", "kind": "rebalance", "n_orders": 6, "n_skipped": 7, "gross": 0.3852, "net": 0.3852, "equity": 100000.0, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.91"}, "overlay": {}, "paper": true}
+{"ts": 1783200041.69, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.0332, "delta": 0.0332, "decision_price": 62709.8, "notional": 3324.83, "paper": true}
+{"ts": 1783200041.692, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.0235, "delta": 0.0235, "decision_price": 1758.53, "notional": 2351.11, "paper": true}
+{"ts": 1783200041.694, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 712.5999755859375, "notional": 9460.77, "paper": true}
+{"ts": 1783200041.697, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 744.780029296875, "notional": 9460.77, "paper": true}
+{"ts": 1783200041.698, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 73.3499984741211, "notional": 9460.77, "paper": true}
+{"ts": 1783200041.699, "iso": "2026-07-04T21:20:41+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.0207, "delta": 0.0207, "decision_price": 1.1748, "notional": 2073.79, "paper": true}
+{"ts": 1783200934.976, "iso": "2026-07-04T21:35:34+00:00", "kind": "mark", "equity": 100000.0, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783200936.357, "iso": "2026-07-04T21:35:36+00:00", "kind": "rebalance", "n_orders": 5, "n_skipped": 8, "gross": 0.3722, "net": 0.3722, "equity": 100000.0, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.91"}, "overlay": {}, "paper": true}
+{"ts": 1783200936.36, "iso": "2026-07-04T21:35:36+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.0336, "delta": 0.0336, "decision_price": 62732.2, "notional": 3361.76, "paper": true}
+{"ts": 1783200936.362, "iso": "2026-07-04T21:35:36+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.0238, "delta": 0.0238, "decision_price": 1758.21, "notional": 2376.9, "paper": true}
+{"ts": 1783200936.364, "iso": "2026-07-04T21:35:36+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 712.5999755859375, "notional": 9460.77, "paper": true}
+{"ts": 1783200936.366, "iso": "2026-07-04T21:35:36+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 744.780029296875, "notional": 9460.77, "paper": true}
+{"ts": 1783200936.368, "iso": "2026-07-04T21:35:36+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 73.3499984741211, "notional": 9460.77, "paper": true}
+{"ts": 1783204539.965, "iso": "2026-07-04T22:35:39+00:00", "kind": "mark", "equity": 99984.59, "book_return": 1.6e-05, "drawdown": -0.0002}
+{"ts": 1783204539.968, "iso": "2026-07-04T22:35:39+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": 5.1e-05}
+{"ts": 1783204539.969, "iso": "2026-07-04T22:35:39+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": -3.5e-05}
+{"ts": 1783204539.969, "iso": "2026-07-04T22:35:39+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783204539.969, "iso": "2026-07-04T22:35:39+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783204539.969, "iso": "2026-07-04T22:35:39+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783204541.157, "iso": "2026-07-04T22:35:41+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3669, "net": 0.3669, "equity": 99984.59, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783208144.01, "iso": "2026-07-04T23:35:44+00:00", "kind": "mark", "equity": 99988.97, "book_return": 4.4e-05, "drawdown": -0.0001}
+{"ts": 1783208144.015, "iso": "2026-07-04T23:35:44+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": 5e-06}
+{"ts": 1783208144.015, "iso": "2026-07-04T23:35:44+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": 3.9e-05}
+{"ts": 1783208144.019, "iso": "2026-07-04T23:35:44+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783208144.021, "iso": "2026-07-04T23:35:44+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783208144.021, "iso": "2026-07-04T23:35:44+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783208145.137, "iso": "2026-07-04T23:35:45+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3818, "net": 0.3818, "equity": 99988.97, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.97"}, "overlay": {}, "paper": true}
+{"ts": 1783217191.122, "iso": "2026-07-05T02:06:31+00:00", "kind": "mark", "equity": 99988.97, "book_return": 0.0, "drawdown": -0.0001}
+{"ts": 1783217191.127, "iso": "2026-07-05T02:06:31+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": 0.0}
+{"ts": 1783217191.129, "iso": "2026-07-05T02:06:31+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": 0.0}
+{"ts": 1783217191.133, "iso": "2026-07-05T02:06:31+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783217191.135, "iso": "2026-07-05T02:06:31+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783217191.138, "iso": "2026-07-05T02:06:31+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783217201.897, "iso": "2026-07-05T02:06:41+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 12, "gross": 0.3872, "net": 0.3872, "equity": 99988.97, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783217201.897, "iso": "2026-07-05T02:06:41+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.0228, "delta": 0.0228, "decision_price": 1.1737, "notional": 2281.46, "paper": true}
+{"ts": 1783221157.104, "iso": "2026-07-05T03:12:37+00:00", "kind": "mark", "equity": 99987.83, "book_return": 0.0, "drawdown": -0.0001}
+{"ts": 1783221157.11, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": 0.0}
+{"ts": 1783221157.116, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": 0.0}
+{"ts": 1783221157.12, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783221157.124, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783221157.126, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783221157.128, "iso": "2026-07-05T03:12:37+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0228, "contribution": 0.0}
+{"ts": 1783221164.039, "iso": "2026-07-05T03:12:44+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3904, "net": 0.3904, "equity": 99987.83, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783224765.99, "iso": "2026-07-05T04:12:45+00:00", "kind": "mark", "equity": 99911.3, "book_return": -0.000765, "drawdown": -0.0009}
+{"ts": 1783224765.991, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": -0.000115}
+{"ts": 1783224765.993, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": 3e-05}
+{"ts": 1783224765.993, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783224765.993, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783224765.993, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783224765.993, "iso": "2026-07-05T04:12:45+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0228, "contribution": -0.00068}
+{"ts": 1783224766.95, "iso": "2026-07-05T04:12:46+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3894, "net": 0.3894, "equity": 99911.3, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783228369.002, "iso": "2026-07-05T05:12:49+00:00", "kind": "mark", "equity": 99921.7, "book_return": 0.000104, "drawdown": -0.0008}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0336, "contribution": 9.5e-05}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0238, "contribution": 4.7e-05}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783228369.003, "iso": "2026-07-05T05:12:49+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0228, "contribution": -3.8e-05}
+{"ts": 1783228369.546, "iso": "2026-07-05T05:12:49+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3734, "net": 0.3734, "equity": 99921.7, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783234546.057, "iso": "2026-07-05T06:55:46+00:00", "kind": "mark", "equity": 100000.0, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "rebalance", "n_orders": 6, "n_skipped": 7, "gross": 0.3894, "net": 0.3894, "equity": 100000.0, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.0358, "delta": 0.0358, "decision_price": 62835.0, "notional": 3582.09, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.0251, "delta": 0.0251, "decision_price": 1764.69, "notional": 2510.85, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 712.5999755859375, "notional": 9460.77, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 744.780029296875, "notional": 9460.77, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0946, "delta": 0.0946, "decision_price": 73.3499984741211, "notional": 9460.77, "paper": true}
+{"ts": 1783234548.398, "iso": "2026-07-05T06:55:48+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.0262, "delta": 0.0262, "decision_price": 1.1386, "notional": 2620.91, "paper": true}
+{"ts": 1783238150.818, "iso": "2026-07-05T07:55:50+00:00", "kind": "mark", "equity": 100058.37, "book_return": 0.000769, "drawdown": 0.0}
+{"ts": 1783238150.823, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 5.2e-05}
+{"ts": 1783238150.824, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -9.5e-05}
+{"ts": 1783238150.824, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783238150.824, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783238150.824, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783238150.824, "iso": "2026-07-05T07:55:50+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.000813}
+{"ts": 1783238151.693, "iso": "2026-07-05T07:55:51+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3855, "net": 0.3855, "equity": 100058.37, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 1.04) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.79"}, "overlay": {}, "paper": true}
+{"ts": 1783241753.983, "iso": "2026-07-05T08:55:53+00:00", "kind": "mark", "equity": 99987.89, "book_return": -0.000704, "drawdown": -0.0007}
+{"ts": 1783241753.987, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -2.7e-05}
+{"ts": 1783241753.989, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0001}
+{"ts": 1783241753.992, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783241753.994, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783241753.994, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783241753.996, "iso": "2026-07-05T08:55:53+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000777}
+{"ts": 1783241755.133, "iso": "2026-07-05T08:55:55+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.391, "net": 0.391, "equity": 99987.89, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.90) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.82"}, "overlay": {}, "paper": true}
+{"ts": 1783245358.715, "iso": "2026-07-05T09:55:58+00:00", "kind": "mark", "equity": 99933.0, "book_return": -0.000549, "drawdown": -0.0013}
+{"ts": 1783245358.718, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -0.000158}
+{"ts": 1783245358.72, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -0.000119}
+{"ts": 1783245358.721, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783245358.721, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783245358.722, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783245358.723, "iso": "2026-07-05T09:55:58+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000272}
+{"ts": 1783245359.792, "iso": "2026-07-05T09:55:59+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3938, "net": 0.3938, "equity": 99933.0, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.72) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.86"}, "overlay": {}, "paper": true}
+{"ts": 1783248962.946, "iso": "2026-07-05T10:56:02+00:00", "kind": "mark", "equity": 99953.06, "book_return": 0.000201, "drawdown": -0.0011}
+{"ts": 1783248962.95, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000111}
+{"ts": 1783248962.95, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 5.5e-05}
+{"ts": 1783248962.951, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783248962.952, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783248962.953, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783248962.953, "iso": "2026-07-05T10:56:02+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 3.5e-05}
+{"ts": 1783248963.85, "iso": "2026-07-05T10:56:03+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.371, "net": 0.371, "equity": 99953.06, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.57", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.89"}, "overlay": {}, "paper": true}
+{"ts": 1783252566.611, "iso": "2026-07-05T11:56:06+00:00", "kind": "mark", "equity": 99960.88, "book_return": 7.8e-05, "drawdown": -0.001}
+{"ts": 1783252566.614, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -1e-05}
+{"ts": 1783252566.614, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 1.6e-05}
+{"ts": 1783252566.615, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783252566.615, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783252566.615, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783252566.615, "iso": "2026-07-05T11:56:06+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 7.2e-05}
+{"ts": 1783252567.656, "iso": "2026-07-05T11:56:07+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3904, "net": 0.3904, "equity": 99960.88, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.71", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.93"}, "overlay": {}, "paper": true}
+{"ts": 1783256170.248, "iso": "2026-07-05T12:56:10+00:00", "kind": "mark", "equity": 99971.2, "book_return": 0.000103, "drawdown": -0.0009}
+{"ts": 1783256170.25, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -2.9e-05}
+{"ts": 1783256170.251, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 4.9e-05}
+{"ts": 1783256170.251, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783256170.251, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783256170.251, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783256170.251, "iso": "2026-07-05T12:56:10+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 8.3e-05}
+{"ts": 1783256171.364, "iso": "2026-07-05T12:56:11+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3878, "net": 0.3878, "equity": 99971.2, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.85", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783259774.457, "iso": "2026-07-05T13:56:14+00:00", "kind": "mark", "equity": 99974.28, "book_return": 3.1e-05, "drawdown": -0.0008}
+{"ts": 1783259774.463, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 4.1e-05}
+{"ts": 1783259774.463, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 8e-06}
+{"ts": 1783259774.463, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783259774.465, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783259774.465, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783259774.467, "iso": "2026-07-05T13:56:14+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -1.8e-05}
+{"ts": 1783259775.979, "iso": "2026-07-05T13:56:15+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.389, "net": 0.389, "equity": 99974.28, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783273708.237, "iso": "2026-07-05T17:48:28+00:00", "kind": "mark", "equity": 99974.28, "book_return": 0.0, "drawdown": -0.0008}
+{"ts": 1783273708.521, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.0}
+{"ts": 1783273708.524, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0}
+{"ts": 1783273708.536, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783273708.552, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783273708.657, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783273708.661, "iso": "2026-07-05T17:48:28+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.0}
+{"ts": 1783273717.419, "iso": "2026-07-05T17:48:37+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.3972, "net": 0.3972, "equity": 99974.28, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783277320.16, "iso": "2026-07-05T18:48:40+00:00", "kind": "mark", "equity": 99996.48, "book_return": 0.000222, "drawdown": -0.0006}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -4.2e-05}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.000197}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783277320.167, "iso": "2026-07-05T18:48:40+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 6.7e-05}
+{"ts": 1783277321.26, "iso": "2026-07-05T18:48:41+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 12, "gross": 0.4147, "net": 0.4147, "equity": 99996.48, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.76", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783277321.264, "iso": "2026-07-05T18:48:41+00:00", "kind": "order", "symbol": "SOLUSDT", "target_weight": 0.0217, "delta": 0.0217, "decision_price": 81.1, "notional": 2164.97, "paper": true}
+{"ts": 1783280928.208, "iso": "2026-07-05T19:48:48+00:00", "kind": "mark", "equity": 99995.12, "book_return": -3e-06, "drawdown": -0.0006}
+{"ts": 1783280928.213, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 2.9e-05}
+{"ts": 1783280928.213, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 3.5e-05}
+{"ts": 1783280928.213, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783280928.217, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783280928.217, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783280928.217, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -4.6e-05}
+{"ts": 1783280928.217, "iso": "2026-07-05T19:48:48+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -2.1e-05}
+{"ts": 1783280929.417, "iso": "2026-07-05T19:48:49+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4146, "net": 0.4146, "equity": 99995.12, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.79", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.95"}, "overlay": {}, "paper": true}
+{"ts": 1783284532.177, "iso": "2026-07-05T20:48:52+00:00", "kind": "mark", "equity": 99982.4, "book_return": -0.000127, "drawdown": -0.0008}
+{"ts": 1783284532.178, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -4.5e-05}
+{"ts": 1783284532.179, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -6.7e-05}
+{"ts": 1783284532.18, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783284532.181, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783284532.181, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783284532.181, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -5e-06}
+{"ts": 1783284532.182, "iso": "2026-07-05T20:48:52+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -1.1e-05}
+{"ts": 1783284533.183, "iso": "2026-07-05T20:48:53+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4145, "net": 0.4145, "equity": 99982.4, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.83", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783288134.479, "iso": "2026-07-05T21:48:54+00:00", "kind": "mark", "equity": 100034.58, "book_return": 0.000522, "drawdown": -0.0002}
+{"ts": 1783288134.48, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000149}
+{"ts": 1783288134.481, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 6.4e-05}
+{"ts": 1783288134.481, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783288134.482, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783288134.482, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783288134.483, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.000164}
+{"ts": 1783288134.483, "iso": "2026-07-05T21:48:54+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.000144}
+{"ts": 1783288134.96, "iso": "2026-07-05T21:48:54+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4145, "net": 0.4145, "equity": 100034.58, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.87", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.97"}, "overlay": {}, "paper": true}
+{"ts": 1783303328.794, "iso": "2026-07-06T02:02:08+00:00", "kind": "mark", "equity": 100034.58, "book_return": 0.0, "drawdown": -0.0002}
+{"ts": 1783303328.794, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.0}
+{"ts": 1783303328.794, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0}
+{"ts": 1783303328.794, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783303328.794, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783303328.858, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783303328.858, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.0}
+{"ts": 1783303328.894, "iso": "2026-07-06T02:02:08+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.0}
+{"ts": 1783303334.278, "iso": "2026-07-06T02:02:14+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4145, "net": 0.4145, "equity": 100034.58, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783306938.422, "iso": "2026-07-06T03:02:18+00:00", "kind": "mark", "equity": 100063.97, "book_return": 0.000294, "drawdown": 0.0}
+{"ts": 1783306938.426, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000274}
+{"ts": 1783306938.432, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 2.7e-05}
+{"ts": 1783306938.432, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783306938.434, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783306938.435, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783306938.435, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.000145}
+{"ts": 1783306938.437, "iso": "2026-07-06T03:02:18+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.000151}
+{"ts": 1783306939.824, "iso": "2026-07-06T03:02:19+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4167, "net": 0.4167, "equity": 100063.97, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783310693.08, "iso": "2026-07-06T04:04:53+00:00", "kind": "mark", "equity": 100063.97, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783310693.086, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.0}
+{"ts": 1783310693.088, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0}
+{"ts": 1783310693.088, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783310693.09, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783310693.094, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783310693.094, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.0}
+{"ts": 1783310693.096, "iso": "2026-07-06T04:04:53+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.0}
+{"ts": 1783310893.69, "iso": "2026-07-06T04:08:13+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4167, "net": 0.4167, "equity": 100063.97, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "mark", "equity": 100063.97, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.0}
+{"ts": 1783319777.084, "iso": "2026-07-06T06:36:17+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.0}
+{"ts": 1783319777.242, "iso": "2026-07-06T06:36:17+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4167, "net": 0.4167, "equity": 100063.97, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783368241.148, "iso": "2026-07-06T20:04:01+00:00", "kind": "mark", "equity": 100063.97, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783368241.154, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.0}
+{"ts": 1783368241.156, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.0}
+{"ts": 1783368241.159, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783368241.162, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783368241.166, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783368241.173, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.0}
+{"ts": 1783368241.175, "iso": "2026-07-06T20:04:01+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.0}
+{"ts": 1783368246.621, "iso": "2026-07-06T20:04:06+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4167, "net": 0.4167, "equity": 100063.97, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783371853.239, "iso": "2026-07-06T21:04:13+00:00", "kind": "mark", "equity": 100729.8, "book_return": 0.006654, "drawdown": 0.0}
+{"ts": 1783371853.242, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000201}
+{"ts": 1783371853.243, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.000131}
+{"ts": 1783371853.243, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.001357}
+{"ts": 1783371853.245, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.000826}
+{"ts": 1783371853.245, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.00396}
+{"ts": 1783371853.245, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000125}
+{"ts": 1783371853.245, "iso": "2026-07-06T21:04:13+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.000305}
+{"ts": 1783371854.085, "iso": "2026-07-06T21:04:14+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4591, "net": 0.4591, "equity": 100729.8, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.97) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.81"}, "overlay": {}, "paper": true}
+{"ts": 1783375457.453, "iso": "2026-07-06T22:04:17+00:00", "kind": "mark", "equity": 100832.78, "book_return": 0.001022, "drawdown": 0.0}
+{"ts": 1783375457.457, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000327}
+{"ts": 1783375457.459, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.00029}
+{"ts": 1783375457.46, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783375457.461, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783375457.462, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783375457.464, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.000218}
+{"ts": 1783375457.465, "iso": "2026-07-06T22:04:17+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.000187}
+{"ts": 1783375458.593, "iso": "2026-07-06T22:04:18+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.459, "net": 0.459, "equity": 100832.78, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.79) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.84"}, "overlay": {}, "paper": true}
+{"ts": 1783379060.461, "iso": "2026-07-06T23:04:20+00:00", "kind": "mark", "equity": 100795.21, "book_return": -0.000373, "drawdown": -0.0004}
+{"ts": 1783379060.461, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -6.8e-05}
+{"ts": 1783379060.461, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -8e-05}
+{"ts": 1783379060.461, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783379060.461, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783379060.471, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783379060.471, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000102}
+{"ts": 1783379060.472, "iso": "2026-07-06T23:04:20+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.000123}
+{"ts": 1783379061.133, "iso": "2026-07-06T23:04:21+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.459, "net": 0.459, "equity": 100795.21, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.62) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.88"}, "overlay": {}, "paper": true}
+{"ts": 1783382661.987, "iso": "2026-07-07T00:04:21+00:00", "kind": "mark", "equity": 100749.46, "book_return": -0.000454, "drawdown": -0.0008}
+{"ts": 1783382661.991, "iso": "2026-07-07T00:04:21+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -0.00014}
+{"ts": 1783382661.994, "iso": "2026-07-07T00:04:21+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -0.000139}
+{"ts": 1783382661.996, "iso": "2026-07-07T00:04:21+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783382661.998, "iso": "2026-07-07T00:04:21+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783382662.001, "iso": "2026-07-07T00:04:22+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783382662.003, "iso": "2026-07-07T00:04:22+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -6.4e-05}
+{"ts": 1783382662.004, "iso": "2026-07-07T00:04:22+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.00011}
+{"ts": 1783382663.204, "iso": "2026-07-07T00:04:23+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4593, "net": 0.4593, "equity": 100749.46, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.65", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.91"}, "overlay": {}, "paper": true}
+{"ts": 1783386265.66, "iso": "2026-07-07T01:04:25+00:00", "kind": "mark", "equity": 100747.3, "book_return": -2.1e-05, "drawdown": -0.0008}
+{"ts": 1783386265.663, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 6e-06}
+{"ts": 1783386265.666, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -5.9e-05}
+{"ts": 1783386265.668, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783386265.671, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783386265.674, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783386265.677, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -1.6e-05}
+{"ts": 1783386265.678, "iso": "2026-07-07T01:04:25+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 4.8e-05}
+{"ts": 1783386266.569, "iso": "2026-07-07T01:04:26+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4593, "net": 0.4593, "equity": 100747.3, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.79", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.95"}, "overlay": {}, "paper": true}
+{"ts": 1783389869.413, "iso": "2026-07-07T02:04:29+00:00", "kind": "mark", "equity": 100717.12, "book_return": -0.0003, "drawdown": -0.0011}
+{"ts": 1783389869.417, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -9.8e-05}
+{"ts": 1783389869.422, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -3.1e-05}
+{"ts": 1783389869.424, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783389869.427, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783389869.43, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783389869.433, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000112}
+{"ts": 1783389869.437, "iso": "2026-07-07T02:04:29+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -5.8e-05}
+{"ts": 1783389870.531, "iso": "2026-07-07T02:04:30+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4593, "net": 0.4593, "equity": 100717.12, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.93", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783393473.525, "iso": "2026-07-07T03:04:33+00:00", "kind": "mark", "equity": 100637.64, "book_return": -0.000789, "drawdown": -0.0019}
+{"ts": 1783393473.53, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -0.000281}
+{"ts": 1783393473.53, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -0.000168}
+{"ts": 1783393473.532, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783393473.533, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783393473.534, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783393473.535, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000205}
+{"ts": 1783393473.536, "iso": "2026-07-07T03:04:33+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.000135}
+{"ts": 1783393474.964, "iso": "2026-07-07T03:04:34+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4595, "net": 0.4595, "equity": 100637.64, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783397080.35, "iso": "2026-07-07T04:04:40+00:00", "kind": "mark", "equity": 100593.05, "book_return": -0.000443, "drawdown": -0.0024}
+{"ts": 1783397080.354, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -0.000101}
+{"ts": 1783397080.356, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -0.000142}
+{"ts": 1783397080.357, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783397080.358, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783397080.359, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783397080.36, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -8.8e-05}
+{"ts": 1783397080.362, "iso": "2026-07-07T04:04:40+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.000112}
+{"ts": 1783397082.696, "iso": "2026-07-07T04:04:42+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4559, "net": 0.4559, "equity": 100593.05, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783400685.362, "iso": "2026-07-07T05:04:45+00:00", "kind": "mark", "equity": 100573.23, "book_return": -0.000197, "drawdown": -0.0026}
+{"ts": 1783400685.364, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -5.9e-05}
+{"ts": 1783400685.365, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -4.9e-05}
+{"ts": 1783400685.366, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783400685.367, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783400685.367, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783400685.367, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -6.5e-05}
+{"ts": 1783400685.369, "iso": "2026-07-07T05:04:45+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -2.4e-05}
+{"ts": 1783400686.466, "iso": "2026-07-07T05:04:46+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.456, "net": 0.456, "equity": 100573.23, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783404288.75, "iso": "2026-07-07T06:04:48+00:00", "kind": "mark", "equity": 100593.13, "book_return": 0.000198, "drawdown": -0.0024}
+{"ts": 1783404288.752, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 5.6e-05}
+{"ts": 1783404288.756, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 5.8e-05}
+{"ts": 1783404288.756, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783404288.758, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783404288.758, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783404288.76, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 4.9e-05}
+{"ts": 1783404288.76, "iso": "2026-07-07T06:04:48+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 3.5e-05}
+{"ts": 1783404289.546, "iso": "2026-07-07T06:04:49+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4546, "net": 0.4546, "equity": 100593.13, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783407892.17, "iso": "2026-07-07T07:04:52+00:00", "kind": "mark", "equity": 100645.3, "book_return": 0.000519, "drawdown": -0.0019}
+{"ts": 1783407892.17, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 0.000106}
+{"ts": 1783407892.172, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 0.000134}
+{"ts": 1783407892.174, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783407892.174, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783407892.176, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783407892.176, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 0.000121}
+{"ts": 1783407892.176, "iso": "2026-07-07T07:04:52+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 0.000158}
+{"ts": 1783407892.942, "iso": "2026-07-07T07:04:52+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.456, "net": 0.456, "equity": 100645.3, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783411494.995, "iso": "2026-07-07T08:04:54+00:00", "kind": "mark", "equity": 100596.96, "book_return": -0.00048, "drawdown": -0.0023}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": -0.000143}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": -0.00013}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -0.000144}
+{"ts": 1783411494.998, "iso": "2026-07-07T08:04:54+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -6.4e-05}
+{"ts": 1783411495.764, "iso": "2026-07-07T08:04:55+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.456, "net": 0.456, "equity": 100596.96, "blocked": null, "news": {"BTC-USD": "news opposes hold (score 0.59) \u2192 veto", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.88"}, "overlay": {}, "paper": true}
+{"ts": 1783422019.5, "iso": "2026-07-07T11:00:19+00:00", "kind": "mark", "equity": 100595.13, "book_return": -1.8e-05, "drawdown": -0.0024}
+{"ts": 1783422019.503, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 7.1e-05}
+{"ts": 1783422019.505, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 6.8e-05}
+{"ts": 1783422019.507, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783422019.509, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783422019.509, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783422019.511, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": -5.4e-05}
+{"ts": 1783422019.515, "iso": "2026-07-07T11:00:19+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": -0.000104}
+{"ts": 1783422020.87, "iso": "2026-07-07T11:00:20+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4561, "net": 0.4561, "equity": 100595.13, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.73", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.93"}, "overlay": {}, "paper": true}
+{"ts": 1783425624.583, "iso": "2026-07-07T12:00:24+00:00", "kind": "mark", "equity": 100623.96, "book_return": 0.000287, "drawdown": -0.0021}
+{"ts": 1783425624.588, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 9.1e-05}
+{"ts": 1783425624.588, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 7.2e-05}
+{"ts": 1783425624.589, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783425624.59, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783425624.591, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783425624.591, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 3.7e-05}
+{"ts": 1783425624.592, "iso": "2026-07-07T12:00:24+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 8.6e-05}
+{"ts": 1783425625.284, "iso": "2026-07-07T12:00:25+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4562, "net": 0.4562, "equity": 100623.96, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.57", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.89"}, "overlay": {}, "paper": true}
+{"ts": 1783429228.623, "iso": "2026-07-07T13:00:28+00:00", "kind": "mark", "equity": 100635.96, "book_return": 0.000119, "drawdown": -0.002}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0358, "contribution": 5.3e-05}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0251, "contribution": 1.1e-05}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0946, "contribution": 0.0}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0262, "contribution": 2.3e-05}
+{"ts": 1783429228.627, "iso": "2026-07-07T13:00:28+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0217, "contribution": 3.2e-05}
+{"ts": 1783429232.287, "iso": "2026-07-07T13:00:32+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4553, "net": 0.4553, "equity": 100635.96, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.70", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783431968.895, "iso": "2026-07-07T13:46:08+00:00", "kind": "mark", "equity": 100000.0, "book_return": 0.0, "drawdown": 0.0}
+{"ts": 1783431970.022, "iso": "2026-07-07T13:46:10+00:00", "kind": "rebalance", "n_orders": 7, "n_skipped": 6, "gross": 0.4512, "net": 0.4512, "equity": 100000.0, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783431970.023, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.0539, "delta": 0.0539, "decision_price": 63241.0, "notional": 5392.0, "paper": true}
+{"ts": 1783431970.025, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.0398, "delta": 0.0398, "decision_price": 1772.56, "notional": 3979.59, "paper": true}
+{"ts": 1783431970.026, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0951, "delta": 0.0951, "decision_price": 713.4600219726562, "notional": 9515.0, "paper": true}
+{"ts": 1783431970.026, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "SOLUSDT", "target_weight": 0.0312, "delta": 0.0312, "decision_price": 80.96, "notional": 3116.21, "paper": true}
+{"ts": 1783431970.028, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.0951, "delta": 0.0951, "decision_price": 749.9349975585938, "notional": 9515.0, "paper": true}
+{"ts": 1783431970.029, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0951, "delta": 0.0951, "decision_price": 73.40899658203125, "notional": 9515.0, "paper": true}
+{"ts": 1783431970.03, "iso": "2026-07-07T13:46:10+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.0409, "delta": 0.0409, "decision_price": 1.1231, "notional": 4087.94, "paper": true}
+{"ts": 1783435573.881, "iso": "2026-07-07T14:46:13+00:00", "kind": "mark", "equity": 99906.34, "book_return": -0.000711, "drawdown": -0.0009}
+{"ts": 1783435573.889, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0539, "contribution": -0.000255}
+{"ts": 1783435573.891, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0398, "contribution": 1.2e-05}
+{"ts": 1783435573.892, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783435573.893, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0312, "contribution": -0.000104}
+{"ts": 1783435573.894, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783435573.896, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783435573.899, "iso": "2026-07-07T14:46:13+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.0409, "contribution": -0.000364}
+{"ts": 1783435575.119, "iso": "2026-07-07T14:46:15+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 12, "gross": 0.4105, "net": 0.4105, "equity": 99906.34, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.83"}, "overlay": {}, "paper": true}
+{"ts": 1783435575.122, "iso": "2026-07-07T14:46:15+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.0, "delta": -0.0409, "decision_price": 1.1131, "notional": 4084.11, "paper": true}
+{"ts": 1783439177.193, "iso": "2026-07-07T15:46:17+00:00", "kind": "mark", "equity": 100090.97, "book_return": 0.001868, "drawdown": 0.0}
+{"ts": 1783439177.198, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0539, "contribution": 0.000769}
+{"ts": 1783439177.199, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0398, "contribution": 0.000563}
+{"ts": 1783439177.2, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783439177.2, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0312, "contribution": 0.000537}
+{"ts": 1783439177.2, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783439177.2, "iso": "2026-07-07T15:46:17+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783439177.961, "iso": "2026-07-07T15:46:17+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 12, "gross": 0.4498, "net": 0.4498, "equity": 100090.97, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.99"}, "overlay": {}, "paper": true}
+{"ts": 1783439177.962, "iso": "2026-07-07T15:46:17+00:00", "kind": "order", "symbol": "XRPUSDT", "target_weight": 0.041, "delta": 0.041, "decision_price": 1.1292, "notional": 4100.47, "paper": true}
+{"ts": 1783442780.398, "iso": "2026-07-07T16:46:20+00:00", "kind": "mark", "equity": 100125.64, "book_return": 0.000367, "drawdown": 0.0}
+{"ts": 1783442780.4, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0539, "contribution": 0.000154}
+{"ts": 1783442780.4, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0398, "contribution": 0.000125}
+{"ts": 1783442780.406, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783442780.406, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0312, "contribution": 3.4e-05}
+{"ts": 1783442780.406, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783442780.406, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783442780.406, "iso": "2026-07-07T16:46:20+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.041, "contribution": 5.4e-05}
+{"ts": 1783442781.273, "iso": "2026-07-07T16:46:21+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4549, "net": 0.4549, "equity": 100125.64, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d71.00", "ETHUSDT": "news leans against long \u2192 de-gear \u00d71.00"}, "overlay": {}, "paper": true}
+{"ts": 1783446383.694, "iso": "2026-07-07T17:46:23+00:00", "kind": "mark", "equity": 100153.55, "book_return": 0.000279, "drawdown": 0.0}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0539, "contribution": 0.000126}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0398, "contribution": 2.9e-05}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0312, "contribution": 0.000174}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783446383.702, "iso": "2026-07-07T17:46:23+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.041, "contribution": -5.1e-05}
+{"ts": 1783446384.438, "iso": "2026-07-07T17:46:24+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4552, "net": 0.4552, "equity": 100153.55, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783450513.513, "iso": "2026-07-07T18:55:13+00:00", "kind": "mark", "equity": 100020.19, "book_return": -0.001332, "drawdown": -0.0013}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.0539, "contribution": -0.000304}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.0398, "contribution": -0.000261}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.0312, "contribution": -0.000422}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0951, "contribution": 0.0}
+{"ts": 1783450513.619, "iso": "2026-07-07T18:55:13+00:00", "kind": "outcome", "symbol": "XRPUSDT", "weight": 0.041, "contribution": -0.000345}
+{"ts": 1783450523.919, "iso": "2026-07-07T18:55:23+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 13, "gross": 0.4404, "net": 0.4404, "equity": 100020.19, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783453050.376, "iso": "2026-07-07T19:37:30+00:00", "kind": "mark", "equity": 99933.34, "book_return": 0.0, "drawdown": -0.0007}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "rebalance", "n_orders": 8, "n_skipped": 7, "gross": 1.0539, "net": 1.0539, "equity": 99933.34, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "A", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "B", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.2045, "delta": 0.2045, "decision_price": 63730.2, "notional": 20433.92, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.1536, "delta": 0.1536, "decision_price": 1787.94, "notional": 15349.73, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.1903, "delta": 0.1903, "decision_price": 707.6400146484375, "notional": 19014.33, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "SOLUSDT", "target_weight": 0.125, "delta": 0.125, "decision_price": 81.3, "notional": 12488.1, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.1903, "delta": 0.1903, "decision_price": 746.7025146484375, "notional": 19014.33, "paper": true}
+{"ts": 1783453051.314, "iso": "2026-07-07T19:37:31+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.1903, "delta": 0.1903, "decision_price": 71.61060333251953, "notional": 19014.33, "paper": true}
+{"ts": 1783457005.914, "iso": "2026-07-07T20:43:25+00:00", "kind": "mark", "equity": 99933.34, "book_return": 0.0, "drawdown": -0.0007}
+{"ts": 1783457006.639, "iso": "2026-07-07T20:43:26+00:00", "kind": "rebalance", "n_orders": 8, "n_skipped": 7, "gross": 1.0547, "net": 1.0547, "equity": 99933.34, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.91", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783457006.639, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "A", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783457006.639, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "B", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783457006.639, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "BTCUSDT", "target_weight": 0.2055, "delta": 0.2055, "decision_price": 63658.0, "notional": 20541.05, "paper": true}
+{"ts": 1783457006.653, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.1509, "delta": 0.1509, "decision_price": 1783.94, "notional": 15081.37, "paper": true}
+{"ts": 1783457006.653, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.1896, "delta": 0.1896, "decision_price": 709.4299926757812, "notional": 18942.78, "paper": true}
+{"ts": 1783457006.653, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "SOLUSDT", "target_weight": 0.1262, "delta": 0.1262, "decision_price": 81.17, "notional": 12608.32, "paper": true}
+{"ts": 1783457006.653, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.1896, "delta": 0.1896, "decision_price": 747.7100219726562, "notional": 18942.78, "paper": true}
+{"ts": 1783457006.653, "iso": "2026-07-07T20:43:26+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.1896, "delta": 0.1896, "decision_price": 72.2300033569336, "notional": 18942.78, "paper": true}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "mark", "equity": 99516.57, "book_return": -0.002982, "drawdown": -0.0048}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.2055, "contribution": -0.001078}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.1509, "contribution": -0.000925}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.1262, "contribution": -0.000979}
+{"ts": 1783460608.546, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783460608.562, "iso": "2026-07-07T21:43:28+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783460609.519, "iso": "2026-07-07T21:43:29+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 15, "gross": 1.052, "net": 1.052, "equity": 99516.57, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.90", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.97"}, "overlay": {}, "paper": true}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "mark", "equity": 99697.47, "book_return": 0.001818, "drawdown": -0.003}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "BTCUSDT", "weight": 0.2055, "contribution": 0.000852}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.1509, "contribution": 0.000308}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "SOLUSDT", "weight": 0.1262, "contribution": 0.000658}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783464211.135, "iso": "2026-07-07T22:43:31+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.1896, "contribution": 0.0}
+{"ts": 1783464211.812, "iso": "2026-07-07T22:43:31+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 15, "gross": 1.0538, "net": 1.0538, "equity": 99697.47, "blocked": null, "news": {"BTC-USD": "news leans against hold \u2192 de-gear \u00d70.92", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783467644.299, "iso": "2026-07-07T23:40:44+00:00", "kind": "mark", "equity": 99933.34, "book_return": 0.0, "drawdown": -0.0007}
+{"ts": 1783467644.518, "iso": "2026-07-07T23:40:44+00:00", "kind": "mark", "equity": 99933.34, "book_return": 0.0, "drawdown": -0.0007}
+{"ts": 1783467645.481, "iso": "2026-07-07T23:40:45+00:00", "kind": "rebalance", "n_orders": 11, "n_skipped": 14, "gross": 0.9406, "net": 0.9406, "equity": 99933.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.94", "COIN": "news leans against hold \u2192 de-gear \u00d70.97", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98", "MSTR": "news leans against hold \u2192 de-gear \u00d70.95", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.99"}, "overlay": {}, "paper": true}
+{"ts": 1783467645.485, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "A", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783467645.485, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "AMD", "target_weight": 0.11, "delta": 0.11, "decision_price": 516.1099853515625, "notional": 10987.99, "paper": true}
+{"ts": 1783467645.487, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "B", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783467645.487, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.2646, "delta": 0.2646, "decision_price": 1775.65, "notional": 26443.16, "paper": true}
+{"ts": 1783467645.489, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "GOOGL", "target_weight": 0.097, "delta": 0.097, "decision_price": 367.0299987792969, "notional": 9694.05, "paper": true}
+{"ts": 1783467645.491, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "NVDA", "target_weight": 0.058, "delta": 0.058, "decision_price": 196.92999267578125, "notional": 5793.95, "paper": true}
+{"ts": 1783467645.491, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0906, "delta": 0.0906, "decision_price": 709.4299926757812, "notional": 9052.4, "paper": true}
+{"ts": 1783467645.493, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "RKLB", "target_weight": 0.0483, "delta": 0.0483, "decision_price": 83.41000366210938, "notional": 4823.46, "paper": true}
+{"ts": 1783467645.493, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.1134, "delta": 0.1134, "decision_price": 747.7100219726562, "notional": 11336.68, "paper": true}
+{"ts": 1783467645.495, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0754, "delta": 0.0754, "decision_price": 72.2300033569336, "notional": 7536.82, "paper": true}
+{"ts": 1783467645.495, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "TSLA", "target_weight": 0.0783, "delta": 0.0783, "decision_price": 402.8999938964844, "notional": 7820.16, "paper": true}
+{"ts": 1783467645.864, "iso": "2026-07-07T23:40:45+00:00", "kind": "rebalance", "n_orders": 11, "n_skipped": 14, "gross": 0.9406, "net": 0.9406, "equity": 99933.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.94", "COIN": "news leans against hold \u2192 de-gear \u00d70.97", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98", "MSTR": "news leans against hold \u2192 de-gear \u00d70.95", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.99"}, "overlay": {}, "paper": true}
+{"ts": 1783467645.866, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "A", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783467645.866, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "AMD", "target_weight": 0.11, "delta": 0.11, "decision_price": 516.1099853515625, "notional": 10987.99, "paper": true}
+{"ts": 1783467645.868, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "B", "target_weight": 0.0, "delta": -0.6667, "decision_price": null, "notional": 66622.23, "paper": true}
+{"ts": 1783467645.868, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.2646, "delta": 0.2646, "decision_price": 1775.65, "notional": 26443.18, "paper": true}
+{"ts": 1783467645.87, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "GOOGL", "target_weight": 0.097, "delta": 0.097, "decision_price": 367.0299987792969, "notional": 9694.05, "paper": true}
+{"ts": 1783467645.87, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "NVDA", "target_weight": 0.058, "delta": 0.058, "decision_price": 196.92999267578125, "notional": 5793.95, "paper": true}
+{"ts": 1783467645.872, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0906, "delta": 0.0906, "decision_price": 709.4299926757812, "notional": 9052.4, "paper": true}
+{"ts": 1783467645.874, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "RKLB", "target_weight": 0.0483, "delta": 0.0483, "decision_price": 83.41000366210938, "notional": 4823.46, "paper": true}
+{"ts": 1783467645.874, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.1134, "delta": 0.1134, "decision_price": 747.7100219726562, "notional": 11336.68, "paper": true}
+{"ts": 1783467645.876, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.0754, "delta": 0.0754, "decision_price": 72.2300033569336, "notional": 7536.82, "paper": true}
+{"ts": 1783467645.876, "iso": "2026-07-07T23:40:45+00:00", "kind": "order", "symbol": "TSLA", "target_weight": 0.0783, "delta": 0.0783, "decision_price": 402.8999938964844, "notional": 7820.16, "paper": true}
+{"ts": 1783467790.693, "iso": "2026-07-07T23:43:10+00:00", "kind": "mark", "equity": 99797.42, "book_return": -0.000227, "drawdown": -0.002}
+{"ts": 1783467790.694, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783467790.694, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2646, "contribution": -0.000227}
+{"ts": 1783467790.694, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783467790.695, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783467790.695, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783467790.695, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783467790.696, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783467790.696, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783467790.697, "iso": "2026-07-07T23:43:10+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783467791.559, "iso": "2026-07-07T23:43:11+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9402, "net": 0.9402, "equity": 99797.42, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.94", "COIN": "news leans against hold \u2192 de-gear \u00d70.97", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98", "MSTR": "news leans against hold \u2192 de-gear \u00d70.95", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.99"}, "overlay": {}, "paper": true}
+{"ts": 1783471393.535, "iso": "2026-07-08T00:43:13+00:00", "kind": "mark", "equity": 99890.15, "book_return": 0.000929, "drawdown": -0.0011}
+{"ts": 1783471393.537, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783471393.537, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2646, "contribution": 0.000929}
+{"ts": 1783471393.539, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783471393.539, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783471393.539, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783471393.541, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783471393.541, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783471393.541, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783471393.543, "iso": "2026-07-08T00:43:13+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783471394.963, "iso": "2026-07-08T00:43:14+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9736, "net": 0.9736, "equity": 99890.15, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.91", "COIN": "news leans against hold \u2192 de-gear \u00d70.96", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.97", "MSTR": "news leans against hold \u2192 de-gear \u00d70.93", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.98"}, "overlay": {}, "paper": true}
+{"ts": 1783474996.482, "iso": "2026-07-08T01:43:16+00:00", "kind": "mark", "equity": 99524.93, "book_return": -0.003656, "drawdown": -0.0048}
+{"ts": 1783474996.482, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783474996.482, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2646, "contribution": -0.003656}
+{"ts": 1783474996.482, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783474996.482, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783474996.49, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783474996.49, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783474996.49, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783474996.49, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783474996.49, "iso": "2026-07-08T01:43:16+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783474997.753, "iso": "2026-07-08T01:43:17+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.972, "net": 0.972, "equity": 99524.93, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.94", "COIN": "news leans against hold \u2192 de-gear \u00d70.97", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.99", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.98", "MSTR": "news leans against hold \u2192 de-gear \u00d70.95", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.98", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.99"}, "overlay": {}, "paper": true}
+{"ts": 1783491157.472, "iso": "2026-07-08T06:12:37+00:00", "kind": "mark", "equity": 99524.93, "book_return": 0.0, "drawdown": -0.0048}
+{"ts": 1783491157.476, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783491157.48, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2646, "contribution": 0.0}
+{"ts": 1783491157.482, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783491157.484, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783491157.486, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783491157.49, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783491157.494, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783491157.496, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783491157.498, "iso": "2026-07-08T06:12:37+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783491167.591, "iso": "2026-07-08T06:12:47+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.972, "net": 0.972, "equity": 99524.93, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "mark", "equity": 99438.84, "book_return": -0.000865, "drawdown": -0.0056}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2646, "contribution": -0.000865}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783494770.494, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783494770.506, "iso": "2026-07-08T07:12:50+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783494773.888, "iso": "2026-07-08T07:12:53+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 24, "gross": 0.9711, "net": 0.9711, "equity": 99438.84, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.79", "COIN": "news leans against hold \u2192 de-gear \u00d70.90", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.97", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.94", "MSTR": "news leans against hold \u2192 de-gear \u00d70.83", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783494773.888, "iso": "2026-07-08T07:12:53+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.2394, "delta": -0.0253, "decision_price": 1750.02, "notional": 2511.56, "paper": true}
+{"ts": 1783498377.641, "iso": "2026-07-08T08:12:57+00:00", "kind": "mark", "equity": 99515.92, "book_return": 0.000788, "drawdown": -0.0048}
+{"ts": 1783498377.645, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783498377.645, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2394, "contribution": 0.000788}
+{"ts": 1783498377.647, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783498377.647, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783498377.647, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783498377.647, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783498377.647, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783498377.648, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783498377.648, "iso": "2026-07-08T08:12:57+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783498379.043, "iso": "2026-07-08T08:12:59+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.972, "net": 0.972, "equity": 99515.92, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.77", "COIN": "news leans against hold \u2192 de-gear \u00d70.89", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.93", "MSTR": "news leans against hold \u2192 de-gear \u00d70.81", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.95"}, "overlay": {}, "paper": true}
+{"ts": 1783501982.673, "iso": "2026-07-08T09:13:02+00:00", "kind": "mark", "equity": 99202.0, "book_return": -0.003154, "drawdown": -0.008}
+{"ts": 1783501982.674, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783501982.674, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2394, "contribution": -0.003154}
+{"ts": 1783501982.675, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783501982.675, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783501982.675, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783501982.676, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783501982.676, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783501982.677, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783501982.677, "iso": "2026-07-08T09:13:02+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783501984.274, "iso": "2026-07-08T09:13:04+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 24, "gross": 0.9656, "net": 0.9656, "equity": 99202.0, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.90", "BTC-USD": "news opposes hold (score 0.64) \u2192 veto", "COIN": "news leans against hold \u2192 de-gear \u00d70.75", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.85", "MSTR": "news leans against hold \u2192 de-gear \u00d70.59", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.87", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.90"}, "overlay": {}, "paper": true}
+{"ts": 1783501984.276, "iso": "2026-07-08T09:13:04+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.1874, "delta": -0.052, "decision_price": 1732.64, "notional": 5155.38, "paper": true}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "mark", "equity": 99209.29, "book_return": 9.9e-05, "drawdown": -0.0079}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.1874, "contribution": 9.9e-05}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783505587.814, "iso": "2026-07-08T10:13:07+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783505589.501, "iso": "2026-07-08T10:13:09+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9661, "net": 0.9661, "equity": 99209.29, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.58", "COIN": "news leans against hold \u2192 de-gear \u00d70.80", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.87", "MSTR": "news leans against hold \u2192 de-gear \u00d70.66", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.90", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783509191.08, "iso": "2026-07-08T11:13:11+00:00", "kind": "mark", "equity": 99249.72, "book_return": 0.000408, "drawdown": -0.0075}
+{"ts": 1783509191.082, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783509191.082, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.1874, "contribution": 0.000408}
+{"ts": 1783509191.082, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783509191.082, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783509191.084, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783509191.084, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783509191.084, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783509191.084, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783509191.086, "iso": "2026-07-08T11:13:11+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783509191.837, "iso": "2026-07-08T11:13:11+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 24, "gross": 0.9674, "net": 0.9674, "equity": 99249.72, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.68", "COIN": "news leans against hold \u2192 de-gear \u00d70.85", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.90", "MSTR": "news leans against hold \u2192 de-gear \u00d70.74", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783509191.837, "iso": "2026-07-08T11:13:11+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.2092, "delta": 0.0218, "decision_price": 1737.33, "notional": 2166.05, "paper": true}
+{"ts": 1783512807.214, "iso": "2026-07-08T12:13:27+00:00", "kind": "mark", "equity": 99388.22, "book_return": 0.001406, "drawdown": -0.0061}
+{"ts": 1783512807.215, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783512807.215, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2092, "contribution": 0.001406}
+{"ts": 1783512807.216, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783512807.216, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783512807.217, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783512807.217, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783512807.217, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783512807.217, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783512807.218, "iso": "2026-07-08T12:13:27+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783512810.063, "iso": "2026-07-08T12:13:30+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9707, "net": 0.9707, "equity": 99388.22, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.68", "COIN": "news leans against hold \u2192 de-gear \u00d70.85", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.90", "MSTR": "news leans against hold \u2192 de-gear \u00d70.74", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783516413.351, "iso": "2026-07-08T13:13:33+00:00", "kind": "mark", "equity": 99292.76, "book_return": -0.000961, "drawdown": -0.0071}
+{"ts": 1783516413.359, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2092, "contribution": -0.000961}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783516413.36, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783516413.368, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783516413.369, "iso": "2026-07-08T13:13:33+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783516415.396, "iso": "2026-07-08T13:13:35+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9685, "net": 0.9685, "equity": 99292.76, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.78", "COIN": "news leans against hold \u2192 de-gear \u00d70.89", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.97", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.93", "MSTR": "news leans against hold \u2192 de-gear \u00d70.82", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783520017.897, "iso": "2026-07-08T14:13:37+00:00", "kind": "mark", "equity": 99253.27, "book_return": -0.000398, "drawdown": -0.0075}
+{"ts": 1783520017.897, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783520017.904, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2092, "contribution": -0.000398}
+{"ts": 1783520017.904, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783520017.904, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783520017.904, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783520017.909, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783520017.911, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783520017.913, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783520017.914, "iso": "2026-07-08T14:13:37+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783520019.646, "iso": "2026-07-08T14:13:39+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.9672, "net": 0.9672, "equity": 99253.27, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.81", "COIN": "news leans against hold \u2192 de-gear \u00d70.91", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.97", "ETHUSDT": "news leans against long \u2192 de-gear \u00d70.94", "MSTR": "news leans against hold \u2192 de-gear \u00d70.85", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783523621.363, "iso": "2026-07-08T15:13:41+00:00", "kind": "mark", "equity": 99045.7, "book_return": -0.002091, "drawdown": -0.0095}
+{"ts": 1783523621.367, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783523621.368, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "ETHUSDT", "weight": 0.2092, "contribution": -0.002091}
+{"ts": 1783523621.368, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783523621.369, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783523621.37, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783523621.37, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783523621.371, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783523621.371, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783523621.372, "iso": "2026-07-08T15:13:41+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783523622.255, "iso": "2026-07-08T15:13:42+00:00", "kind": "rebalance", "n_orders": 1, "n_skipped": 24, "gross": 0.7655, "net": 0.7655, "equity": 99045.7, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.71", "COIN": "news leans against hold \u2192 de-gear \u00d70.86", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "MSTR": "news leans against hold \u2192 de-gear \u00d70.76", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783523622.256, "iso": "2026-07-08T15:13:42+00:00", "kind": "order", "symbol": "ETHUSDT", "target_weight": 0.0, "delta": -0.2092, "decision_price": 1720.3, "notional": 20721.0, "paper": true}
+{"ts": 1783527225.056, "iso": "2026-07-08T16:13:45+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783527225.057, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783527225.058, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783527225.058, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783527225.059, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783527225.059, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783527225.059, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783527225.06, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783527225.06, "iso": "2026-07-08T16:13:45+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783527226.416, "iso": "2026-07-08T16:13:46+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.58", "COIN": "news leans against hold \u2192 de-gear \u00d70.79", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.87", "MSTR": "news leans against hold \u2192 de-gear \u00d70.66", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.89", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.91"}, "overlay": {}, "paper": true}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783530828.983, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783530828.998, "iso": "2026-07-08T17:13:48+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783530830.063, "iso": "2026-07-08T17:13:50+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.61", "COIN": "news leans against hold \u2192 de-gear \u00d70.81", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.88", "MSTR": "news leans against hold \u2192 de-gear \u00d70.68", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.90", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783534433.311, "iso": "2026-07-08T18:13:53+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783534433.313, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783534433.314, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783534433.314, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783534433.314, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783534433.315, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783534433.315, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783534433.317, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783534433.317, "iso": "2026-07-08T18:13:53+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783534434.626, "iso": "2026-07-08T18:13:54+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.70", "COIN": "news leans against hold \u2192 de-gear \u00d70.85", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "MSTR": "news leans against hold \u2192 de-gear \u00d70.76", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783538038.958, "iso": "2026-07-08T19:13:58+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783538038.961, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783538038.962, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783538038.962, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783538038.962, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783538038.963, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783538038.963, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783538038.963, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783538038.964, "iso": "2026-07-08T19:13:58+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783538040.234, "iso": "2026-07-08T19:14:00+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.78", "COIN": "news leans against hold \u2192 de-gear \u00d70.89", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "MSTR": "news leans against hold \u2192 de-gear \u00d70.82", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783541642.565, "iso": "2026-07-08T20:14:02+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783541642.568, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783541642.568, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783541642.571, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783541642.576, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783541642.578, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783541642.579, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783541642.58, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783541642.58, "iso": "2026-07-08T20:14:02+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783541644.006, "iso": "2026-07-08T20:14:04+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.61", "COIN": "news leans against hold \u2192 de-gear \u00d70.81", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.88", "MSTR": "news leans against hold \u2192 de-gear \u00d70.69", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.90", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783545246.139, "iso": "2026-07-08T21:14:06+00:00", "kind": "mark", "equity": 99035.34, "book_return": 0.0, "drawdown": -0.0096}
+{"ts": 1783545246.147, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783545246.147, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783545246.147, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783545246.147, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783545246.151, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783545246.151, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783545246.153, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783545246.153, "iso": "2026-07-08T21:14:06+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783545247.509, "iso": "2026-07-08T21:14:07+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7655, "net": 0.7655, "equity": 99035.34, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.62", "COIN": "news leans against hold \u2192 de-gear \u00d70.81", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.88", "MSTR": "news leans against hold \u2192 de-gear \u00d70.69", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.90", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.92"}, "overlay": {}, "paper": true}
+{"ts": 1783588670.997, "iso": "2026-07-09T09:17:50+00:00", "kind": "mark", "equity": 98769.49, "book_return": -0.002684, "drawdown": -0.0123}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.0}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": -0.001351}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.0}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.000257}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": -3.5e-05}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": -0.00035}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.000512}
+{"ts": 1783588671.002, "iso": "2026-07-09T09:17:51+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": -0.001717}
+{"ts": 1783588672.008, "iso": "2026-07-09T09:17:52+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7532, "net": 0.7532, "equity": 98769.49, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783592276.602, "iso": "2026-07-09T10:17:56+00:00", "kind": "mark", "equity": 99005.92, "book_return": 0.002394, "drawdown": -0.0099}
+{"ts": 1783592276.605, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.11, "contribution": 0.000277}
+{"ts": 1783592276.605, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783592276.605, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.058, "contribution": 0.002117}
+{"ts": 1783592276.61, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.0906, "contribution": 0.0}
+{"ts": 1783592276.61, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783592276.61, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1134, "contribution": 0.0}
+{"ts": 1783592276.614, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.0754, "contribution": 0.0}
+{"ts": 1783592276.616, "iso": "2026-07-09T10:17:56+00:00", "kind": "outcome", "symbol": "TSLA", "weight": 0.0783, "contribution": 0.0}
+{"ts": 1783592278.01, "iso": "2026-07-09T10:17:58+00:00", "kind": "rebalance", "n_orders": 6, "n_skipped": 19, "gross": 0.7547, "net": 0.7547, "equity": 99005.92, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.78", "COIN": "news leans against hold \u2192 de-gear \u00d70.89", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.97", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "MSTR": "news leans against hold \u2192 de-gear \u00d70.82", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783592278.015, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "AMD", "target_weight": 0.137, "delta": 0.0271, "decision_price": 517.4099731445312, "notional": 2678.46, "paper": true}
+{"ts": 1783592278.017, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "NVDA", "target_weight": 0.1013, "delta": 0.0433, "decision_price": 204.1199951171875, "notional": 4290.41, "paper": true}
+{"ts": 1783592278.017, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.1158, "delta": 0.0253, "decision_price": 711.4400024414062, "notional": 2500.03, "paper": true}
+{"ts": 1783592278.017, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.1368, "delta": 0.0234, "decision_price": 745.4000244140625, "notional": 2316.81, "paper": true}
+{"ts": 1783592278.018, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.097, "delta": 0.0216, "decision_price": 72.72000122070312, "notional": 2141.11, "paper": true}
+{"ts": 1783592278.018, "iso": "2026-07-09T10:17:58+00:00", "kind": "order", "symbol": "TSLA", "target_weight": 0.0, "delta": -0.0783, "decision_price": 394.05999755859375, "notional": 7747.58, "paper": true}
+{"ts": 1783595880.683, "iso": "2026-07-09T11:18:00+00:00", "kind": "mark", "equity": 98995.08, "book_return": 0.0, "drawdown": -0.01}
+{"ts": 1783595880.686, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.137, "contribution": 0.0}
+{"ts": 1783595880.687, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783595880.687, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.1013, "contribution": 0.0}
+{"ts": 1783595880.689, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1158, "contribution": 0.0}
+{"ts": 1783595880.69, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783595880.691, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1368, "contribution": 0.0}
+{"ts": 1783595880.692, "iso": "2026-07-09T11:18:00+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783595884.151, "iso": "2026-07-09T11:18:04+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7547, "net": 0.7547, "equity": 98995.08, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.82", "COIN": "news leans against hold \u2192 de-gear \u00d70.91", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.97", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "MSTR": "news leans against hold \u2192 de-gear \u00d70.86", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.96", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.96"}, "overlay": {}, "paper": true}
+{"ts": 1783599490.348, "iso": "2026-07-09T12:18:10+00:00", "kind": "mark", "equity": 98995.08, "book_return": 0.0, "drawdown": -0.01}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.137, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.1013, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1158, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1368, "contribution": 0.0}
+{"ts": 1783599490.364, "iso": "2026-07-09T12:18:10+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783599491.373, "iso": "2026-07-09T12:18:11+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7547, "net": 0.7547, "equity": 98995.08, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.63", "COIN": "news leans against hold \u2192 de-gear \u00d70.82", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.89", "MSTR": "news leans against hold \u2192 de-gear \u00d70.70", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.93"}, "overlay": {}, "paper": true}
+{"ts": 1783603093.266, "iso": "2026-07-09T13:18:13+00:00", "kind": "mark", "equity": 98995.08, "book_return": 0.0, "drawdown": -0.01}
+{"ts": 1783603093.281, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.137, "contribution": 0.0}
+{"ts": 1783603093.281, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783603093.284, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.1013, "contribution": 0.0}
+{"ts": 1783603093.284, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1158, "contribution": 0.0}
+{"ts": 1783603093.284, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783603093.284, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1368, "contribution": 0.0}
+{"ts": 1783603093.284, "iso": "2026-07-09T13:18:13+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783603094.108, "iso": "2026-07-09T13:18:14+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7547, "net": 0.7547, "equity": 98995.08, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.71", "COIN": "news leans against hold \u2192 de-gear \u00d70.86", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "MSTR": "news leans against hold \u2192 de-gear \u00d70.77", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.93", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783606696.038, "iso": "2026-07-09T14:18:16+00:00", "kind": "mark", "equity": 98995.08, "book_return": 0.0, "drawdown": -0.01}
+{"ts": 1783606696.039, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "AMD", "weight": 0.137, "contribution": 0.0}
+{"ts": 1783606696.04, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "GOOGL", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783606696.04, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "NVDA", "weight": 0.1013, "contribution": 0.0}
+{"ts": 1783606696.04, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "QQQ", "weight": 0.1158, "contribution": 0.0}
+{"ts": 1783606696.04, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "RKLB", "weight": 0.0483, "contribution": 0.0}
+{"ts": 1783606696.041, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "SPY", "weight": 0.1368, "contribution": 0.0}
+{"ts": 1783606696.042, "iso": "2026-07-09T14:18:16+00:00", "kind": "outcome", "symbol": "TQQQ", "weight": 0.097, "contribution": 0.0}
+{"ts": 1783606697.063, "iso": "2026-07-09T14:18:17+00:00", "kind": "rebalance", "n_orders": 0, "n_skipped": 25, "gross": 0.7547, "net": 0.7547, "equity": 98995.08, "blocked": null, "news": {"ADAUSDT": "news leans against hold \u2192 de-gear \u00d70.94", "BTC-USD": "news leans against hold \u2192 de-gear \u00d70.70", "COIN": "news leans against hold \u2192 de-gear \u00d70.85", "DOGEUSDT": "news leans against hold \u2192 de-gear \u00d70.95", "ETHUSDT": "news leans against hold \u2192 de-gear \u00d70.91", "MSTR": "news leans against hold \u2192 de-gear \u00d70.76", "SOLUSDT": "news leans against hold \u2192 de-gear \u00d70.92", "XRPUSDT": "news leans against hold \u2192 de-gear \u00d70.94"}, "overlay": {}, "paper": true}
+{"ts": 1783610110.294, "iso": "2026-07-09T15:15:10+00:00", "kind": "mark", "equity": 15698.61, "book_return": -0.842909, "drawdown": -0.843}
+{"ts": 1783610110.296, "iso": "2026-07-09T15:15:10+00:00", "kind": "outcome", "symbol": "A", "weight": 0.6667, "contribution": -0.275396}
+{"ts": 1783610110.296, "iso": "2026-07-09T15:15:10+00:00", "kind": "outcome", "symbol": "B", "weight": 0.6667, "contribution": -0.567513}
+{"ts": 1783610111.794, "iso": "2026-07-09T15:15:11+00:00", "kind": "rebalance", "n_orders": 7, "n_skipped": 18, "gross": 0.1838, "net": 0.1838, "equity": 15698.61, "blocked": null, "news": {}, "overlay": {}, "paper": true}
+{"ts": 1783610111.794, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "A", "target_weight": 0.0, "delta": -0.6667, "decision_price": 131.72, "notional": 10465.74, "paper": true}
+{"ts": 1783610111.794, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "AMD", "target_weight": 0.0349, "delta": 0.0349, "decision_price": 555.1500244140625, "notional": 548.15, "paper": true}
+{"ts": 1783610111.794, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "B", "target_weight": 0.0, "delta": -0.6667, "decision_price": 36.49, "notional": 10465.74, "paper": true}
+{"ts": 1783610111.794, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "NVDA", "target_weight": 0.0214, "delta": 0.0214, "decision_price": 201.30999755859375, "notional": 335.39, "paper": true}
+{"ts": 1783610111.796, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "QQQ", "target_weight": 0.0313, "delta": 0.0313, "decision_price": 720.780029296875, "notional": 491.51, "paper": true}
+{"ts": 1783610111.796, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "SPY", "target_weight": 0.034, "delta": 0.034, "decision_price": 749.1900024414062, "notional": 533.04, "paper": true}
+{"ts": 1783610111.796, "iso": "2026-07-09T15:15:11+00:00", "kind": "order", "symbol": "TQQQ", "target_weight": 0.028, "delta": 0.028, "decision_price": 75.61000061035156, "notional": 439.71, "paper": true}

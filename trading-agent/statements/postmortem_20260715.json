@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-07-15T03:07:08+00:00",
+  "window_days": 7.0,
+  "aggregates": {
+    "n_marks": 0,
+    "n_rebalances": 2,
+    "n_orders": 16,
+    "window_return": 0.0,
+    "per_mark_vol": 0.0,
+    "worst_drawdown": 0.0,
+    "max_gross": 0.756,
+    "n_blocked_rebalances": 0,
+    "journal_gaps": 0,
+    "per_symbol": {},
+    "slippage": {}
+  },
+  "concerns": [],
+  "lessons_written": [],
+  "note": "Hand this file (plus training_data/trade_journal.jsonl and training_data/slippage_log.jsonl) to the reviewing model for deep post-mortem and code-level fixes."
+}

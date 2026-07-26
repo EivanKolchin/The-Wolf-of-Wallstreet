@@ -350,11 +350,56 @@ class HealthResponse(BaseModel):
     news_alive: bool
     model_trade_count: int
 
+async def _strategy_agent_status(redis_client):
+    """Synthesize an engine-status payload from the StrategyAgent's heartbeat + strategy:status,
+    so the dashboard banner reflects the RULE-BASED book that's actually running when the NN agent
+    is disabled (NN_AGENT_ENABLED=false). Returns None if the strategy agent isn't alive."""
+    try:
+        from backend.memory.redis_client import HeartbeatClient
+        if not await HeartbeatClient(redis_client).check_alive("strategy_agent"):
+            return None
+        raw = await redis_client.get("strategy:status")
+        st = json.loads(raw if isinstance(raw, str) else raw.decode()) if raw else {}
+        force_stopped = (await redis_client.get("agent_force_stopped")) in ("true", b"true")
+        halted = bool(force_stopped or st.get("blocked") == "risk_halted")
+        eq = st.get("equity"); gross = st.get("gross", 0.0); dd = st.get("drawdown", 0.0)
+        sleeves = st.get("sleeves", 1); mode = st.get("mode", "PAPER")
+        if halted:
+            text = "Trading force-halted (manual stop)" if force_stopped else "Risk halt engaged"
+        else:
+            text = (f"{mode} strategy book · {sleeves} sleeve(s) · gross {float(gross):.0%}"
+                    + (f" · equity ${float(eq):,.0f}" if eq else "")
+                    + (f" · DD {float(dd):.1%}" if dd else ""))
+        return {
+            "is_halted": halted,
+            "buffer_current": 1, "buffer_required": 1,     # rule-based book needs no warmup buffer
+            "cycle_interval": float(st.get("rebalance_seconds", 3600.0)),
+            # REAL agent start time. This used to be `last_rebalance - 1e6` purely to shove the
+            # banner past its 300s warm-up window — at the cost of reporting ~278h of fake uptime.
+            # The frontend now skips warm-up for engine=="strategy" (it has no buffer to fill),
+            # so uptime can be honest and start at 0.
+            "started_at": float(st.get("started_at", 0.0)),
+            "has_market_data": True,
+            "engine": "strategy",
+            "status_text": text,
+        }
+    except Exception as e:
+        logger.debug("strategy_status_read_failed", error=str(e))
+        return None
+
+
 @router.get("/api/agent/status")
 async def get_agent_status():
     redis_client = await get_redis()
     status_str = await redis_client.get("agent_frontend_status")
-    
+
+    # When the NN agent isn't publishing (it's disabled), reflect the rule-based StrategyAgent so
+    # the banner shows the book that's actually trading instead of a permanent "offline".
+    if not status_str or not bool(getattr(settings, "NN_AGENT_ENABLED", True)):
+        strat = await _strategy_agent_status(redis_client)
+        if strat is not None:
+            return strat
+
     if not status_str:
         return {
             "is_halted": False,
@@ -412,16 +457,16 @@ async def toggle_agent_stop(req: StopResumeRequest):
     return {"status": "success", "is_halted": req.halt}
 
 
-@router.post("/api/trading/reset-paper")
-async def reset_paper_trading(req: PaperResetRequest, _: str = Depends(_require_admin)):
-    if not req.confirm:
-        return {"status": "ignored"}
-
+async def _reset_paper_state() -> dict:
+    """Wipe all paper-trading artifacts: Trade table, redis book state, statements.
+    Called by the explicit reset endpoint AND automatically when the master
+    PAPER_TRADING switch flips to live, so live books never start with paper history."""
     redis_client = await get_redis()
     await redis_client.set("agent_force_stopped", "false")
     await redis_client.set("paper:reset_requested", "true", ex=60)
     await redis_client.set("risk:reset_requested", "true", ex=60)
-    await redis_client.delete("portfolio:live_state", "risk:status", "attention:state", "attention:overrides", "agent_visual_predictions")
+    await redis_client.delete("portfolio:live_state", "risk:status", "attention:state", "attention:overrides", "agent_visual_predictions",
+                              "strategy:paperbook:state", "strategy:portfolio", "strategy:status")
     try:
         async for key in redis_client.scan_iter(match="agent_visual_predictions:*"):
             await redis_client.delete(key)
@@ -468,6 +513,13 @@ async def reset_paper_trading(req: PaperResetRequest, _: str = Depends(_require_
         "initial_usdc": initial_usdc,
         "deleted_trades": deleted_trades,
     }
+
+
+@router.post("/api/trading/reset-paper")
+async def reset_paper_trading(req: PaperResetRequest, _: str = Depends(_require_admin)):
+    if not req.confirm:
+        return {"status": "ignored"}
+    return await _reset_paper_state()
 
 @router.get("/api/portfolio")
 async def get_portfolio(symbol: Optional[str] = None):
@@ -774,6 +826,16 @@ async def save_setup(req: Dict[str, Any] = Body(...), _: str = Depends(_require_
     if not req_dict:
         return {"status": "ignored", "message": "No allowed settings provided", "installing_model": False}
 
+    # Detect the paper→live flip BEFORE writing: switching to real trading must
+    # wipe all paper history so live books/pages start clean.
+    switching_to_live = False
+    if "PAPER_TRADING" in req_dict:
+        import dotenv
+        prev_env = dotenv.dotenv_values(env_path) if os.path.exists(env_path) else {}
+        was_paper = str(prev_env.get("PAPER_TRADING", "true")).strip().lower() != "false"
+        now_live = str(req_dict["PAPER_TRADING"]).strip().lower() == "false"
+        switching_to_live = was_paper and now_live
+
     if os.path.exists(env_path):
         with open(env_path, "r") as f:
             lines = f.readlines()
@@ -858,6 +920,14 @@ async def save_setup(req: Dict[str, Any] = Body(...), _: str = Depends(_require_
 
     logger.info("setup_config_updated", updated_keys=sorted(list(req_dict.keys())))
 
+    if switching_to_live:
+        try:
+            reset_result = await _reset_paper_state()
+            logger.info("paper_state_reset_on_live_switch", deleted_trades=reset_result.get("deleted_trades"))
+            msg = "Live trading armed — paper history wiped. " + msg
+        except Exception as e:
+            logger.warning("paper_reset_on_live_switch_failed", error=str(e)[:200])
+
     # Trigger an orchestrated restart only if we're not waiting for a download background task
     if not installing_model:
         def restart():
@@ -891,8 +961,30 @@ async def get_positions():
         stmt = select(Trade).where(Trade.status == TradeStatus.open)
         result = await session.execute(stmt)
         trades = result.scalars().all()
-        # In a real app you'd compute unrealised PnL against current price
-        return trades
+
+    # Mark against the paper book's live state (the agent process refreshes
+    # current_price/unrealized there every cycle).
+    marks: Dict[str, Dict[str, Any]] = {}
+    try:
+        redis_client = await get_redis()
+        raw = await redis_client.get("portfolio:live_state")
+        if raw:
+            state = json.loads(raw if isinstance(raw, str) else raw.decode())
+            for p in state.get("positions") or []:
+                if isinstance(p, dict) and p.get("asset"):
+                    marks[str(p["asset"]).upper()] = p
+    except Exception:
+        pass
+
+    out = []
+    for t in trades:
+        row = {c.name: getattr(t, c.name) for c in Trade.__table__.columns}
+        mark = marks.get(str(t.asset).upper())
+        if mark:
+            row["current_price"] = mark.get("current_price")
+            row["unrealised_pnl"] = mark.get("unrealized")
+        out.append(_json_safe(row))
+    return out
 
 @router.get("/api/trades")
 async def get_trades(limit: int = 50, offset: int = 0):
@@ -939,11 +1031,42 @@ def _serialize_news_prediction(row: NewsPrediction) -> dict[str, Any]:
 
 @router.get("/api/news/recent")
 async def get_news_recent(limit: int = 20):
+    """Recent analyzed news, RANKED by the user-feedback interest profile.
+
+    Recency is still the primary axis (a 3-day-old loved topic must not bury breaking
+    news), but within the fetched window each item's rank blends its recency with the
+    feedback profile's interest score for its headline+source — so thumbs-up topics/sources
+    float up, thumbed-down ones sink, and every item carries ``interest_score`` so the
+    widgets can display WHY it ranked where it did."""
     async with async_session_maker() as session:
-        stmt = select(NewsPrediction).order_by(desc(NewsPrediction.created_at)).limit(limit)
+        stmt = (select(NewsPrediction).order_by(desc(NewsPrediction.created_at))
+                .limit(max(limit * 5, limit)))     # overfetch so ranking + dedup have room
         result = await session.execute(stmt)
         rows = result.scalars().all()
-        return [_serialize_news_prediction(r) for r in rows]
+    from backend.data.news_feed import _content_key
+    items = []
+    seen_keys: set[str] = set()
+    for i, r in enumerate(rows):
+        # DISPLAY DEDUP: collapse the same story (content-normalized headline) even if older
+        # duplicate rows exist in the DB from before the pipeline dedup fix.
+        key = _content_key(r.headline or "")
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        dto = _serialize_news_prediction(r)
+        try:
+            interest = news_feedback.article_interest_score(r.headline, r.source_domain)
+        except Exception:
+            interest = 0.0
+        dto["interest_score"] = round(float(interest), 3)
+        # rank = recency (newest = 1.0, fading over the window) + 0.25×interest (∈[-3,3])
+        recency = 1.0 - (i / max(len(rows), 1))
+        dto["_rank"] = recency + 0.25 * float(interest)
+        items.append(dto)
+    items.sort(key=lambda d: d["_rank"], reverse=True)
+    for d in items:
+        d.pop("_rank", None)
+    return items[:limit]
 
 
 @router.get("/api/news")
@@ -1062,6 +1185,31 @@ def _json_safe(obj: Any) -> Any:
     return obj
 
 
+# Company / common-name aliases → ticker, so a question like "why not go long with
+# sandisk" resolves to SNDK (the ticker never appears in the text). Lowercased keys are
+# matched as whole words against the message. Keep in sync with core.universe symbols.
+# Hard ceiling on the copilot's LLM step (seconds). Must stay BELOW the frontend's abort
+# (90s in MarketAgentChat.tsx) so the backend always wins the race and returns a real message
+# instead of the UI silently spinning — the observed "no response" was an unbounded Gemini call.
+_CHAT_LLM_TIMEOUT_S = 75.0
+
+_CHAT_NAME_ALIASES: dict[str, str] = {
+    "sandisk": "SNDK",
+    "micron": "MU", "bloom energy": "BE", "bloom": "BE",
+    "nvidia": "NVDA", "advanced micro devices": "AMD",
+    "taiwan semi": "TSM", "taiwan semiconductor": "TSM", "tsmc": "TSM",
+    "supermicro": "SMCI", "super micro": "SMCI",
+    "tesla": "TSLA", "microstrategy": "MSTR", "strategy": "MSTR",
+    "coinbase": "COIN", "palantir": "PLTR",
+    "google": "GOOGL", "alphabet": "GOOGL", "microsoft": "MSFT",
+    "rocket lab": "RKLB", "rigetti": "RGTI",
+    "bitcoin": "BTCUSDT", "ethereum": "ETHUSDT", "ether": "ETHUSDT",
+    "solana": "SOLUSDT", "ripple": "XRPUSDT", "cardano": "ADAUSDT",
+    "dogecoin": "DOGEUSDT", "doge": "DOGEUSDT", "aave": "AAVEUSDT",
+    "stellar": "XLMUSDT", "render": "RENDERUSDT", "near": "NEARUSDT",
+}
+
+
 def _extract_chat_symbols(message: str, fallback: str | None = None) -> list[str]:
     import re
     from backend.core import universe as _universe
@@ -1072,6 +1220,11 @@ def _extract_chat_symbols(message: str, fallback: str | None = None) -> list[str
         base = sym.replace("USDT", "")
         if re.search(rf"(?<![A-Z0-9]){re.escape(sym)}(?![A-Z0-9])", text) or re.search(rf"(?<![A-Z0-9]){re.escape(base)}(?![A-Z0-9])", text):
             symbols.append(sym)
+    # Resolve spelled-out company names (word-boundary match on the lowercased message).
+    low = f" {message.lower()} "
+    for name, tkr in _CHAT_NAME_ALIASES.items():
+        if re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", low) and tkr not in symbols:
+            symbols.append(tkr)
     if fallback:
         fs = fallback.upper()
         if fs not in symbols:
@@ -1165,6 +1318,44 @@ async def _build_agent_chat_context(message: str, symbol: str | None) -> dict[st
     except Exception:
         risk_status = {}
 
+    # THE REAL BOOK: the StrategyAgent's managed-beta + TS-momentum paper book (strategy:portfolio),
+    # its status, recent journal activity, and current anomaly flags. This is what's actually
+    # trading (the NN/DeFi live_state above is the disabled book), so the copilot answers
+    # "how's my portfolio / what did the book do" from HERE.
+    strategy_book: dict[str, Any] = {}
+    strategy_status: dict[str, Any] = {}
+    anomalies: dict[str, Any] = {}
+    for key, sink in (("strategy:portfolio", "book"), ("strategy:status", "status"),
+                      ("strategy:anomalies", "anom")):
+        try:
+            raw = await redis.get(key)
+            val = json.loads(raw if isinstance(raw, str) else raw.decode()) if raw else {}
+        except Exception:
+            val = {}
+        if sink == "book":
+            strategy_book = val
+        elif sink == "status":
+            strategy_status = val
+        else:
+            anomalies = val
+    journal_summary: dict[str, Any] = {}
+    try:
+        from backend.agents.trade_journal import TradeJournal
+        rows = TradeJournal().read(kinds=["rebalance", "mark"])
+        marks = [r for r in rows if r.get("kind") == "mark" and r.get("equity")]
+        rebs = [r for r in rows if r.get("kind") == "rebalance"]
+        if marks:
+            journal_summary = {
+                "marks": len(marks),
+                "rebalances": len(rebs),
+                "first_equity": round(float(marks[0]["equity"]), 2),
+                "last_equity": round(float(marks[-1]["equity"]), 2),
+                "worst_drawdown_pct": round(min((float(m.get("drawdown", 0.0)) for m in marks), default=0.0) * 100.0, 2),
+                "recent_returns_bps": [round(float(m.get("book_return", 0.0)) * 1e4, 1) for m in marks[-8:]],
+            }
+    except Exception:
+        journal_summary = {}
+
     async with async_session_maker() as session:
         closed_stmt = select(Trade).where(Trade.status == TradeStatus.closed)
         open_stmt = select(Trade).where(Trade.status == TradeStatus.open).order_by(desc(Trade.opened_at)).limit(20)
@@ -1186,11 +1377,27 @@ async def _build_agent_chat_context(message: str, symbol: str | None) -> dict[st
         "requested_symbols": symbols,
         "market": market_rows,
         "earnings": await _chat_earnings_summary(symbols),
+        # THE ACTIVE BOOK the copilot should answer portfolio questions from.
+        "strategy_book": {
+            "active": bool(strategy_book.get("total_value")),
+            "total_value": strategy_book.get("total_value"),
+            "initial_value": strategy_book.get("initial_value"),
+            "total_pnl": strategy_book.get("total_pnl"),
+            "total_pnl_pct": strategy_book.get("total_pnl_pct"),
+            "cash": strategy_book.get("cash"),
+            "gross_exposure": strategy_book.get("gross_exposure"),
+            "net_exposure": strategy_book.get("net_exposure"),
+            "allocations": strategy_book.get("allocations"),
+            "paper": strategy_book.get("paper"),
+            "status": strategy_status,
+            "journal_summary": journal_summary,
+            "anomaly_flags": (anomalies.get("flags") if isinstance(anomalies, dict) else None) or {},
+        },
         "portfolio": {
             "closed_trades": len(closed),
             "open_trades": len(open_trades),
             "realized_pnl_usd": round(pnl_usd, 2),
-            "live_state": live_state,
+            "note": "This 'portfolio' block is the DISABLED NN/DeFi book — use 'strategy_book' for the live book.",
             "open_trade_rows": [_json_safe({
                 "asset": t.asset,
                 "direction": t.direction,
@@ -1220,6 +1427,27 @@ async def _build_agent_chat_context(message: str, symbol: str | None) -> dict[st
     return context
 
 
+def _slim_chat_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Compact copy of the chat context for the LLM prompt. The full context goes
+    back to the frontend, but the prompt drops static maps and truncates prose so
+    the local model's prompt-eval time stays tolerable."""
+    slim = json.loads(json.dumps(_json_safe(context)))
+    uni = slim.get("universe") or {}
+    uni.pop("etp_map", None)
+    uni.pop("us_exchange", None)
+    for n in slim.get("recent_news") or []:
+        if n.get("rationale"):
+            n["rationale"] = str(n["rationale"])[:180]
+    port = slim.get("portfolio") or {}
+    port["open_trade_rows"] = (port.get("open_trade_rows") or [])[:10]
+    sb = slim.get("strategy_book") or {}
+    if isinstance(sb.get("allocations"), list):
+        sb["allocations"] = sb["allocations"][:12]        # cap the alloc list for the prompt
+    if isinstance(sb.get("anomaly_flags"), dict):
+        sb["anomaly_flags"] = {k: v for k, v in list(sb["anomaly_flags"].items())[:8]}
+    return slim
+
+
 @router.post("/api/agent/chat")
 async def agent_chat(req: AgentChatRequest):
     message = (req.message or "").strip()
@@ -1227,7 +1455,7 @@ async def agent_chat(req: AgentChatRequest):
         raise HTTPException(status_code=400, detail="message is required")
     context = await _build_agent_chat_context(message, req.symbol)
     from backend.agents.llm import LLMService
-    from backend.agents.web_search import build_search_query, search_web
+    from backend.agents.web_search import build_search_query, fetch_page_text, search_web
 
     search_query = build_search_query(message, context)
     web_results: list[dict[str, str]] = []
@@ -1236,9 +1464,31 @@ async def agent_chat(req: AgentChatRequest):
             web_results = await asyncio.to_thread(search_web, search_query, 5)
         except Exception as e:
             logger.warning("agent_chat_web_search_failed", error=str(e)[:200])
+        # DDG snippets are often thin — pull real page text from the top hits
+        # so the model has something to synthesize from. Never let a slow/hostile page
+        # take down the request: bounded, and failures just leave the snippet as-is.
+        thin = sum(len(r.get("snippet") or "") for r in web_results) < 400
+        if web_results and thin:
+            for row in web_results[:2]:
+                try:
+                    page = await asyncio.wait_for(
+                        asyncio.to_thread(fetch_page_text, row.get("url", ""), 2500), timeout=10)
+                    if page:
+                        row["page_text"] = page
+                except Exception as e:
+                    logger.warning("agent_chat_page_fetch_failed",
+                                   url=str(row.get("url", ""))[:120], error=str(e)[:120])
+
+    # Copilot routing: local Ollama answers portfolio/system questions; research
+    # questions escalate to Gemini (flash first, pro only if flash fails). If the
+    # user runs pure-ollama but a Gemini key is configured, upgrade to hybrid for
+    # this endpoint only — the news agent etc. keep their configured provider.
+    effective_provider = settings.AI_PROVIDER
+    if effective_provider == "ollama" and (settings.GEMINI_API_KEY or "").startswith("AIzaSy"):
+        effective_provider = "hybrid_gemini"
 
     llm = LLMService(
-        settings.AI_PROVIDER,
+        effective_provider,
         settings.ANTHROPIC_API_KEY,
         settings.GEMINI_API_KEY,
         settings.OLLAMA_MODEL,
@@ -1250,7 +1500,7 @@ async def agent_chat(req: AgentChatRequest):
     )
     web_block = (
         f"Web search query: {search_query}\n"
-        f"Web search results:\n{json.dumps(web_results, indent=2)[:6000]}\n\n"
+        f"Web search results:\n{json.dumps(web_results, indent=2)[:9000]}\n\n"
         if web_results
         else (
             f"Web search was not run (query would have been: {search_query!r}).\n\n"
@@ -1260,6 +1510,10 @@ async def agent_chat(req: AgentChatRequest):
     )
     prompt = (
         "You are the local trading-agent copilot for this app. Answer directly. "
+        "For ANY portfolio / P&L / positions / 'how is the book doing' question, use the "
+        "'strategy_book' block — that is the LIVE managed-beta + TS-momentum paper book (total_value, "
+        "allocations, journal_summary with recent equity + drawdown, status, anomaly_flags). The "
+        "separate 'portfolio' block is the DISABLED NN book; do not use it for live P&L. "
         "Prefer internal context for portfolio state, open trades, agent heartbeats, "
         "paper/live mode, and prices already fetched from the app's market APIs. "
         "Use web search results for external facts (earnings dates, breaking news, "
@@ -1267,16 +1521,49 @@ async def agent_chat(req: AgentChatRequest):
         "If neither source has the data, say exactly what is missing. "
         "Do not invent prices, earnings dates, profits, or agent state. "
         "Keep the answer concise but useful.\n\n"
-        f"Internal context JSON:\n{json.dumps(_json_safe(context), indent=2)[:12000]}\n\n"
+        f"Internal context JSON:\n{json.dumps(_slim_chat_context(context), separators=(',', ':'))[:8000]}\n\n"
         f"{web_block}"
         f"Recent chat:\n{history_text or 'none'}\n\n"
         f"User question: {message}"
     )
-    answer = await llm.generate_text(prompt, tier="haiku", max_tokens=800, json_mode=False)
+    # Cheapest capable model first: internal questions → tier "haiku" (Ollama in
+    # hybrid mode); research questions → tier "flash" (Gemini 2.5 Flash); escalate
+    # to tier "sonnet" (Gemini 2.5 Pro) only if the cheaper call returns nothing.
+    tier = "flash" if web_results else "haiku"
+    escalated = False
+
+    async def _ask() -> tuple[str, bool]:
+        a = await llm.generate_text(prompt, tier=tier, max_tokens=800, json_mode=False)
+        esc = False
+        if not a.strip() and tier == "flash":
+            a = await llm.generate_text(prompt, tier="sonnet", max_tokens=800, json_mode=False)
+            esc = True
+        return a, esc
+
+    try:
+        # HARD BOUND on the whole LLM step. Without it a provider that never answers hangs the
+        # request forever and the UI just spins with no bubble — the observed "no response".
+        # Kept under the frontend's 90s abort so the backend replies first with a real message.
+        answer, escalated = await asyncio.wait_for(_ask(), timeout=_CHAT_LLM_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("agent_chat_llm_timeout", tier=tier, timeout=_CHAT_LLM_TIMEOUT_S)
+        answer = (f"The copilot LLM did not respond within {_CHAT_LLM_TIMEOUT_S:.0f}s — the "
+                  "provider is slow or unreachable. Try again, or switch AI_PROVIDER in Settings.")
+    except Exception as e:
+        # Never surface an LLM/transport failure as a 500 (the frontend renders that as an
+        # empty/failed bubble). Return a 200 with a clear message so the user knows what broke.
+        logger.warning("agent_chat_llm_failed", tier=tier, error=str(e)[:200])
+        answer = ("The copilot LLM call failed for this question "
+                  f"({str(e)[:140]}). Check the AI provider key / connectivity and retry.")
     return {
         "answer": answer.strip() or "The configured LLM did not return a response.",
         "context": context,
         "web_search": {"query": search_query, "results": web_results} if search_query else None,
+        "route": {
+            "provider": effective_provider,
+            "intent": "research" if web_results else "internal",
+            "tier": "sonnet" if escalated else tier,
+        },
     }
 
 @router.get("/api/universe")

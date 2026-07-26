@@ -1,15 +1,74 @@
 import os
+import sys
+import tempfile
+from pathlib import Path
+
 # The live model now REFUSES to cold-start on random weights (a deliberate safety guard:
 # never trade an untrained net live). The test suite, by design, constructs untrained
 # models with random weights, so it explicitly opts into the unsafe path. This keeps the
 # production safety check intact while letting tests build fresh models.
 os.environ.setdefault("FORCE_UNSAFE_START", "true")
 
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# TEST ISOLATION — keep the suite OFF the owner's live stores.
+#
+# `redis_client.get_redis()` pings the REAL Redis first (main.py auto-starts one on :6379) and
+# only falls back to FakeRedis when that ping fails. So running pytest while the backend is up
+# made tests read and WRITE production state.
+#
+# Not hypothetical: on 2026-07-09 test_strategy_agent.py (a paper book over the synthetic universe
+# A/B/C) drove StrategyAgent.rebalance_once(), which published straight into the owner's live
+# `strategy:paperbook:state`. The real book was clobbered — equity 98,995 -> 15,698, phantom
+# positions A/B — and the next backend restart restored the wreck.
+#
+# Defence in depth (plus, in the code itself: rebalance_once() no longer publishes, and
+# _restore_paper_book() rejects a state holding symbols outside its universe):
+#   1. rewrite the store env vars BEFORE backend.core.config is imported, so no pool/engine can
+#      ever be built against a live store;
+#   2. an autouse fixture pins redis_client._fake_redis_instance, which get_redis() checks FIRST —
+#      this also covers modules that did `from ... import get_redis` (rebinding the module
+#      attribute would not have caught those).
+# ─────────────────────────────────────────────────────────────────────────────────────────
+_ROOT = Path(__file__).parent.parent
+for _p in (str(_ROOT), str(_ROOT / "backend")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+_TMP_STORE = Path(tempfile.mkdtemp(prefix="wow-tests-"))
+# Port 6399 is deliberately closed → ECONNREFUSED → get_redis() falls back to FakeRedis.
+os.environ["REDIS_URL"] = "redis://127.0.0.1:6399/0"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP_STORE / 'test.db').as_posix()}"
+
 import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_shared_stores():
+    """Hard-pin FakeRedis + a throwaway trade journal for the whole session."""
+    from backend.memory import redis_client
+    import fakeredis.aioredis
+    redis_client._fake_redis_instance = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    # TradeJournal's default_factory reads this module global at construction time.
+    from backend.agents import trade_journal
+    original_journal = trade_journal.DEFAULT_PATH
+    trade_journal.DEFAULT_PATH = _TMP_STORE / "trade_journal.jsonl"
+
+    yield
+
+    trade_journal.DEFAULT_PATH = original_journal
+    redis_client._fake_redis_instance = None
+
+
+@pytest.fixture(autouse=True)
+def _refuse_live_redis():
+    """Fail loudly if anything re-points Redis at a live server mid-suite."""
+    assert os.environ.get("REDIS_URL", "").endswith(":6399/0"), \
+        "a test re-pointed REDIS_URL at a live Redis — refusing to run"
 
 # Assuming correct imports map to actual backend structure:
 # from backend.db.database import get_session_factory

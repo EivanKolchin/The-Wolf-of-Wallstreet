@@ -305,17 +305,52 @@ def run_nn_agent(severe_flag):
                     except Exception as e:
                         logger.warning("anomaly_scanner_build_failed", error=str(e)[:100])
 
+                # VALIDATED TS-momentum params (ema50 + ADX≥25 gate — the +0.94 Sharpe config),
+                # not the raw dataclass defaults (ema100/adx0) the agent used to pass.
+                ts_params = TSMomentumParams(
+                    entry_channel=int(settings.STRATEGY_AGENT_TS_ENTRY_CHANNEL),
+                    exit_channel=int(settings.STRATEGY_AGENT_TS_EXIT_CHANNEL),
+                    ema_trend=int(settings.STRATEGY_AGENT_TS_EMA_TREND),
+                    adx_min=float(settings.STRATEGY_AGENT_TS_ADX_MIN),
+                    atr_mult=float(settings.STRATEGY_AGENT_TS_ATR_MULT),
+                    allow_short=bool(settings.STRATEGY_AGENT_TS_ALLOW_SHORT),
+                    convex_exits=bool(settings.STRATEGY_AGENT_TS_CONVEX_EXITS),
+                    initial_atr_mult=float(settings.STRATEGY_AGENT_TS_INITIAL_ATR_MULT),
+                    trail_atr_mult=float(settings.STRATEGY_AGENT_TS_TRAIL_ATR_MULT),
+                    activation_atr=float(settings.STRATEGY_AGENT_TS_ACTIVATION_ATR),
+                )
+                # Managed universe = ETFs/crypto-daily + optional single-name equities (same
+                # trend-follow + vol-target + news overlay machinery). Deduped, order-preserving.
+                managed_universe = list(dict.fromkeys(
+                    str(settings.STRATEGY_AGENT_SYMBOLS).split()
+                    + str(getattr(settings, "STRATEGY_AGENT_STOCK_SYMBOLS", "")).split()))
+
+                # The StrategyAgent gets its OWN RiskManager seeded from ITS equity — NOT the shared
+                # one above (which is seeded from the $1000 NN book). Sharing it meant a halt on the
+                # dead NN book's phantom drawdown could silently freeze the real paper book.
+                strat_risk_manager = RiskManager(
+                    initial_portfolio_value=float(settings.STRATEGY_AGENT_EQUITY))
+
                 strat_agent = StrategyAgent(
-                    universe=str(settings.STRATEGY_AGENT_SYMBOLS).split(),
+                    universe=managed_universe,
                     bar_provider=DailyBarProvider(),
                     portfolio=PaperBook(equity=equity),
-                    risk_manager=risk_manager,
+                    risk_manager=strat_risk_manager,
                     params=ManagedBetaParams(trend_ema=int(settings.STRATEGY_AGENT_TREND_EMA)),
                     target_vol=float(settings.STRATEGY_AGENT_TARGET_VOL),
                     rebalance_seconds=float(settings.STRATEGY_AGENT_REBALANCE_SECONDS),
-                    ts_bar_provider=ts_provider, ts_universe=ts_syms, ts_params=TSMomentumParams(),
+                    mark_seconds=float(getattr(settings, "STRATEGY_AGENT_MARK_SECONDS", 20.0)),
+                    history_interval_seconds=float(getattr(settings, "STRATEGY_AGENT_HISTORY_SECONDS", 300.0)),
+                    ts_bar_provider=ts_provider, ts_universe=ts_syms, ts_params=ts_params,
                     w_managed=float(settings.STRATEGY_AGENT_W_MANAGED),
                     w_ts=float(settings.STRATEGY_AGENT_W_TS),
+                    book_vol_target=float(settings.STRATEGY_AGENT_BOOK_VOL_TARGET),
+                    book_max_leverage=float(settings.STRATEGY_AGENT_BOOK_MAX_LEVERAGE),
+                    dd_degear_threshold=float(settings.STRATEGY_AGENT_DD_DEGEAR_THRESHOLD),
+                    dd_degear_floor=float(settings.STRATEGY_AGENT_DD_DEGEAR_FLOOR),
+                    min_rebalance_delta=float(settings.STRATEGY_AGENT_MIN_REBALANCE_DELTA),
+                    conviction_gain=float(settings.STRATEGY_AGENT_CONVICTION_GAIN),
+                    conviction_cap=float(settings.STRATEGY_AGENT_CONVICTION_CAP),
                     news_provider=news_provider, news_verifier=news_verifier,
                     entity_graph=entity_graph, overlay_gate=overlay_gate,
                     journal=journal, scanner=scanner,
@@ -327,6 +362,13 @@ def run_nn_agent(severe_flag):
                                news=news_provider is not None, llm_verify=news_verifier is not None,
                                overlay=overlay_gate is not None,
                                mode=("LIVE" if not paper else "PAPER"))
+
+                # Scheduled post-mortem: periodically classify the journal (process/noise/regime),
+                # write lessons to the strategy_agent SkillBook, persist a report. Runs the built
+                # scripts/postmortem.py loop that was never scheduled. Deterministic (no LLM) to
+                # avoid blocking; the owner still runs the LLM version manually for deep reviews.
+                if bool(getattr(settings, "POSTMORTEM_ENABLED", True)):
+                    asyncio.create_task(_run_postmortem_scheduler())
             except Exception as e:
                 logger.warning("strategy_agent_launch_failed", error=str(e))
 
@@ -344,16 +386,49 @@ def run_nn_agent(severe_flag):
         if _model_instance:
             _model_instance.safe_checkpoint(label="shutdown")
 
+async def _run_postmortem_scheduler():
+    """Periodically run the classify-then-learn post-mortem over the trade journal and write
+    lessons to the SkillBook. First run is delayed so a fresh book accumulates marks; thereafter
+    it runs every POSTMORTEM_INTERVAL_HOURS. Deterministic (no LLM) so it never blocks the loop."""
+    import os, sys as _sys
+    interval_h = float(getattr(settings, "POSTMORTEM_INTERVAL_HOURS", 24.0))
+    days = float(getattr(settings, "POSTMORTEM_WINDOW_DAYS", 7.0))
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if scripts_dir not in _sys.path:
+        _sys.path.insert(0, scripts_dir)
+    await asyncio.sleep(3600.0)                       # let the book accumulate marks first
+    while True:
+        try:
+            import postmortem
+            report = await asyncio.to_thread(postmortem.run_once, days, use_llm=False)
+            if report:
+                logger.warning("postmortem_ran", window_days=days,
+                               concerns=len(report.get("concerns", [])),
+                               lessons=len(report.get("lessons_written", [])))
+        except Exception as e:
+            logger.warning("postmortem_scheduler_failed", error=str(e)[:160])
+        await asyncio.sleep(max(3600.0, interval_h * 3600.0))
+
+
 def run_news_agent(severe_flag):
     async def _run():
         from backend.memory.redis_client import get_redis
         redis_session = await get_redis()
         news_queue = PriorityNewsQueue(redis_session)
         
-        news_pipeline = NewsIngestionPipeline(rss_urls=DEFAULT_RSS_FEEDS)
-        
+        # Pass Redis so dedup survives restarts (no more re-emitting recent stories on every boot).
+        news_pipeline = NewsIngestionPipeline(rss_urls=DEFAULT_RSS_FEEDS, redis=redis_session)
+
+        # News classification benefits from a stronger, FASTER model than local llama3.1 (which was
+        # a ~8-articles/day bottleneck and over-alarmed severity). If a Gemini key is present, upgrade
+        # this process to hybrid_gemini so severity analysis (non-"haiku" tier) routes to Gemini Flash
+        # — cheap, fast, better-calibrated — while trivial local calls still use Ollama. Pure-ollama
+        # config (no key) keeps working unchanged.
+        news_provider = settings.AI_PROVIDER
+        if news_provider == "ollama" and str(settings.GEMINI_API_KEY or "").startswith("AIzaSy"):
+            news_provider = "hybrid_gemini"
         llm_service = LLMService(
-            provider=settings.AI_PROVIDER,
+            provider=news_provider,
             anthropic_key=settings.ANTHROPIC_API_KEY,
             gemini_key=settings.GEMINI_API_KEY,
             ollama_model=settings.OLLAMA_MODEL

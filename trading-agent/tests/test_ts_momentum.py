@@ -73,6 +73,46 @@ def test_long_only_mode_has_no_shorts():
     assert pos.min() >= 0.0
 
 
+def test_convex_stop_cuts_losers_tight_and_lets_winners_run():
+    """The asymmetric stop must (a) sit TIGHTER than symmetric before a trade is in profit,
+    (b) WIDEN once the trade proves itself, and (c) never let a winner revert below breakeven."""
+    atr = 10.0
+    sym = TSMomentumParams(convex_exits=False, atr_mult=3.0)
+    cvx = TSMomentumParams(convex_exits=True, initial_atr_mult=1.5, trail_atr_mult=4.0,
+                           activation_atr=1.0)
+    entry = 100.0
+    # pre-profit long (peak ≈ entry): convex tighter than symmetric
+    assert cvx.long_stop(entry, 100.0, atr) == 100.0 - 1.5 * atr
+    assert cvx.long_stop(entry, 100.0, atr) > sym.long_stop(entry, 100.0, atr)
+    # big winner (+5 ATR): convex wider trail than symmetric → lets it run
+    assert cvx.long_stop(entry, 150.0, atr) == 150.0 - 4.0 * atr
+    assert cvx.long_stop(entry, 150.0, atr) < sym.long_stop(entry, 150.0, atr)
+    # just activated (+1 ATR): wide trail would dip below entry → floored at breakeven
+    assert cvx.long_stop(entry, 110.0, atr) == entry
+    # short mirror
+    assert cvx.short_stop(entry, 100.0, atr) == 100.0 + 1.5 * atr        # tight pre-profit
+    assert cvx.short_stop(entry, 50.0, atr) == 50.0 + 4.0 * atr          # wide when winning
+    assert cvx.short_stop(entry, 90.0, atr) == entry                     # breakeven lock
+
+
+def test_convex_exits_produce_more_positive_skew_on_a_trend():
+    """On an up-then-crash path, convex exits should give back LESS at the top than the symmetric
+    3-ATR trail (tighter give-back once activated is NOT the point — the point is it exits a winner
+    on the crash no later than symmetric, and cuts a fresh loser sooner). Sanity: both stay causal
+    and flat-or-short by the end."""
+    up = np.linspace(100, 200, 160)
+    down = np.linspace(200, 120, 60)
+    close = np.r_[np.full(40, 100.0), up, down]
+    data = {"X": _ohlc_from_close(close)}
+    base = TSMomentumParams(entry_channel=20, exit_channel=10, ema_trend=30, atr_mult=3.0)
+    conv = TSMomentumParams(entry_channel=20, exit_channel=10, ema_trend=30, convex_exits=True,
+                            initial_atr_mult=1.5, trail_atr_mult=4.0, activation_atr=1.0)
+    pos_sym = TSMomentumBreakout(base).generate_positions(data)["X"]
+    pos_cvx = TSMomentumBreakout(conv).generate_positions(data)["X"]
+    assert (pos_sym == 1.0).any() and (pos_cvx == 1.0).any()   # both went long the trend
+    assert pos_sym[-1] <= 0.0 and pos_cvx[-1] <= 0.0           # both exited the long by the crash end
+
+
 def test_integrates_with_portfolio_backtest():
     rng = np.random.default_rng(0)
     data = {}

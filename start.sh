@@ -55,8 +55,10 @@ if [ ! -d "node_modules" ]; then
     npm install --legacy-peer-deps
 fi
 
-# Run dev; if it fails, attempt npm install and run again
-(npm run dev || (echo "[Frontend] Run failed, attempting dependency install..." && npm install --legacy-peer-deps && npm run dev)) &
+# Run the production build (fast page loads — prebuilt pages instead of dev on-demand
+# compilation). prod-start rebuilds only when source changed, and falls back to dev on a
+# build failure. If deps are missing it installs then retries.
+(npm run prod || (echo "[Frontend] Run failed, attempting dependency install..." && npm install --legacy-peer-deps && npm run prod)) &
 FRONTEND_PID=$!
 cd ..
 

@@ -11,6 +11,8 @@ type Tab = typeof TABS[number];
 
 export default function PerformancePage() {
   const [data, setData] = useState<Stats | null>(null);
+  const [book, setBook] = useState<any>(null);
+  const [health, setHealth] = useState<any>(null);
   const [tab, setTab] = useState<Tab>("Overall");
   const [loading, setLoading] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -29,9 +31,20 @@ export default function PerformancePage() {
       setLastFetched(Date.now());
     } catch (e: any) {
       setError(String(e?.message || e));
-    } finally {
-      setLoading(false);
     }
+    // The LIVE book is the StrategyAgent paper book (the NN trade table is empty while the NN
+    // agent is disabled). Fetch it independently so the page shows real performance regardless.
+    try {
+      const [pRes, hRes] = await Promise.all([
+        fetch(`${API_BASE}/strategy/portfolio`),
+        fetch(`${API_BASE}/strategy/health`),
+      ]);
+      if (pRes.ok) setBook(await pRes.json());
+      if (hRes.ok) setHealth(await hRes.json());
+    } catch {
+      /* keep last book snapshot on a transient error */
+    }
+    setLoading(false);
   };
 
   const doReset = async (clear: boolean) => {
@@ -56,7 +69,7 @@ export default function PerformancePage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Model Performance</h1>
           <p className="text-zinc-500 text-xs mt-1">
-            Aggregates trades, news classification, and outbound API latency. Polls every 5s.
+            Live paper book up top; the tabs below aggregate NN trades, news classification, and API latency. Polls every 5s.
             {data?.reset_at && (
               <span className="ml-2 text-amber-400">
                 Baseline reset {new Date(data.reset_at * 1000).toLocaleString()}
@@ -114,6 +127,9 @@ export default function PerformancePage() {
         </div>
       )}
 
+      {/* Live paper book (StrategyAgent) — the book that is actually trading. */}
+      <PaperBookSummary book={book} health={health} />
+
       {/* Runtime markers */}
       {data?.meta && <RuntimeBanner meta={data.meta} lastFetched={lastFetched} />}
 
@@ -144,6 +160,55 @@ export default function PerformancePage() {
         </>
       )}
     </div>
+  );
+}
+
+function PaperBookSummary({ book, health }: { book: any; health: any }) {
+  const active = book?.active && (book?.total_value ?? 0) > 0;
+  if (!active) {
+    return (
+      <div className="rounded-xl border border-[#171717] bg-[#0e0e10] p-4 text-xs text-zinc-500">
+        Live paper book has not published yet — it appears within one rebalance/mark of the agent
+        starting (needs <span className="font-mono text-zinc-400">STRATEGY_AGENT_ENABLED=true</span>).
+      </div>
+    );
+  }
+  const pnl = book.total_pnl ?? 0;
+  const pos = pnl >= 0;
+  const dd = (health?.current_drawdown ?? 0) * 100;
+  const worst = (health?.worst_drawdown ?? 0) * 100;
+  const sharpe = health?.realized_sharpe ?? 0;
+  const volUtil = health?.vol_utilization;
+  const usd = (n: number) =>
+    `$${(n ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+        <Activity size={14} /> Live Paper Book · Managed-beta + TS-momentum
+        <span className="text-[10px] rounded-sm bg-zinc-800 px-1.5 py-0.5 text-zinc-400">
+          {book.paper === false ? "LIVE" : "PAPER"}
+        </span>
+      </h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <BigCard title="Total value" value={usd(book.total_value)} />
+        <BigCard
+          title="P&L since start"
+          value={`${pos ? "+" : ""}${usd(pnl)}`}
+          sub={`${(book.total_pnl_pct ?? 0).toFixed(2)}%`}
+          tone={pos ? "ok" : "bad"}
+        />
+        <BigCard title="Current drawdown" value={`${dd.toFixed(2)}%`} tone={dd < 0 ? "bad" : "neutral"} />
+        <BigCard title="Realized Sharpe" value={Number(sharpe).toFixed(2)} />
+        <BigCard title="Worst drawdown" value={`${worst.toFixed(2)}%`} tone="bad" />
+        <BigCard
+          title="Vol utilization"
+          value={volUtil == null ? "—" : `${(volUtil * 100).toFixed(0)}%`}
+          sub={health?.target_vol ? `target ${(health.target_vol * 100).toFixed(0)}%` : undefined}
+        />
+        <BigCard title="Gross exposure" value={`${((book.gross_exposure ?? 0) * 100).toFixed(0)}%`} />
+        <BigCard title="Rebalances / marks" value={`${health?.rebalances ?? 0} / ${health?.marks ?? 0}`} />
+      </div>
+    </section>
   );
 }
 
@@ -186,6 +251,14 @@ function TradeStatsGrid({ title, s }: { title: string; s: any }) {
   return (
     <section className="space-y-4">
       <h2 className="text-sm uppercase tracking-wider text-zinc-400">{title}</h2>
+
+      {(s.total_trades ?? 0) === 0 && (
+        <div className="rounded-lg border border-[#171717] bg-[#0e0e10] px-4 py-2 text-xs text-zinc-500">
+          No discrete NN-agent trades recorded (the NN policy net is disabled). The book that is
+          actually trading is the <span className="text-zinc-300">Live Paper Book</span> summarised
+          above — its allocations live on the Dashboard &amp; Positions pages.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <BigCard title="Cumulative PnL" value={`$${(s.cumulative_pnl_usd || 0).toFixed(2)}`} sub={`${(s.cumulative_pnl_pct || 0).toFixed(2)}%`} tone={pnlPos ? "ok" : "bad"} />

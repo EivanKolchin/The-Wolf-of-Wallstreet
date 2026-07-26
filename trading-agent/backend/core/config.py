@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     ALPACA_API_KEY: str = ""
     ALPACA_SECRET: str = ""
     ALPACA_SECRET_KEY: str = ""
+    # Market-data feed: "iex" (free, single venue) or "sip" (paid, consolidated NBBO). Quoted
+    # SPREADS are only meaningful on "sip" — IEX is a ~2% venue that frequently does not quote at
+    # the touch (observed: SNDK 245bps, TSLA 98bps on IEX while NVDA is 1bps), so the anomaly
+    # scanner suppresses its wide_spread flag for stocks unless this is a consolidated feed.
+    ALPACA_DATA_FEED: str = "iex"
 
     # Binance USD-M futures (the crypto-perp / short-capable venue for the TS-momentum sleeve)
     BINANCE_FUTURES_API_KEY: str = ""
@@ -187,7 +192,18 @@ class Settings(BaseSettings):
     # routes real orders (live routing is intentionally not auto-wired — see strategy_agent.py).
     STRATEGY_AGENT_ENABLED: bool = False
     STRATEGY_AGENT_SYMBOLS: str = "SPY QQQ TQQQ TLT GLD BTC-USD ETH-USD"  # yfinance daily tickers
-    STRATEGY_AGENT_REBALANCE_SECONDS: float = 86400.0   # daily rebalance
+    # Single-name equities traded through the SAME trend-follow machinery (200-EMA trend filter +
+    # vol-target + per-name news overlay). Momentum-BETA on single names — held while trending,
+    # cashed when they break down. NOT validated market-neutral alpha (single-name XS momentum was
+    # overfit); adds idiosyncratic/earnings-gap risk. Merged into the managed universe at launch.
+    STRATEGY_AGENT_STOCK_SYMBOLS: str = ""              # e.g. "NVDA AMD TSLA MSTR COIN PLTR"
+    STRATEGY_AGENT_REBALANCE_SECONDS: float = 86400.0   # daily target-weight change cadence
+    # Fast intra-rebalance mark loop: revalue held positions at LIVE prices this often and republish
+    # so the dashboard net worth moves in real time between the daily rebalances (target weights /
+    # routing still only change on REBALANCE_SECONDS). History points persist at most every
+    # HISTORY_SECONDS so the net-worth curve doesn't balloon at the 20s mark cadence.
+    STRATEGY_AGENT_MARK_SECONDS: float = 20.0
+    STRATEGY_AGENT_HISTORY_SECONDS: float = 300.0
     STRATEGY_AGENT_TARGET_VOL: float = 0.15
     STRATEGY_AGENT_TREND_EMA: int = 200
     STRATEGY_AGENT_EQUITY: float = 100000.0             # paper book starting equity
@@ -195,6 +211,37 @@ class Settings(BaseSettings):
     STRATEGY_AGENT_TS_SYMBOLS: str = ""                 # e.g. "BTCUSDT ETHUSDT SOLUSDT XRPUSDT ADAUSDT"
     STRATEGY_AGENT_W_MANAGED: float = 0.5               # capital fraction to the managed-beta sleeve
     STRATEGY_AGENT_W_TS: float = 0.5                    # capital fraction to the TS-momentum sleeve
+    # TS-momentum sleeve params — the VALIDATED set (4h + ADX≥25 gate + ema50 + 48/24 Donchian
+    # gave Sharpe +0.94 / β≈0; WITHOUT the ADX gate it measured -0.83). These override the raw
+    # TSMomentumParams() dataclass defaults (ema100/adx0), which the live agent used to pass.
+    STRATEGY_AGENT_TS_ENTRY_CHANNEL: int = 48
+    STRATEGY_AGENT_TS_EXIT_CHANNEL: int = 24
+    STRATEGY_AGENT_TS_EMA_TREND: int = 50
+    STRATEGY_AGENT_TS_ADX_MIN: float = 25.0
+    STRATEGY_AGENT_TS_ATR_MULT: float = 3.0
+    STRATEGY_AGENT_TS_ALLOW_SHORT: bool = True
+    # Convex exits: tight initial stop (cut losers) → wide trail floored at breakeven (let winners
+    # run). Shapes returns toward positive skew — "small red / big green". Raises turnover; A/B on
+    # the backtest harness (--convex-exits) before trusting the params.
+    STRATEGY_AGENT_TS_CONVEX_EXITS: bool = True
+    STRATEGY_AGENT_TS_INITIAL_ATR_MULT: float = 1.5
+    STRATEGY_AGENT_TS_TRAIL_ATR_MULT: float = 4.0
+    STRATEGY_AGENT_TS_ACTIVATION_ATR: float = 1.0
+    # Book-level volatility target: after both sleeves are combined, scale the WHOLE book to this
+    # annualized vol from the trailing covariance of actual holdings (capped by BOOK_MAX_LEVERAGE).
+    # This is the risk lever the backtest validated; without it the book ran at ~half intent.
+    STRATEGY_AGENT_BOOK_VOL_TARGET: float = 0.0         # 0 = off (sleeves self-target); e.g. 0.30 = aggressive
+    STRATEGY_AGENT_BOOK_MAX_LEVERAGE: float = 2.0
+    # Book-equity drawdown de-gear (the validated portfolio.drawdown_degear, applied live off the
+    # paper book's OWN peak-to-trough equity — NOT the dead NN book the RiskManager tracks). When
+    # the book is in a drawdown beyond the threshold, scale exposure linearly toward the floor.
+    STRATEGY_AGENT_DD_DEGEAR_THRESHOLD: float = 0.10
+    STRATEGY_AGENT_DD_DEGEAR_FLOOR: float = 0.25
+    STRATEGY_AGENT_MIN_REBALANCE_DELTA: float = 0.02    # skip weight changes smaller than this (dead-band)
+    # Kelly-conviction sizing: tilt weights by signed trend strength (bet bigger on strong trends),
+    # re-normalized by the book vol-target so total risk is unchanged. 0 = off. cap bounds the tilt.
+    STRATEGY_AGENT_CONVICTION_GAIN: float = 0.5
+    STRATEGY_AGENT_CONVICTION_CAP: float = 2.0
     STRATEGY_AGENT_NEWS_OVERLAY: bool = True            # apply the directional news→risk overlay
     STRATEGY_AGENT_NEWS_LLM_VERIFY: bool = False        # also run the LLM RiskAgent cross-check
     STRATEGY_AGENT_MAX_ORDER_USD: float = 5000.0        # per-order notional cap on the live router
@@ -221,6 +268,11 @@ class Settings(BaseSettings):
     # Trade journal: append-only JSONL of every rebalance/order/mark/outcome — the reviewable
     # record for periodic deep post-mortems (scripts/postmortem.py aggregates + writes lessons).
     TRADE_JOURNAL_ENABLED: bool = True
+    # Scheduled post-mortem: periodically classify the journal (process/noise/regime) and write
+    # lessons to the strategy_agent SkillBook. Deterministic (no LLM) so it never blocks the loop.
+    POSTMORTEM_ENABLED: bool = True
+    POSTMORTEM_INTERVAL_HOURS: float = 24.0
+    POSTMORTEM_WINDOW_DAYS: float = 7.0
     # Cross-sectional anomaly scanner (2 REST calls / 15min over the whole perp universe):
     # wide-spread/illiquid flags de-gear perp weights (tighten-only, floor 0.5); move/volume
     # flags are attention/observability only. Fails open to no scaling.

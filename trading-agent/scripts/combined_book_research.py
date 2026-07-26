@@ -125,18 +125,22 @@ def _resample_4h(df5):
     return d.reset_index()
 
 
-def ts_momentum_daily(symbols, start_year=2022):
+def ts_momentum_daily(symbols, start_year=2022, convex_exits=False):
     """Daily net-return series of the 4h ADX-gated TS-momentum book (compounded 4h→daily).
 
     Built timestamp-indexed (not bar-index): each symbol's per-bar net return is a Series on its
     own 4h clock; the equal-weight book = row-mean across symbols (outer-join, skip not-yet-live),
     then the SAME risk overlay the portfolio backtester applies (vol-target + drawdown de-gear).
-    This keeps wall-clock alignment so the daily resample is correct."""
+    This keeps wall-clock alignment so the daily resample is correct.
+
+    ``convex_exits``: A/B the asymmetric stop (tight initial → wide trail floored at breakeven)
+    against the validated symmetric Chandelier."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("pretrain_cb", str(ROOT / "scripts" / "pretrain.py"))
     pre = importlib.util.module_from_spec(spec); spec.loader.exec_module(pre)
     strat = TSMomentumBreakout(TSMomentumParams(
-        entry_channel=48, exit_channel=24, atr_mult=3.0, ema_trend=50, adx_min=25, allow_short=True))
+        entry_channel=48, exit_channel=24, atr_mult=3.0, ema_trend=50, adx_min=25, allow_short=True,
+        convex_exits=convex_exits, initial_atr_mult=1.5, trail_atr_mult=4.0, activation_atr=1.0))
     ts_cost = (10.0 + 5.0) / 1e4
     series = {}
     for s in symbols:
@@ -186,6 +190,40 @@ def _line(label, r):
     return s
 
 
+def _skew_stats(r) -> dict:
+    """Return-distribution stats that matter for a 'small red / big green' objective."""
+    import numpy as np
+    x = np.asarray(r.dropna(), dtype=float)
+    if x.size < 20:
+        return {}
+    mu, sd = x.mean(), x.std(ddof=1)
+    sharpe = (mu / sd * np.sqrt(252)) if sd > 0 else 0.0
+    skew = float(((x - mu) ** 3).mean() / (sd ** 3)) if sd > 0 else 0.0
+    pos, neg = x[x > 0].sum(), -x[x < 0].sum()
+    gain_pain = float(pos / neg) if neg > 0 else float("inf")
+    eq = np.cumprod(1 + x)
+    dd = float((eq / np.maximum.accumulate(eq) - 1.0).min())
+    avg_win = float(x[x > 0].mean()) if (x > 0).any() else 0.0
+    avg_loss = float(x[x < 0].mean()) if (x < 0).any() else 0.0
+    return {"sharpe": sharpe, "skew": skew, "gain_pain": gain_pain, "max_dd": dd,
+            "avg_win": avg_win, "avg_loss": avg_loss,
+            "win_loss_ratio": (avg_win / -avg_loss) if avg_loss < 0 else float("inf")}
+
+
+def _print_ab_skew(label, r_symmetric, r_convex):
+    """Print a symmetric-vs-convex A/B focused on skew / asymmetry, not just Sharpe."""
+    a, b = _skew_stats(r_symmetric), _skew_stats(r_convex)
+    if not a or not b:
+        print(f"  [A/B {label}] insufficient data"); return
+    print(f"\n  === {label}: SYMMETRIC vs CONVEX exits ===")
+    print(f"  {'metric':16s} {'symmetric':>12s} {'convex':>12s}")
+    for k, name in (("sharpe", "Sharpe"), ("skew", "skew"), ("gain_pain", "gain/pain"),
+                    ("win_loss_ratio", "avg win/loss"), ("max_dd", "max DD")):
+        print(f"  {name:16s} {a[k]:>12.3f} {b[k]:>12.3f}")
+    print("  (convex WINS if skew ↑, gain/pain ↑, avg-win/loss ↑ — accepting a slightly lower "
+          "hit-rate. Sharpe may move either way; the goal is asymmetry, not smoothness.)")
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(description="combined-book diversification test")
@@ -193,12 +231,19 @@ def main():
                     help="add the FX/commodity daily TSMOM sleeve as a 4th candidate")
     ap.add_argument("--fxc-download", action="store_true",
                     help="allow yfinance download of any missing FX/commodity ETFs (else cache-only)")
+    ap.add_argument("--convex-exits", action="store_true",
+                    help="use asymmetric convex stops (tight initial → wide trail floored at breakeven) "
+                         "on the TS sleeve, and print a symmetric-vs-convex A/B")
     args = ap.parse_args()
 
     print("building managed-beta daily book (widened, equal-weight) ...")
     mb = managed_beta_daily(MB_SYMBOLS)
     print("building TS-momentum 4h crypto book (ADX>=25, L/S) -> daily ...")
-    ts = ts_momentum_daily(TS_SYMBOLS)
+    ts = ts_momentum_daily(TS_SYMBOLS, convex_exits=args.convex_exits)
+    if args.convex_exits:
+        print("  [A/B] also building the SYMMETRIC-stop TS book for comparison ...")
+        ts_sym = ts_momentum_daily(TS_SYMBOLS, convex_exits=False)
+        _print_ab_skew("TS sleeve", ts_sym, ts)
     print("building daily multi-asset TSMOM long-short book (MOP-style) ...")
     tm = tsmom_daily(MB_SYMBOLS)
 

@@ -106,6 +106,35 @@ def _ddg_html_search(query: str, max_results: int) -> list[dict[str, str]]:
         return []
 
 
+def fetch_page_text(url: str, max_chars: int = 2500) -> str:
+    """Fetch a result page and return rough plain text (for thin snippets)."""
+    url = (url or "").strip()
+    if not url.startswith("http"):
+        return ""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; TradingAgentCopilot/1.0)"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            raw = resp.read(400_000).decode("utf-8", errors="ignore")
+        # Drop script/style blocks, then tags, then collapse whitespace
+        raw = re.sub(r"<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", raw, flags=re.I | re.S)
+        text = re.sub(r"<[^>]+>", " ", raw)
+        text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+        return text[:max_chars]
+    except Exception:
+        return ""
+
+
+# Questions about local app/portfolio state — answered from internal context, no web hit.
+_INTERNAL_MARKERS = (
+    "pnl", "p&l", "profit", "loss", "position", "portfolio", "balance", "equity",
+    "drawdown", "paper trading", "live trading", "paper mode", "am i", "are we",
+    "my trades", "open trades", "closed trades", "kill switch", "risk status",
+    "agent", "heartbeat", "subsystem", "our system", "the system", "this app",
+    "strategy", "sleeve", "overlay", "universe", "watchlist", "current price",
+    "price right now", "how much", "how many",
+)
+
+
 def build_search_query(message: str, context: dict[str, Any] | None = None) -> str | None:
     """Heuristic: return a search query when local context is unlikely to suffice."""
     msg = (message or "").strip()
@@ -120,6 +149,13 @@ def build_search_query(message: str, context: dict[str, Any] | None = None) -> s
         "latest news", "what happened", "why isn't", "why is",
         "not working", "search for", "look up", "google",
         "who is", "what is the price of", "current news",
+        # analyst / market-opinion questions
+        "consensus", "census", "analyst", "price target", "forecast",
+        "estimate", "outlook", "guidance", "rating", "upgrade", "downgrade",
+        "sentiment", "opinion on", "expectations", "should i buy", "should i sell",
+        # macro / events
+        "fed ", "fomc", "cpi", "inflation", "rate cut", "rate hike",
+        "jobs report", "gdp", "halving", "etf approval", "sec ",
     )
     if any(t in lower for t in external_triggers):
         return msg
@@ -143,6 +179,12 @@ def build_search_query(message: str, context: dict[str, Any] | None = None) -> s
     mode = context.get("mode") or {}
     if "paper trading" in lower or "live trading" in lower:
         if mode.get("paper_trading") is None:
+            return msg
+
+    # Default: questions that are clearly NOT about local state get researched
+    # online (the internal context can't answer questions about the world).
+    if "?" in msg or lower.split()[:1] in (["what"], ["who"], ["when"], ["where"], ["how"], ["will"], ["is"], ["did"]):
+        if not any(k in lower for k in _INTERNAL_MARKERS) and len(lower.split()) >= 3:
             return msg
 
     return None

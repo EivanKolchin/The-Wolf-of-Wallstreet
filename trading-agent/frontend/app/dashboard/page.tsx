@@ -5,9 +5,8 @@ import dynamic from 'next/dynamic';
 import { useMarketData } from "@/lib/hooks/useMarketData";
 import { useNewsData } from "@/lib/hooks/useNewsData";
 import { useAppState } from "@/lib/context";
-import { VirtualWalletCard } from "@/components/VirtualWalletCard";
 import { StrategyBookCard } from "@/components/StrategyBookCard";
-import { EntityGraphCard } from "@/components/EntityGraphCard";
+import { BookHealthCard } from "@/components/BookHealthCard";
 import { AgentStatusBanner } from "@/components/AgentStatusBanner";
 import { NewsScannerWidget } from "@/components/NewsScannerWidget";
 import { NewsInsightsWidget } from "@/components/NewsInsightsWidget";
@@ -327,14 +326,14 @@ export default function Dashboard() {
 
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:items-start">
-        <VirtualWalletCard viewedSymbol={activeChartSymbol} />
+      {/* ── Strategy book (managed-beta + TS-momentum): allocations + net-worth curve ── */}
+      <div className="grid gap-6 lg:items-start">
+        <StrategyBookCard />
       </div>
 
-      {/* ── Strategy book (managed-beta + TS-momentum): allocations + net-worth curve ── */}
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)] lg:items-start">
-        <StrategyBookCard />
-        <EntityGraphCard />
+      {/* ── Book health: realized vol vs target, Sharpe, drawdown, uptime, news/anomaly state ── */}
+      <div className="grid gap-6 lg:items-start">
+        <BookHealthCard />
       </div>
 
       {/* ── Chart row ── */}

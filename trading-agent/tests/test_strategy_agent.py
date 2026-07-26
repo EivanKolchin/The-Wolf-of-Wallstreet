@@ -132,6 +132,83 @@ def test_no_news_provider_is_unchanged():
     assert plan["news"] == {} and plan["blocked"] is None
 
 
+def test_rebalance_once_never_touches_redis(monkeypatch):
+    """REGRESSION (2026-07-09): `rebalance_once()` used to end with `_publish_portfolio()`.
+    `get_redis()` reaches the REAL server when the owner's backend is up, so running this very
+    test file published a fake A/B/C book over the live `strategy:paperbook:state` and wrecked it
+    (equity 98,995 -> 15,698). Publishing now lives in `run()`; this pins that invariant."""
+    import backend.memory.redis_client as rc
+
+    async def _boom(*a, **k):
+        raise AssertionError("rebalance_once() must not perform Redis I/O")
+
+    # _publish_portfolio imports get_redis INSIDE the function, so patching the module attr works.
+    monkeypatch.setattr(rc, "get_redis", _boom)
+    plan = asyncio.run(_agent().rebalance_once())
+    assert plan["blocked"] is None and plan["orders"]
+
+
+def _seed_state_and_restore(agent, state: dict):
+    """Put `state` in (fake) redis, run the restore, return whatever state survived."""
+    import json
+    from backend.memory.redis_client import get_redis
+
+    async def _run():
+        r = await get_redis()
+        await r.delete("paper:reset_requested")
+        await r.set("strategy:paperbook:state", json.dumps(state))
+        await agent._restore_paper_book()
+        return await r.get("strategy:paperbook:state")
+
+    return asyncio.run(_run())
+
+
+def test_restore_paper_book_rejects_foreign_symbols():
+    """REGRESSION: a persisted book holding symbols outside this agent's universe was written by
+    something else (a test sharing the Redis, another config). Adopting it silently imports that
+    book's equity — exactly how the live book inherited a wrecked 15,698 from a unit-test book."""
+    agent = _agent()                                   # universe A/B/C, seeded at 100k
+    remaining = _seed_state_and_restore(agent, {
+        "equity": 15_698.61, "initial_equity": 100_000.0,
+        "positions": {"AMD": 0.03, "NVDA": 0.02},      # neither is in universe ["A","B","C"]
+        "last_prices": {"AMD": 555.0},
+    })
+    assert agent.portfolio.equity == 100_000.0         # refused to adopt the wrecked equity
+    assert not agent.portfolio.positions
+    assert remaining is None                           # and purged the poisoned state
+
+
+def test_restore_paper_book_accepts_own_universe():
+    """The guard must not break the normal resume-across-restart path."""
+    agent = _agent()
+    _seed_state_and_restore(agent, {
+        "equity": 98_995.08, "initial_equity": 100_000.0,
+        "positions": {"A": 0.30, "B": 0.20},           # both in universe
+        "last_prices": {"A": 150.0, "B": 160.0},
+    })
+    assert agent.portfolio.equity == 98_995.08
+    assert agent.portfolio.positions == {"A": 0.30, "B": 0.20}
+
+
+def test_restore_paper_book_consumes_reset_flag():
+    """`paper:reset_requested` must be CLEARED once honoured — with NN_AGENT_ENABLED=false nothing
+    else clears it, so a sticky flag would wipe the book on every subsequent restart."""
+    import json
+    from backend.memory.redis_client import get_redis
+    agent = _agent()
+
+    async def _run():
+        r = await get_redis()
+        await r.set("paper:reset_requested", "true")
+        await r.set("strategy:paperbook:state", json.dumps({"equity": 42.0, "positions": {}}))
+        await agent._restore_paper_book()
+        return await r.get("paper:reset_requested"), await r.get("strategy:paperbook:state")
+
+    flag, state = asyncio.run(_run())
+    assert agent.portfolio.equity == 100_000.0   # fresh book, not the 42.0 state
+    assert flag is None and state is None        # flag consumed, state purged
+
+
 def test_two_sleeve_combined_targets_include_crypto():
     """With a ts_bar_provider, the combined book adds the TS-momentum crypto sleeve."""
     n = 400

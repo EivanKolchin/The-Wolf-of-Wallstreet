@@ -68,7 +68,7 @@ if not exist "node_modules\" (
     echo [Frontend] node_modules not found. Installing dependencies...
     call npm install --legacy-peer-deps
 )
-start "AI Trading Agent - Frontend" cmd /k "npm run dev || (echo [Frontend] Run failed, attempting dependency install... ^& call npm install --legacy-peer-deps ^& npm run dev) || echo Frontend crashed. Please check logs. ^& pause"
+start "AI Trading Agent - Frontend" cmd /k "npm run prod || (echo [Frontend] Run failed, attempting dependency install... ^& call npm install --legacy-peer-deps ^& npm run prod) || echo Frontend crashed. Please check logs. ^& pause"
 popd
 
 :: Backend

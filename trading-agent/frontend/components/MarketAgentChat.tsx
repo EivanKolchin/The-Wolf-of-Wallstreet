@@ -8,14 +8,23 @@ import { API_BASE } from "@/lib/api";
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  route?: string;
 };
 
 const STARTERS = [
   "What is the current price?",
   "Am I in paper trading?",
-  "Is the agent working?",
   "When does NVDA report earnings?",
+  "What's the analyst consensus on BTC?",
 ];
+
+function routeLabel(route: { intent?: string; tier?: string } | null | undefined): string | undefined {
+  if (!route) return undefined;
+  if (route.intent === "research") {
+    return route.tier === "sonnet" ? "web research · gemini pro" : "web research · gemini flash";
+  }
+  return "local model";
+}
 
 export function MarketAgentChat({ symbol }: { symbol: string }) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([
@@ -41,6 +50,10 @@ export function MarketAgentChat({ symbol }: { symbol: string }) {
     setInput("");
     setLoading(true);
     setLoadingHint("Reading internal state and asking the configured LLM...");
+    // Hard client-side timeout: a stalled backend (web-search / LLM hang) must never
+    // leave the user staring at the loading dot with no reply.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000);
     try {
       const res = await fetch(`${API_BASE}/agent/chat`, {
         method: "POST",
@@ -50,6 +63,7 @@ export function MarketAgentChat({ symbol }: { symbol: string }) {
           symbol,
           history: nextMessages.slice(-8),
         }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (data?.web_search?.results?.length) {
@@ -60,14 +74,19 @@ export function MarketAgentChat({ symbol }: { symbol: string }) {
         {
           role: "assistant",
           content: res.ok ? (data.answer || "No response.") : (data.detail || "Chat request failed."),
+          route: res.ok ? routeLabel(data.route) : undefined,
         },
       ]);
     } catch (e: any) {
+      const msg = e?.name === "AbortError"
+        ? "The copilot took too long to respond (timed out after 90s). It may be fetching web results or the LLM provider is slow — try again."
+        : `Chat request failed: ${e?.message || e}`;
       setMessages(prev => [
         ...prev,
-        { role: "assistant", content: `Chat request failed: ${e?.message || e}` },
+        { role: "assistant", content: msg },
       ]);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -99,6 +118,11 @@ export function MarketAgentChat({ symbol }: { symbol: string }) {
                     : "border border-[#1a1a1c] bg-[#0e0e10] text-zinc-300"
                 }`}>
                   {msg.content}
+                  {msg.route && (
+                    <div className="mt-1.5 font-mono text-[9px] uppercase tracking-wide text-zinc-600">
+                      {msg.route}
+                    </div>
+                  )}
                 </div>
                 {isUser && (
                   <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-zinc-500/20 bg-zinc-500/10 text-zinc-300">

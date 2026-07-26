@@ -124,11 +124,15 @@ class HeartbeatClient:
     def __init__(self, redis: Redis):
         self.redis = redis
 
-    async def ping(self, process_name: str) -> None:
+    async def ping(self, process_name: str, ttl_seconds: int = 10) -> None:
+        """Mark a process alive for `ttl_seconds`. The TTL MUST exceed the caller's ping interval,
+        or `check_alive` reports dead between pings — the StrategyAgent pings once per mark (20s)
+        against the old hard-coded 10s TTL, so its status vanished for half of every cycle and the
+        dashboard banner fell back to 'Starting up agent core...'."""
         import time
         key = f"heartbeat:{process_name}"
         timestamp = str(time.time())
-        await self.redis.setex(key, 10, timestamp)
+        await self.redis.setex(key, int(max(1, ttl_seconds)), timestamp)
 
     async def check_alive(self, process_name: str) -> bool:
         key = f"heartbeat:{process_name}"

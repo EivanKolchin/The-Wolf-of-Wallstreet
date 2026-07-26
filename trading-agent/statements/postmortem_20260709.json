@@ -1,0 +1,130 @@
+{
+  "generated_at": "2026-07-09T16:14:56+00:00",
+  "window_days": 7.0,
+  "aggregates": {
+    "n_marks": 79,
+    "n_rebalances": 79,
+    "n_orders": 83,
+    "window_return": -0.84335,
+    "per_mark_vol": 0.09484,
+    "worst_drawdown": -0.843,
+    "max_gross": 1.055,
+    "n_blocked_rebalances": 0,
+    "journal_gaps": 5,
+    "per_symbol": {
+      "BTCUSDT": {
+        "n": 45,
+        "wins": 21,
+        "contribution": 0.00067,
+        "hit_rate": 0.467
+      },
+      "ETHUSDT": {
+        "n": 58,
+        "wins": 29,
+        "contribution": -0.00755,
+        "hit_rate": 0.5
+      },
+      "QQQ": {
+        "n": 70,
+        "wins": 2,
+        "contribution": 0.00161,
+        "hit_rate": 0.029
+      },
+      "SPY": {
+        "n": 70,
+        "wins": 1,
+        "contribution": 0.00048,
+        "hit_rate": 0.014
+      },
+      "TQQQ": {
+        "n": 70,
+        "wins": 2,
+        "contribution": 0.00447,
+        "hit_rate": 0.029
+      },
+      "XRPUSDT": {
+        "n": 39,
+        "wins": 13,
+        "contribution": -0.00169,
+        "hit_rate": 0.333
+      },
+      "SOLUSDT": {
+        "n": 30,
+        "wins": 12,
+        "contribution": -2e-05,
+        "hit_rate": 0.4
+      },
+      "AMD": {
+        "n": 25,
+        "wins": 1,
+        "contribution": 0.00028,
+        "hit_rate": 0.04
+      },
+      "GOOGL": {
+        "n": 25,
+        "wins": 0,
+        "contribution": -0.00135,
+        "hit_rate": 0.0
+      },
+      "NVDA": {
+        "n": 25,
+        "wins": 1,
+        "contribution": 0.00212,
+        "hit_rate": 0.04
+      },
+      "RKLB": {
+        "n": 25,
+        "wins": 0,
+        "contribution": -3e-05,
+        "hit_rate": 0.0
+      },
+      "TSLA": {
+        "n": 21,
+        "wins": 0,
+        "contribution": -0.00172,
+        "hit_rate": 0.0
+      },
+      "A": {
+        "n": 1,
+        "wins": 0,
+        "contribution": -0.2754,
+        "hit_rate": 0.0
+      },
+      "B": {
+        "n": 1,
+        "wins": 0,
+        "contribution": -0.56751,
+        "hit_rate": 0.0
+      }
+    },
+    "slippage": {}
+  },
+  "concerns": [
+    {
+      "class": "process",
+      "code": "data_or_uptime_gap",
+      "detail": "5 mark gap(s) >3\u00d7 the median interval (agent down or data feed stalled)"
+    },
+    {
+      "class": "noise",
+      "code": "loss_within_expectation",
+      "detail": "window return -84.34% is z=-1.00 of own vol \u2014 statistically unremarkable; DO NOT change the system"
+    },
+    {
+      "class": "regime",
+      "code": "broad_hit_rate_decay",
+      "detail": "hit-rate < 35% on 9 symbols (QQQ, SPY, TQQQ, XRPUSDT, AMD\u2026) \u2014 trend regime may be fading"
+    }
+  ],
+  "lessons_written": [
+    {
+      "tag": "data_or_uptime_gap",
+      "text": "[PROCESS] 5 mark gap(s) >3\u00d7 the median interval (agent down or data feed stalled)"
+    },
+    {
+      "tag": "broad_hit_rate_decay",
+      "text": "[REGIME] hit-rate < 35% on 9 symbols (QQQ, SPY, TQQQ, XRPUSDT, AMD\u2026) \u2014 trend regime may be fading"
+    }
+  ],
+  "note": "Hand this file (plus training_data/trade_journal.jsonl and training_data/slippage_log.jsonl) to the reviewing model for deep post-mortem and code-level fixes."
+}

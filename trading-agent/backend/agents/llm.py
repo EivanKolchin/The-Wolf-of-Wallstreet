@@ -29,8 +29,8 @@ class LLMService:
                     import google.generativeai as genai
                 
                 genai.configure(api_key=gemini_key)
-                self.gemini_model_haiku = genai.GenerativeModel('gemini-1.5-flash')
-                self.gemini_model_sonnet = genai.GenerativeModel('gemini-1.5-pro')
+                self.gemini_model_haiku = genai.GenerativeModel('gemini-2.5-flash')
+                self.gemini_model_sonnet = genai.GenerativeModel('gemini-2.5-pro')
             except ImportError:
                 logger.error("google-generativeai not installed, cannot use Gemini")
 
@@ -106,9 +106,10 @@ class LLMService:
         
         def build_request():
             data = {
-                "model": self.current_ollama_model, 
-                "prompt": safe_prompt, 
+                "model": self.current_ollama_model,
+                "prompt": safe_prompt,
                 "stream": False,
+                "keep_alive": "30m",
                 "options": {
                     "num_ctx": 4096
                 }
@@ -201,6 +202,34 @@ class LLMService:
                 return ""
         return await asyncio.to_thread(fetch)
 
+    @staticmethod
+    def _gemini_text(response) -> str:
+        """Safely extract text from a Gemini response.
+
+        The google-generativeai `.text` accessor RAISES (ValueError) when the top
+        candidate has no text part — safety block, RECITATION, or finish_reason=
+        MAX_TOKENS where the whole budget went to 'thinking'. The old code did a bare
+        `return response.text`, so that ValueError propagated out of the chat endpoint
+        as an HTTP 500 (the user saw "no response"). Here we degrade to '' so the caller
+        can fall back / escalate instead of crashing."""
+        try:
+            t = response.text
+            if t:
+                return t
+        except Exception:
+            pass
+        # Best-effort: stitch together any text parts on the first candidate.
+        try:
+            for cand in getattr(response, "candidates", None) or []:
+                content = getattr(cand, "content", None)
+                parts = getattr(content, "parts", None) or []
+                txt = "".join((getattr(p, "text", "") or "") for p in parts)
+                if txt.strip():
+                    return txt
+        except Exception:
+            pass
+        return ""
+
     def _compress_context(self, prompt: str, max_chars: int = 12000) -> str:
         """Truncate or compress overly long context to avoid open-source model forgetting."""
         if len(prompt) <= max_chars:
@@ -211,8 +240,6 @@ class LLMService:
         return prompt[:keep_start] + "\n\n...[TRUNCATED DATA]...\n\n" + prompt[-keep_end:]
 
     async def generate_text(self, prompt: str, tier: str = "haiku", max_tokens: int = 300, json_mode: bool = True) -> str:
-        prompt = self._compress_context(prompt)
-        
         # Determine routing based on provider
         use_ollama = False
         use_gemini = False
@@ -231,10 +258,13 @@ class LLMService:
         else: # defaults to anthropic/claude
             use_claude = True
 
+        # Local models get a tight context window; cloud models can take more.
+        prompt = self._compress_context(prompt, 12000 if use_ollama else 30000)
+
         if use_ollama:
             res = await self._call_ollama(prompt, json_mode=json_mode)
-            # Basic validation check for JSON
-            if not json_mode or ("{" in res and "}" in res):
+            # Basic validation: non-empty, and JSON-shaped when json_mode
+            if res.strip() and (not json_mode or ("{" in res and "}" in res)):
                 return res
             # If Ollama failed completely or returned garbage, fallback if hybrid
             if self.provider == "hybrid_gemini":
@@ -247,23 +277,41 @@ class LLMService:
         if use_gemini and self.gemini_model_haiku:
             # Attempt to use 2.5 models as 1.5 may be deprecated
             model = self.gemini_model_sonnet if tier == "sonnet" else self.gemini_model_haiku
+            # Give thinking + answer generous headroom (2.5 counts 'thinking' tokens
+            # against this cap) and a hard timeout so a stalled call can't hang the
+            # chat request forever.
+            gen_cfg = {"max_output_tokens": max(int(max_tokens) * 4, 2048)}
+            req_opts = {"timeout": 45}
             try:
-                response = await model.generate_content_async(prompt)
-                return response.text
+                response = await model.generate_content_async(
+                    prompt, generation_config=gen_cfg, request_options=req_opts)
+                return self._gemini_text(response)
             except Exception as e:
                 import google.generativeai as genai
                 if "404" in str(e):
-                    # Fallback models for 2026+
-                    fallback_model_name = 'gemini-2.5-pro' if tier == "sonnet" else 'gemini-2.5-flash'
-                    fallback_model = genai.GenerativeModel(fallback_model_name)
-                    response = await fallback_model.generate_content_async(prompt)
-                    return response.text
+                    # Alias fallback if the pinned versions rotate out
+                    fallback_model_name = 'gemini-pro-latest' if tier == "sonnet" else 'gemini-flash-latest'
+                    try:
+                        fallback_model = genai.GenerativeModel(fallback_model_name)
+                        response = await fallback_model.generate_content_async(
+                            prompt, generation_config=gen_cfg, request_options=req_opts)
+                        return self._gemini_text(response)
+                    except Exception as fe:
+                        logger.error(f"Gemini fallback model {fallback_model_name} failed: {str(fe)[:200]}")
+                        if "hybrid" in self.provider:
+                            return await self._call_ollama(prompt, json_mode=json_mode)
+                        return ""
                 if "429" in str(e):
                     logger.error("Gemini Rate Limit Exceeded")
                     if "hybrid" in self.provider:
                          return await self._call_ollama(prompt, json_mode=json_mode)
                     return ""
-                raise e
+                # Any other failure (timeout, network, or a ValueError from an empty/
+                # blocked candidate): degrade gracefully rather than re-raise into a 500.
+                logger.error(f"Gemini call failed ({tier}): {str(e)[:200]}")
+                if "hybrid" in self.provider:
+                    return await self._call_ollama(prompt, json_mode=json_mode)
+                return ""
         elif use_claude and self.anthropic_client:
             anthropic_model = "claude-3-5-sonnet-20241022" if tier == "sonnet" else "claude-3-haiku-20240307"
             response = await self.anthropic_client.messages.create(
