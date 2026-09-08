@@ -27,6 +27,12 @@ ollama-linux-*.tar*
 .DS_Store
 Thumbs.db
 
+# Local project planning and internal development notes
+/plans/
+
+# Machine-local Claude permissions
+/.claude/settings.local.json
+
 # Temporary Caching & Datastores
 dump.rdb
 raw_news_cache.json
