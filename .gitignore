@@ -30,8 +30,8 @@ Thumbs.db
 # Local project planning and internal development notes
 /plans/
 
-# Machine-local Claude permissions
-/.claude/settings.local.json
+# Claude Code local config
+/.claude/
 
 # Temporary Caching & Datastores
 dump.rdb
